@@ -3,15 +3,18 @@
 
 alice creates a network and bob joins it; each has one fixture agent. Written from
 docs/decentralized-spec.md sections 4.4, 5, 5.1 and 12, the wire appendix (sections 5,
-16.6, 16.4) and docs/launch-contract.md slice 3 (allow, deny, block).
+16.6, 16.4) and docs/launch-contract.md slice 3 (allow, deny, block); the readable output of allow, deny, block
+and a refused send from docs/cli-output-contract.md sections 2 and 4.
 """
 import base64
 import json
+import re
 import subprocess
 import threading
 import urllib.parse
 
-from harness import Suite, check, create_network, datetime, join_new_person, parse_time, rfc3339, ssh_key, timedelta, timezone
+from harness import (Suite, check, create_network, datetime, join_new_person, parse_time, parses_as_json, rfc3339, ssh_key,
+                     terminal_escaped, timedelta, timezone)
 
 suite = Suite("policy", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -32,10 +35,10 @@ def bob(*args):
 def send_once(kind, text):
     (bert,) = need("bert")
     if kind == "message":
-        result = a.cli("message", "send", "--peer", b.id, "--agent", bert.id, "--content", text)
+        result = a.cli("--json", "message", "send", "--peer", b.id, "--agent", bert.id, "--content", text)
         field = "state"
     else:
-        result = a.cli("task", "submit", "--peer", b.id, "--agent", bert.id, "--input", text)
+        result = a.cli("--json", "task", "submit", "--peer", b.id, "--agent", bert.id, "--input", text)
         field = "submit_state"
     # A sender that already knows bob's policy refuses before persisting anything; otherwise bob refuses.
     return result.json[field] if result.ok else "refused"
@@ -58,6 +61,43 @@ def message_to_bert(text="hi", want="accepted"):
 
 def task_to_bert(want="accepted"):
     return outcome("task", want, "work")
+
+
+def send_to_bert(text):
+    (bert,) = need("bert")
+    return a.cli("--json", "message", "send", "--peer", b.id, "--agent", bert.id, "--content", text)
+
+
+def check_rejected(result, what):
+    """A send or retry bob refused (peer-messaging-contract CLI outcomes, MSG-1): the outbound record on stdout,
+    `error: rejected: ERROR` with the record's `error` on stderr, exit 1. Returns the record."""
+    record = result.json if isinstance(result.json, dict) else {}
+    first = (result.stderr.splitlines() or [""])[0]
+    problems = []
+    if result.code != 1:
+        problems.append(f"exit {result.code}, want 1")
+    if record.get("state") != "rejected":
+        problems.append(f"stdout is not a rejected outbound record: {result.stdout.strip()[-300:]!r}")
+    if not result.stderr.startswith("error: rejected: "):
+        problems.append(f"stderr does not start with 'error: rejected: ': {result.stderr.strip()[-300:]!r}")
+    elif isinstance(record.get("error"), str) and first != f"error: rejected: {record['error']}":
+        problems.append(f"stderr {first!r} does not carry the record's error {record['error']!r}")
+    check(not problems, f"{what}: " + "; ".join(problems))
+    return record
+
+
+def check_exit_0(result, want, what):
+    """A send whose state is accepted or unknown exits 0 with the record and no error (MSG-1, MSG-2)."""
+    record = result.json if isinstance(result.json, dict) else {}
+    problems = []
+    if result.code != 0:
+        problems.append(f"exit {result.code}, want 0")
+    if record.get("state") != want:
+        problems.append(f"state {record.get('state')!r}, want {want!r}: {result.stdout.strip()[-300:]!r}")
+    if any(line.startswith("error:") for line in result.stderr.splitlines()):
+        problems.append(f"stderr has an error: {result.stderr.strip()[-300:]!r}")
+    check(not problems, f"{what}: " + "; ".join(problems))
+    return record
 
 
 def bob_policy_version():
@@ -100,6 +140,72 @@ def _():
     check(signed <= 86400 and payload["operation_id"] == "-", f"policy statement lifetime {signed:.0f}s")
 
 
+def readable(*args):
+    """A signing command on bob's host without `--json`: it must succeed and print text that is not JSON."""
+    result = b.cli(*args, "--person-key", state["bob_key"])
+    check(result.ok, f"`{' '.join(args)}`: exit {result.code}: {result.stderr.strip()[-300:]}")
+    check(result.stdout.strip() and not parses_as_json(result.stdout),
+          f"`{' '.join(args)}` printed JSON or nothing by default: {result.stdout[:300]!r}")
+    return result.stdout
+
+
+def says(text, *words):
+    missing = [w for w in words if w.lower() not in text.lower()]
+    check(not missing, f"readable output lacks {missing}: {text[:500]!r}")
+
+
+def names_version(text, version):
+    check(re.search(rf"(?<![\d.]){version}(?![\d.])", text), f"readable output lacks policy version {version}: {text[:500]!r}")
+
+
+@suite.case("allow_deny_json_and_readable", "CLI output contract 1 (OUT-1, OUT-2), 2 `allow` and `deny`, 4")
+def _():
+    key = state["bob_key"]
+    front = b.cli("--json", "allow", "alice", "--person-key", key)
+    back = b.cli("allow", "alice", "--person-key", key, "--json")
+    check(front.ok and back.ok, f"allow --json: exit {front.code} before, {back.code} after the subcommand")
+    fields = {"policy", "principal", "agent", "actions", "max_artifact_bytes"}
+    for one in (front, back):
+        check(isinstance(one.json, dict) and set(one.json) == fields, f"allow --json fields {sorted(one.json or {})}")
+    check({k: front.json[k] for k in fields - {"policy"}} == {k: back.json[k] for k in fields - {"policy"}},
+          f"allow --json before and after the subcommand differ: {front.json} / {back.json}")
+    check(back.json["policy"]["version"] == front.json["policy"]["version"] + 1,
+          "each allow signs the next version (launch contract)")
+    text = readable("allow", "alice")
+    says(text, "alice", "all your agents", "message", "task")
+    names_version(text, bob_policy_version())
+    check(bob_policy_version() == back.json["policy"]["version"] + 1, "readable allow did not sign the next version")
+    text = readable("allow", "alice", "--agent", "bert", "--files", "100M", "--delegate")
+    says(text, "alice", "bert", "message", "task", "delegat", "100 MB")
+    version = bob_policy_version()
+    names_version(text, version)
+    # deny of that one rule: its count, then with nothing left to remove, the note and no new version. This also
+    # leaves bob's policy as allow_person did, so the cases below see the rules they expect.
+    principal = back.json["principal"]  # deny shows "the principal": as given, or as resolved (2)
+    text = readable("deny", "alice", "--agent", "bert")
+    check("alice" in text or principal in text, f"deny names neither alice nor {principal}: {text[:300]!r}")
+    check(re.search(r"(?<!\d)1(?!\d)", text), f"deny does not show the removed count 1: {text[:300]!r}")
+    names_version(text, version + 1)
+    front = b.cli("--json", "deny", "alice", "--agent", "bert", "--person-key", key)
+    back = b.cli("deny", "alice", "--agent", "bert", "--person-key", key, "--json")
+    check(front.ok and back.ok and front.json == back.json and front.json["removed"] == 0 and front.json.get("note"),
+          f"deny --json with nothing to remove: {front.json} / {back.json}")
+    text = readable("deny", "alice", "--agent", "bert")
+    check(terminal_escaped(front.json["note"]) in text, f"deny with 0 removed lacks the note: {text[:500]!r}")
+    check(re.search(r"(?<!\d)0(?!\d)", text) or "no rule" in text.lower() or "nothing" in text.lower(),
+          f"deny with 0 removed does not show the count: {text[:500]!r}")
+    check(re.search(r"\bno\b[^.\n]*\bversion\b|\bversion\b[^.\n]*\b(not|unchanged)\b", text, re.I),
+          f"deny with 0 removed does not say that no new version was signed: {text[:500]!r}")
+    check(bob_policy_version() == version + 1, "a deny that removed nothing signed a new version")
+
+
+@suite.case("accepted_send_exits_0", "peer-messaging-contract CLI outcomes; launch-contract send; MSG-1")
+def _():
+    check_exit_0(send_to_bert("accepted"), "accepted", "message send under an allow rule")
+    a.ok("agents", "--refresh", "--json")
+    check_exit_0(a.cli("--json", "send", f"{b.id}/bert", "accepted by address"), "accepted", "send HOST_ID/AGENT TEXT")
+
+
 @suite.case("allow_no_tasks", "launch-contract 3 allow --no-tasks; task-contract authorization")
 def _():
     out = bob("allow", "alice", "--no-tasks")
@@ -121,6 +227,35 @@ def _():
     check(bob_policy_version() == before, "a deny that removed nothing signed a new version")
 
 
+@suite.case("withdrawn_send_exits_1", "peer-messaging-contract CLI outcomes; launch-contract 3 deny; MSG-1")
+def _():
+    # Not before any rule: with no policy at all the sender refuses locally and persists nothing (coordination
+    # contract, Sending without a grant ID), so bob refuses only once he has a policy without alice in it.
+    record = check_rejected(send_to_bert("after deny"), "message send after bob withdrew alice's access")
+    state["rejected_id"] = record["request"]["request_id"]
+
+
+@suite.case("rejected_retry_exits_1", "peer-messaging-contract CLI outcomes (message retry); MSG-1")
+def _():
+    (request_id,) = need("rejected_id")
+    record = check_rejected(a.cli("--json", "message", "retry", "--peer", b.id, request_id), "message retry of a rejected send")
+    check(record["request"]["request_id"] == request_id, f"retry returned request {record['request']['request_id']}")
+
+
+@suite.case("rejected_send_readable", "CLI output contract 1 (Errors), 2 `message retry`; MSG-1")
+def _():
+    (request_id,) = need("rejected_id")
+    result = a.cli("message", "retry", "--peer", b.id, request_id)
+    first = (result.stderr.splitlines() or [""])[0]
+    check(result.code == 1 and first.startswith("error: rejected: "),
+          f"readable retry of a rejected send: exit {result.code}, stderr {result.stderr.strip()[-300:]!r}")
+    check(result.stdout.strip() and not parses_as_json(result.stdout),
+          f"a refused send did not print its readable record first: {result.stdout[:300]!r}")
+    check(request_id in result.stdout, f"the readable record lacks the full message ID: {result.stdout[:400]!r}")
+    error = first[len("error: rejected: "):]
+    check(terminal_escaped(error) in result.stdout, f"the readable record lacks the error {error!r}: {result.stdout[:400]!r}")
+
+
 @suite.case("block_overrides_allow", "launch-contract 3 block/unblock")
 def _():
     bob("allow", "everyone")
@@ -129,6 +264,17 @@ def _():
     check(message_to_bert(want="refused") != "accepted", "a blocked person's message was accepted")
     b.ok("unblock", "alice")
     check(message_to_bert() == "accepted", "unblock did not restore access")
+
+
+@suite.case("block_unblock_readable", "CLI output contract 2 `block`, `unblock` (by the label or ID given)")
+def _():
+    for target in ("alice", a.id):
+        for verb in ("block", "unblock"):
+            result = b.cli(verb, target)
+            check(result.ok, f"{verb} {target}: exit {result.code}: {result.stderr.strip()[-300:]}")
+            check(not parses_as_json(result.stdout) and target in result.stdout,
+                  f"readable `{verb} {target}` does not name {target}: {result.stdout[:300]!r}")
+    check(message_to_bert() == "accepted", "access not restored after the readable unblocks")
 
 
 @suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6")
@@ -203,6 +349,15 @@ def _():
     check(bob_policy_version() == before, "a prepared capability claim changed the current policy")
 
 
+@suite.case("unknown_send_exits_0", "peer-messaging-contract CLI outcomes; MSG-2")
+def _():
+    b.stop()
+    try:
+        check_exit_0(send_to_bert("bob is down"), "unknown", "message send to a stopped receiver")
+    finally:
+        b.start()
+
+
 @suite.case("ban_revoked_host_loses_access", "spec 5.1 host_revoke; 20 item 61 (ban)")
 def _():
     (ada,) = need("ada")
@@ -212,7 +367,7 @@ def _():
     a.ok("network", "revoke", "--network", state["net"], "--host", b.id, "--approve")
     members = a.api("GET", f"/v2/networks/{state['net']}/members")[1]["members"]
     check(b.public_key not in [m["host_public_key"] for m in members], "alice still lists bob's revoked host")
-    after = b.cli("message", "send", "--peer", a.id, "--agent", ada.id, "--content", "after")
+    after = b.cli("--json", "message", "send", "--peer", a.id, "--agent", ada.id, "--content", "after")
     check(not after.ok or after.json["state"] != "accepted", "alice accepted a message from a revoked host")
 
 

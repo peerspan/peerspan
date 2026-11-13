@@ -87,7 +87,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -95,7 +95,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -205,14 +205,14 @@ def payload(flow, owner=None):
 
 
 def intent(h, intent_id):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (intent_id,)).fetchone()
     check(row is not None, "review references no ordinary durable intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]), "secret": row[4]}
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -429,7 +429,7 @@ def signed_body(flow, approved):
 def command(h, flow, approved, *, proxy=None, agent=None, data=None, env=None, stdin=True):
     body = compact(signed_body(flow, approved)) if data is None else data
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent.path if agent else h.root / "absent-agent.sock"), **(env or {})}
-    argv = [str(suite.host_bin), "--state", str(proxy.state if proxy else h.state), "onboarding", "join", "owner", "sign"]
+    argv = [str(suite.host_bin), "--state", str(proxy.state if proxy else h.state), "--json", "onboarding", "join", "owner", "sign"]
     if stdin:
         argv.append("--stdin")
     result = subprocess.run(argv, input=body, env=environment, cwd=h.root, capture_output=True, timeout=20)
@@ -522,7 +522,7 @@ def terminal_delivery_baseline(h, issuer, network_id):
               f'{local.name}: genuine terminal sync setup HTTP {status}')
     def retired():
         for local in (h, issuer):
-            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=30)) as db:
                 if db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0] != 0:
                     return False
             if list(local.state.glob('*-journal')):

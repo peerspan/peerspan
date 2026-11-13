@@ -45,7 +45,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("readiness", __doc__)
 BASE = "/v1/onboarding/readiness"
@@ -277,7 +277,7 @@ def validate(h, parent, net, person, value):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
@@ -287,7 +287,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -321,7 +321,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -385,7 +385,7 @@ def world():
         local.ok("peer", "add", "--id", remote.id, "--public-key", remote.public_key, "--address", peer_address(remote))
     bounds = exchange_current_contacts(suite, a, b, net["id"])
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             bounds.extend(row[0] for row in db.execute("SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     check(bounds, "genuine invitation expiry prerequisite absent")
     state.update(a=a, b=b, net=net["id"], alice=net["person_public_key"], bob=ssh_public_base64(key), key=key,
@@ -570,7 +570,7 @@ def current_contacts(f, window_seconds):
         net = get(local, "/v2/networks/" + f["net"])
         check(net["authority"]["state"] == "usable", "pure readiness fixture lacks current authority")
         for remote in (f["a"], f["b"]):
-            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
                 row = db.execute("SELECT sequence,record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
                     (f["net"], net["context_id"], remote.public_key)).fetchone()
             check(row is not None, "pure fixture lacks retained bound current signed contact")
@@ -606,8 +606,8 @@ def pure_start(f):
     remaining = 60 - (time.monotonic() - started)
     check(remaining > 0, "readiness setup exhausted first ordinary periodic-sync window")
     current_contacts(f, remaining)
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     check(time.monotonic() - started < 60, "readiness startup did not settle before first periodic sync")
     return started
 
@@ -620,7 +620,7 @@ def _():
     check(auths(f, first) == [], "new project membership alone invented access authorization")
     status, inspected = f["b"].api("POST", INSPECT, payload(f["pb"], f["net"], f["alice"]), timeout=8)
     check(status == 200 and first["inspection"] == {k: inspected[k] for k in ("review_id", "review")}, "readiness changed complete current section30 inspection/digest")
-    result = f["b"].cli("onboarding", "readiness", "--stdin", input=compact(payload(f["pb"], f["net"], f["alice"])).decode(), timeout=8)
+    result = f["b"].cli("--json", "onboarding", "readiness", "--stdin", input=compact(payload(f["pb"], f["net"], f["alice"])).decode(), timeout=8)
     check(result.ok and type(result.json) is dict, "private readiness CLI failed")
     second = verify(f, f["pb"], result.json)
     check({k: v for k, v in second.items() if k != "observed_at"} == {k: v for k, v in first.items() if k != "observed_at"},
@@ -736,15 +736,15 @@ def _():
     observe(f, old, status=409, code="review_changed")
     strict(whole(f), before, traffic(f), counters, "detached_restart")
     f["pb"] = project(f["b"], "resumed", old=old, agent={"kind": "existing", "id": old["review"]["agent"]["id"]})
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     before, counters = whole(f), traffic(f)
     first = observe(f)
     for _ in range(3):
         check(observe(f)["inspection"] == first["inspection"], "unchanged current terms changed inspection digest")
     encoded = compact(payload(f["pb"], f["net"], f["alice"])).decode()
     for _ in range(2):
-        result = f["b"].cli("onboarding", "readiness", "--stdin", input=encoded, timeout=8)
+        result = f["b"].cli("--json", "onboarding", "readiness", "--stdin", input=encoded, timeout=8)
         check(result.ok, "quiescent readiness CLI read failed"); verify(f, f["pb"], result.json)
     observe(f, body={**payload(f["pb"], f["net"], f["alice"]), "context": {
         **context(f["pb"]), "native_session_id": "different-conversation"}}, status=409, code="review_changed")
@@ -768,8 +768,8 @@ def _():
     invalid.extend([compact({**body, "approve": "PRIVATE_INPUT"}), compact({**body, "network_id": "net_1"}),
                     compact({**body, "person_public_key": "bad"}), compact({**body, "agent_id": "agent_" + "0" * 32}),
                     compact({**body, "context": {**body["context"], "extra": "PRIVATE_INPUT"}})])
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     before, counters = whole(f), traffic(f)
     for number, data in enumerate(invalid):
         status, denied = raw(h, data)

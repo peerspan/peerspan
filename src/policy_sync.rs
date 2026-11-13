@@ -1238,7 +1238,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 33);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",

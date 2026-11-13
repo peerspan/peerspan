@@ -48,7 +48,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64,
                      wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 
 suite = Suite("access_onboarding", __doc__)
@@ -209,7 +209,7 @@ def make_world(tag):
     exchange_current_contacts(suite, a, b, net["id"])
     invitation_bounds = []
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             invitation_bounds.extend(row[0] for row in db.execute(
                 "SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     check(invitation_bounds, "genuine invitation expiry observations missing")
@@ -391,7 +391,7 @@ def rich_policy(f):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
@@ -399,7 +399,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -454,7 +454,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -478,6 +478,13 @@ def unsigned_maintenance(h):
 
 
 def quiet(f, h, *, require_retirement=False):
+    if require_retirement:  # precedes every strict carrier baseline here: DIR-1 first
+        return refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: settle(f, h, require_retirement=True),
+                                  lambda: (snapshot(f["a"]), snapshot(f["b"])))
+    settle(f, h)
+
+
+def settle(f, h, *, require_retirement=False):
     previous = snapshot(h), traffic(f)
     stable_since = time.monotonic()
     def settled():
@@ -529,7 +536,7 @@ def _():
     check(any(rule["agent"] == "default-artifact-rule" and "max_artifact_bytes" in rule
               and rule["max_artifact_bytes"] == 0 for rule in policy["body"]["rules"]),
           "exact signed policy JSON lost the explicitly present default artifact bound")
-    result = f["a"].cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], f["net"], f["bob"])).decode(), timeout=8)
+    result = f["a"].cli("--json", "onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], f["net"], f["bob"])).decode(), timeout=8)
     check(result.ok, "explicit stdin access CLI failed")
     validate(f["a"], f["pa"], f["net"], f["bob"], result.json)
     check({k: v for k, v in result.json.items() if k != "observed_at"} ==
@@ -664,7 +671,7 @@ def _():
     quiet(f, h, require_retirement=True)
     before, counters = snapshot(h), traffic(f)
     inspect(h, f["pa"], net, person)
-    result = h.cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
+    result = h.cli("--json", "onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
     check(result.ok, "fresh attached project CLI after restart failed")
     validate(h, f["pa"], net, person, result.json)
     check(access_purity_diagnostic(snapshot(h), before, "post_restart_valid") == before and traffic(f) == counters, "post-restart valid API/CLI wrote rows/files or used a carrier")

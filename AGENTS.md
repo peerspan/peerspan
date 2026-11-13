@@ -33,11 +33,13 @@ From the repository root, run the language checks (CI runs the same):
 
 Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-log.md), DEC-OWN9, DEC-OWN10): one small black-box suite per area, written from the spec by a separate author who never reads the implementation, each under 2 minutes and at most about 1,000 lines, split by area rather than by phase when it needs more. The per-push Conformance workflow stays within 15 job-minutes; a new suite states its lines and seconds in its PR, and one that would take the workflow over budget goes to the second tier or to the owner ([DEC-OWN14](docs/decision-log.md), [budget proposal](docs/conformance-budget-proposal.md)). CI builds `peerspan-host`, `peerspan-peer-probe` and `peerspan-helper` once and runs the suites in parallel, in two tiers (DEC-OWN15): every push runs one suite per area plus `onboarding` and `guided_machine` (`.github/workflows/conformance.yml`); the per-section guided suites run nightly, by hand, and on a pull request labelled `full-conformance` (`.github/workflows/conformance-full.yml`). The installed bundle, terminal, upgrade and participant checks are not in CI ([DEC-OWN18](docs/decision-log.md)); `scripts/installed-acceptance.sh` runs them locally. When external behavior changes, run the suite for that area locally with the debug binaries in one directory, for example `python3 conformance/slim/join.py --bin DIR`:
 
-- `join`: create, invite, join, link, stages and their time limits (spec 6, 8).
+- `join`: create, invite, link a second machine, stage folds, refusals and time limits (spec 6, 8).
+- `wide_contacts`: hosts whose contacts name 8 first-contact addresses link a second machine and join a new person (spec 8 Limits, 20 item 30; DEC-Q34); second tier only, since the full link and join take it to about 90 seconds alone and past 2 minutes under load.
+- `join_teammate`: a new person joining: the request's return path, single-offer selection, the two prompts on the joining machine, the inviter's `link_request_waiting` and `link admit`, `next` and exit status (spec 8.1, 8.3, 8.4, 16; ML-3, ML-4, ML-6).
 - `policy`: allow, deny, block, bans, policy edits and capability claims (spec 5, 12).
 - `work`: messages, tasks, delegation chains, agent lookup.
 - `renewal`: leases, automatic renewal, retention, root offline, expiry (spec 7); uses the debug-build test clock.
-- `sync`: propagation and repair between hosts (spec 10).
+- `sync`: propagation and repair between hosts, and the explicit sync restarting the background interval (spec 10, SYNC-1); second tier only, since its setup and the 50-second quiet window take it past 4 minutes.
 - `delivery`: first-contact listener, mailboxes, QUIC completion, the helper and relay (spec 9).
 - `root`: root rotation, root split and reinvite (spec 13, 14.2).
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).
@@ -73,6 +75,14 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `incoming_progress`: explicit bounded pinned GET/atomic incoming original and
   selection evidence retention, before/after IO guards and no consent (section22).
 - `naming`: the default agent names from `attach` (launch contract, DEC-OWN12).
+- `runtime`, `runtime_policy`, `runtime_renewal`, `runtime_runs`, `runtime_results`, `runtime_peerfs`, `runtime_agents`:
+  runtime tasks against `conformance/slim/fake_runtime.py` (runtime task contract, RUN-1 to RUN-7), and
+  runtime agents' tasks on peerfs forks (runtime agent contract, RUN-8 to RUN-11); second tier only.
+- `peerbox`, `peerbox_runs`: peerboxes (peerbox contract, PBX-1 to PBX-8), with `peerbox_common.py`; runs
+  against `conformance/slim/fake_runtime.py`; second tier only, strict `XFAIL` until implemented.
+- `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
+  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until
+  implemented.
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

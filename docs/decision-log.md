@@ -11,10 +11,32 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync, `MBX` opaque mailboxes, `PBX` peerboxes.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
+  - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
+  - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
+  - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
+  - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
+  - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
+  - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
+  - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
+  - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
+  - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
+  - [SYNC-1: an explicit sync restarts the background interval](#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10) (2026-11-10)
+  - [DIR-1: an on-demand refresh counts for earlier changes](#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10) (2026-11-10)
+  - [OUT-1 and OUT-2: readable output by default](#out-1-and-out-2-readable-output-by-default-2026-11-10) (2026-11-10)
+  - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
+  - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
+  - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
+  - [INST-12: a stable path to the installed release](#inst-12-a-stable-path-to-the-installed-release-2026-11-10) (2026-11-10)
+  - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
+  - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
+  - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
+  - [INST-6: who may change the release keys](#inst-6-who-may-change-the-release-keys-2026-11-04) (2026-11-04)
+  - [INST-1 to INST-5: one-line install](#inst-1-to-inst-5-one-line-install-2026-11-04) (2026-11-04)
   - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
 
@@ -50,6 +72,581 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-16: removing a finished task's workspace (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** runtime agents: what happens to a task's peerfs workspace when the task ends.
+- **Source:** issue [#210](https://github.com/peerspan/peerspan/issues/210) and the owner's answer to one question on 2026-11-13, after the real-repository run (docs-internal `docs/runtime.md`, "A real repository"): each task building peerspan left about 11 GB of build output in its workspace, and four tasks left 45 GB on the server until the workspaces were discarded by hand. The options and reason below are quoted from that question.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), Running (the branch and the workspace) and The runtime's local API (`peerfs_discard`).
+- **Implementing PRs:** [#223](https://github.com/peerspan/peerspan/pull/223) (host and contract) and [peerspan/runtime#23](https://github.com/peerspan/runtime/pull/23) (runtime).
+- **Question:** "For #210, a runtime agent's finished task leaves its peerfs workspace on the server, holding the build output (about 11 GB per task for peerspan). How should it be removed? Each task forks a fresh workspace named after the task, so no later task can reuse it; a build cache shared between tasks is #15."
+- **Options:**
+  - (a) Runtime discards: "A new optional run field, peerfs_discard, which the host sets for runtime agents. Once the commit succeeds, or nothing changed, the runtime runs `ws discard`, so only derived files go. If the commit fails, the workspace stays for the owner, as the contract already says. One atomic step; changes the runtime and both contracts."
+  - (b) Host discards after: "The host calls a new runtime endpoint, DELETE /v1/workspaces/NAME, after it records the result. More moving parts: a second request that can fail separately, and a new endpoint the runtime must authorize."
+  - (c) Keep for a retention: "The runtime discards finished task workspaces after a set time, say 24 h, so the build output can be inspected while debugging. Nothing can reuse it, so the disk cost stays until the timer fires."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a discard that fails changes neither the run's result nor its `error`, since the work is already committed; the runtime logs it. This is a contract choice within RUN-16.
+
+### PBX-15: separating the gate's checker from the candidate (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerbox gates.
+- **Source:** [peerbox-gate-proposal.md, decision 7](peerbox-gate-proposal.md#7-separating-the-checker-from-the-candidate), raised in review of PBX-10: "when the evaluator imports or runs the candidate's code in the same VM, that code can print its own final `PEERBOX-GATE` line with a winning score, and can put held-out contents into `reason`. Nothing inside one VM protects the evaluator from code running there as the same user."
+- **Supersedes:** PBX-10.
+- **Recorded in:** this log and the proposal (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
+- **Implementing PRs:** none yet.
+
+#### PBX-15. Separating the checker from the candidate
+
+- **Options:** (a) "Two runs": "a candidate run on the contribution's tree with the held-out inputs only, timed by the runtime itself, then the owner's checker in a separate VM comparing the candidate's outputs with the held-out expected outputs, which never enter a candidate's VM. Only the runtime's time and the checker's pass, score and reason are trusted." (b) "Keep one run, document": "keep decision 2 and say that a gate is only as trustworthy as the evaluator's own isolation of candidate code, never returning `reason`."
+- **Chosen:** (a).
+- **Reason given:** against (b): "Cheaper, but any evaluator that runs candidate code can be forged."
+
+### PBX-9 to PBX-14: peerbox gates (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: an optional owner-configured evaluator that promotes contributions by a measured result.
+- **Source:** [peerbox-gate-proposal.md, Decisions](peerbox-gate-proposal.md#decisions), decisions 1 to 6.
+- **Recorded in:** this log and the proposal (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all six". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### PBX-9. Where the gate lives
+
+- **Options:** (a) "Local configuration on the home host, shown to the peerbox's readers." (b) "A signed field of the owner's policy, next to the peerbox rule: hosts on earlier software would refuse the policy (RUN-5), for no added assurance."
+- **Chosen:** (a).
+- **Reason given:** "Review is already the home host owner's local act, and the home host runs the evaluator either way, so signing the gate into the policy would not let anyone check what it ran."
+
+#### PBX-10. Keeping the evaluator's held-out files secret
+
+Superseded by PBX-15.
+
+- **Options:** (a) "The files live on the home host and are added to each evaluation's workspace under `.peerbox-gate/`; the contributor receives only the verdict, the scores and the reason, never output or artifacts." (b) "Evaluators only from the repository itself: no secret, so a memoizing change passes." (c) "Running the evaluator outside the candidate's VM: needs a second VM per evaluation and a channel between them, which the runtime does not have."
+- **Chosen:** (a).
+- **Reason given:** "The candidate's code can read the files while it runs, but the VM has no network and nothing it writes reaches the contributor."
+
+#### PBX-11. What happens on a pass
+
+- **Options:** (a) "The gate promotes automatically (fast-forward only) and records the decision; the owner can pause the gate and can always review by hand." (b) "The gate only recommends and the owner accepts: keeps a person in every merge, which is the default without a gate anyway."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-12. Noisy measurements
+
+- **Options:** (a) "Measure the frontier and the candidate in the same evaluation, `repeats` times each (default 1, at most 5), and compare the candidate's worst against the frontier's best." (b) "A frontier score measured once and pinned: cheaper, but drifts with the machine's load and with runtime upgrades." (c) "Statistical tests over many repeats: needs more runs than a microVM budget allows for most projects."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-13. Receipts
+
+- **Options:** (a) "Durable, unsigned decision records now, as for review; a signed, hash-chained receipt log, which the peerbox contract already defers, follows as its own proposal." (b) "Signed receipts in this slice: they only show that the home host signed what it says it ran, and they double the work before anything is usable."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-14. Order of evaluation
+
+- **Options:** (a) "One at a time, oldest first, each against the current frontier." (b) "Several at once, then re-checking each winner against the new frontier: faster on a big machine, but every promotion invalidates the others' comparisons."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+### PBX-1 to PBX-8: peerboxes (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: a Git repository one owner's host serves to known peers for fetching, contributing and running checks, with owner review.
+- **Source:** [peerbox-proposal.md, Decisions](peerbox-proposal.md#decisions), decisions 1 to 8.
+- **Recorded in:** this log, the proposal and the contract (this PR).
+- **Contract section:** [peerbox-contract.md](peerbox-contract.md).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: PBX-1 to PBX-6 with "go with the recommendations on all six"; PBX-7 and PBX-8 later the same day, after asking to "include a one-link flow for new participants that aren't in the existing peerspan network". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### PBX-1. Where the contract lives
+
+- **Options:** (a) "In peerspan/peerspan `docs/` once agreed, like every other host contract; the public repository then names peerboxes before launch." (b) "Here until the feature is demonstrated, then moved" (in the internal design repository).
+- **Chosen:** (a).
+- **Reason given:** "Suites and Codex review need the contract next to the code."
+
+#### PBX-2. How peer operations travel
+
+- **Options:** (a) "Peerbox tasks (`executor: "peerbox"`), inheriting task durability, idempotency, artifacts and restart." (b) "New peer routes for each operation."
+- **Chosen:** (a).
+- **Reason given:** against (b): "It would re-specify everything tasks already guarantee."
+
+#### PBX-3. Repositories larger than one artifact
+
+- **Options:** (a) "Fail with `too_large` and rely on `have` for later fetches; a first fetch of a large history is refused." (b) "Raise the per-file limit for peerbox bundles." (c) "Split bundles."
+- **Chosen:** (a).
+- **Reason given:** "For the first slice; this repository's own history is the case to measure."
+
+#### PBX-4. A started run when access is withdrawn
+
+- **Options:** (a) "The home host cancels it." (b) "It runs to completion, as runtime tasks do today."
+- **Chosen:** (a).
+- **Reason given:** "The run is the owner's own machine executing someone else's code, and comparable systems stop it too."
+
+#### PBX-5. Invitation
+
+- **Options:** (a) "The signed rule is the invitation; the peer sees the peerbox in `list` and fetches when they choose." (b) "A separate invitation the peer accepts first."
+- **Chosen:** (a).
+- **Reason given:** "For known peers." Against (b): "It belongs with stranger admission, which is out of this slice."
+
+#### PBX-6. Runtime release
+
+- **Options:** (a) "Publish a first runtime release before" the two-owner product acceptance. (b) "Accept a source-built runtime for acceptance and record it."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the proposal's statement that "`peerspan/runtime` has no release."
+
+#### PBX-7. Membership of a person invited with a peerbox link
+
+- **Options:** (a) "Full member": "The link is a network invite carrying the peerbox. On join, an admin's normal admission runs, then the peerbox rule applies at once." (b) "Guest member": "Admitted, but marked guest in the signed admission: hidden from the directory, shareable only through peerbox rules, expiring with the peerbox, and promotable to a full member later." (c) "Not a member": "A new peerbox-scoped credential: bob's host is trusted only by the home host, only for that peerbox."
+- **Chosen:** (a).
+- **Reason given:** "It reuses everything, and membership grants no access by itself."
+
+#### PBX-8. Who can create a peerbox invite
+
+- **Options:** (a) "Any peerbox owner can create the link; a network admin still approves the admission, as for any join." (b) "Only a network administrator can create a peerbox invite." (c) "The peerbox owner's link admits the person with no admin step."
+- **Chosen:** (a).
+- **Reason given:** "It keeps "admin is not owner" intact."
+
+### RUN-14 and RUN-15: results without poll backoff, and Claude's startup (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** task polling, for every task and for runtime agents' in particular; and the Claude harness script.
+- **Source:** the owner's answers to two questions on 2026-11-12, after the live checks of story 2 took their time apart (docs-internal `docs/runtime.md`, "Where the time goes"). With an agent that only slept 45 s, the server's host had each result within 35 ms of the VM ending, and the sender stored it 20 to 49 s later. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contracts.
+- **Contract section:** [task-contract.md](task-contract.md) (polling), [runtime-task-contract.md](runtime-task-contract.md), Peer events, and [runtime-agent-contract.md](runtime-agent-contract.md), Running.
+- **Implementing PRs:** none yet.
+
+#### RUN-14. How the sender polls a running task
+
+- **Question:** "A task sent to a runtime agent reaches its sender 7–49 s late, because the sender backs off up to 60 s between polls. The receiving host already supports held polls (wait=10) for every task, and the sender only uses them for runtime-executor tasks. Which fix should the task contract take?"
+- **Options:**
+  - (a) Hold all running tasks: "The sender long-polls any running task, not just runtime-executor ones, so results arrive within about 1 s. Session-attended agent tasks get faster too. No wire change. Held polls are limited to 3 of the 4 slots, so submissions and cancels never wait behind them; beyond 3 running tasks, the rest rotate."
+  - (b) Receiver flags runtime agents: "The receiver's task status gains a field saying the task runs in its runtime, and the sender holds only those. Narrower change, but it needs a wire field, and ordinary agent tasks stay up to 60 s late."
+  - (c) Cap the backoff at 5 s: "Running tasks are polled at least every 5 s instead of backing off to 60 s. Smallest code change, but results still arrive up to 5 s late, and it sends more peer requests per running task."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a receiver that ignores `wait` answers at once, and the sender would then ask again at once. So a held response with no events in under 5 seconds puts that task back on the backoff schedule. This is an implementation choice within RUN-14.
+
+#### RUN-15. Claude Code's nonessential traffic
+
+- **Question:** "Claude Code starts in about 2–2.8 s in a VM, or 1.3–1.5 s with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, which also stops its telemetry and error reports from customer VMs. Should the Claude harness script set it? (It changes the script in the runtime agent contract.)"
+- **Options:**
+  - (a) Set it: "Saves about 1 s per task and keeps customer VMs from sending Claude Code telemetry. Model calls are unaffected."
+  - (b) Leave as is: "Keep the script exactly as merged."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+### RUN-12 and RUN-13: Claude as the second harness (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** runtime agents: Claude Code (`claude -p`) as a second harness beside Codex, with an Anthropic API key.
+- **Source:** the owner's answers to two questions on 2026-11-12, after a spike in which Claude Code 2.1.322 ran headless in a microVM on `python:3.12-slim`: it reached the Anthropic API and got the expected 401 for a fake key, in about 6 s and 280 MiB. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), The launch profile, Running and The runtime's local API.
+- **Implementing PRs:** none yet.
+
+#### RUN-12. How a Claude runtime agent gets a glibc image
+
+- **Question:** "Claude Code's Linux binary needs glibc, so it can't run on the Alpine images Codex works on (Codex is static). The runtime's `serve` boots one image for every run, and launch profiles don't choose an image."
+- **Options:**
+  - (a) One glibc image: "The owner runs the runtime with a glibc image (e.g. python:3.12-slim or a project image); Codex works on it too. The contract states the requirement, and a Claude run on a musl image fails before its command with a clear error. No runtime change."
+  - (b) Image per profile: "Launch profiles gain `image`, and runtime `serve` boots a per-run image (pulling and caching several). More flexible (Alpine for Codex, Debian for Claude), but a runtime change plus more contract and tests."
+- **Chosen:** (b).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-13. How Claude runs in the VM
+
+- **Question:** "Claude Code refuses --dangerously-skip-permissions as root, and the VM's command runs as root. It runs if IS_SANDBOX=1 is set, which tells Claude Code it's inside a sandbox. Here the VM is the sandbox, as it is for Codex's --dangerously-bypass-approvals-and-sandbox."
+- **Options:**
+  - (a) Root, `IS_SANDBOX=1`: "Same as Codex: the agent is root inside its own throwaway VM, which is the isolation boundary. The spike confirmed it runs this way. No new guest requirements."
+  - (b) Unprivileged user: "The harness script reads the key as root, then drops to a non-root user to run Claude. That's defence in depth inside the VM, but it needs the workspace writable by that user and a privilege-drop tool such as setpriv in the image."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** Claude's output is `--output-format text`, so stdout is the final message, as for Codex, and the host parses nothing. This is an implementation choice within RUN-13.
+
+### RUN-8 to RUN-11: runtime agents (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** runtime agents, user story 2: an agent such as Codex run headless in a microVM, one VM per task, on a fork of a peerfs branch.
+- **Source:** decision 6 of `runtime.md` in the internal design repository (docs-internal PR #36), and the owner's answers to three questions on 2026-11-12. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md).
+- **Implementing PRs:** [peerspan/runtime#10](https://github.com/peerspan/runtime/pull/10) (secrets and the harness mount) and [peerspan/runtime#11](https://github.com/peerspan/runtime/pull/11) (forks), on the runtime side. The host side is not implemented yet.
+
+#### RUN-8. The basis: decision 6's recommendations
+
+- **Question:** whether to accept decision 6's open recommendations as the basis for the host contract.
+- **Options:**
+  - (a) Accept all: "6a: senders send an ordinary agent task to e.g. priya/codex, and the host runs it in a VM from a host-local launch profile, rather than senders sending a runtime task with Codex argv. 6d: the model key goes into the VM at /run/secrets in v1, with a credential proxy before keys cross owners. 6f: the agent binary is mounted read-only into any image. Defaults: 3 concurrent runs, 2 vCPU, 2 GiB, 1 hour."
+  - (b) "Same design, but you give different concurrency or resource defaults."
+  - (c) "Ask about 6a, 6d and 6f separately before writing anything."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question. The question noted that the measured Codex run peaked at about 570 MiB.
+- **Note:** 6f's harness "pinned by the host release" is a directory the owner installs in this contract (`harness_dir`). Bundling a Codex release (about 366 MB) with the host is left to release work.
+
+#### RUN-9. The fork's name
+
+- **Options:** options not recorded. Decision 6c named forks `agents/AGENT/TASK_ID`. peerfs names are one path component, and `/` already means `<host>/<branch>` for pulled branches, so the contract uses `AGENT.TASK_ID`. This is an implementation choice within RUN-8, recorded so later readers find it.
+
+#### RUN-10. Snapshots of a runtime agent's work in v1
+
+- **Options:**
+  - (a) Per-run for v1: "v1 records a snapshot before and after each task; acceptance is amended. Per-call snapshots come with the guest-to-host vsock channel in 6i, which needs the same plumbing."
+  - (b) Per-call now: "Build a vsock snapshot request from the guest, plus a Codex hook that calls it after each tool call, before the host work. Adds a runtime and guest change and depends on Codex's hook support."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-11. How the result reaches the sender
+
+- **Options:**
+  - (a) Text trailer: "output stays plain text: the agent's final message, then a last line such as 'Branch: codex.task_ab12… at commit 01cd…'. Works with every sender and reads naturally to an agent; scripts parse the last line."
+  - (b) JSON output: "output is a JSON object {message, branch, commit, exit_code}. Works with older senders and is easy for scripts to read, but agents receive JSON instead of prose."
+  - (c) New event field: "output stays the message, and the final event gets a nullable 'workspace' field. This is the cleanest data, but older senders reject it, so it needs a capability check or a version gate."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+### CONV-36: a denied `about` start after a synced deny (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** conversations (CONV): the `about` verification's denied start.
+- **Source:** issue [#190](https://github.com/peerspan/peerspan/issues/190) and the owner's go-ahead on 2026-11-11 ("start on #190") for its recommended option. `conversations_tools` case `about` sometimes got 404 `unknown` where it required 201 with a `refused` invite. The verification said "a policy sync does not update that entry", written on 2026-10-30. Since #152 (2026-11-09) the launch contract says the opposite: a policy received by sync is a stored policy, and the directory drops a denying owner's agents within 10 seconds of storing it. So after `deny alice` and the policy wait, the start races that refresh. The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), Verification, `about`.
+
+#### CONV-36. What a denied `about` start answers right after the policy wait
+
+- **Options:**
+  - (1) "Contract states that the background refresh may have run (recommended). The case accepts either answer: 201 with `refused`/`not_authorized` from bob's host, or 404 `unknown`. In both, the agent must not be `joined`. Only the suite changes, written by the contract-only author."
+  - (2) "Contract requires the earlier entry. The suite makes sure no refresh is due before the start, for example by refreshing before `deny` and then starting within the refresh bound. That still depends on timing."
+  - (3) "Daemon change. A received policy change doesn't schedule a directory refresh. Contracts that rely on the current refresh trigger would change."
+- **Chosen:** (1). The verification now follows the launch contract's rule from #152: right after the policy wait the answer is either form, and after `agents --refresh` it is 404 `unknown`. In every form the agent is not `joined`. Option (3) would undo #152, which the launch contract requires.
+- **Reason given:** none beyond the go-ahead.
+
+### MBX-1: expired mailboxes are erased within 2 seconds (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** opaque mailboxes (MBX): when a mailbox host erases an expired mailbox.
+- **Source:** issue [#189](https://github.com/peerspan/peerspan/issues/189) and the owner's go-ahead on 2026-11-11 ("start on #189") for its recommended option. `machine_owner_consent` case 5 (guided session contract section 42, verification 5) failed in 6 of 10 local runs on main before #185 and in 1 of 10 with it. The pure step's whole-database check saw the existing host's `frames` and `mailboxes` tables change with no traffic. The host erases expired mailboxes every second, and the case jumps the test clock past request expiry and then waits only 0.1 s for stable state. The options below are quoted from the issue.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 9.2; [guided-session-contract.md](guided-session-contract.md) GU.impl42f.
+
+#### MBX-1. How purity checks avoid the mailbox expiry sweep
+
+- **Options:**
+  - (1) "Contract and suite allow for the sweep (recommended). The section 42 purity check excludes mailbox-host expiry work, or the suite waits past the sweep interval after a clock jump before it measures. This changes only the suite, written by the separate contract-only author, and needs no daemon change."
+  - (2) "Daemon change. Reads treat expired mailboxes as expired without writing, and the sweep runs less often or on a timer that doesn't fire inside measured steps. This changes shipped behavior to make the test pass, so it isn't recommended."
+- **Chosen:** (1), as settling rather than exclusion. Section 9.2 now states the bound the host already meets: an expired mailbox is erased within 2 seconds of expiry on the host's clock, as the host's own maintenance. A pure step that follows a test-clock change starts at least 2 seconds after the change, then settles as before. The whole-database comparison is unchanged; excluding `frames` and `mailboxes` from it was discarded because it would also hide a pure step that wrote a mailbox.
+- **Reason given:** none beyond the go-ahead.
+
+### ML-6: how the inviter learns the owner offer and selection (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** machine linking (ML): the administrator's step when a new person joins.
+- **Source:** the owner's answer, 2026-11-11, "go with (a)". The ML-3 to ML-5 change (#177) let a waiting administrator read the request's mailbox in the background, so that the inviter's `link_request_waiting` could give the complete `link admit --owner-offer … --selection …` command, and it made every admission read its carriers. The full-tier suites then failed: `incoming_progress` (guided session contract section 22: the administrator holds no owner offer or selection before an explicit progress action), `admission_retained_prefix` (an exact retained preview does no carrier I/O) and `machine_owner_consent` (section 42: preparing the owner review leaves the request view unchanged). The per-push `join_teammate` suite checks the opposite for the inviter's status. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) sections 8.1 step 5 and 16 and verification item 29; [quick-start.md](quick-start.md), "Invite a teammate".
+- **Fixes that need no decision,** recorded with this entry: an admission that already holds the exact requested owner offer and selection does no carrier I/O, as before #177. The request view's `next` for another host's pending request no longer depends on the owner role that preparing the owner review adds.
+- **Options:**
+  - (a) "Keep the no-early-I/O rule (my recommendation). The inviter's status says \"run `peerspan link admit REQUEST_ID`\" without the offer and selection IDs. `link admit` then reads the carriers itself, shows the review and asks to admit. That's an explicit action, so it's allowed. It needs a small CLI change, plus the suite author updating `join_teammate`."
+  - (b) "Keep the background read. Amend the guided-session contracts behind `incoming_progress` and `machine_owner_consent` so a waiting administrator may hold the offer and selection early. The suite author would have to rewrite the cases that check for no early I/O."
+- **Chosen:** (a). The background mailbox read is removed. An explicit `link resume` of a request waiting for its owner offer or selection reads its carriers; `link admit REQUEST_ID --network NETWORK_ID` does that and takes the person, owner offer and selection from the request. Run before they exist, it says whose step remains, changes nothing and exits nonzero, since this machine's step is still to do (ML-3).
+- **Reason given:** none beyond choosing it.
+
+### SYNC-1: an explicit sync restarts the background interval (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** network sync (SYNC): when coordinator-free hosts exchange catalogs.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). With DIR-1 in place, the access purity suites still saw stray traffic in measured steps: the spec's background sync, every 60 seconds with up to 10 seconds of jitter, landed in an `access_consent` "pure lookup" (catalog exchange from bob to alice 64 seconds after bob started). The suites had no way to avoid it. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 10, "Timing", and verification item 48a.
+
+#### SYNC-1. How the purity suites avoid the background sync
+
+- **Options:**
+  - (a) "Explicit sync resets timer (Recommended). Contract and daemon: a network sync (`POST /v2/networks/{id}/sync`, `peerspan network sync`) restarts that network's 60 s background interval, as DIR-1 does for the directory. Before each measured step the suites do one sync and one directory refresh, then wait for quiet. The next background sync is then at least 50 s away. That costs about 0.1–1 s per step, and it also removes a redundant background sync right after a manual one."
+  - (b) "Debug-only switch. A debug-build environment variable turns background sync off, and the purity suites set it. That's cheap and certain, but the suites would no longer test the daemon as shipped, and the debug switch is new test-only surface (like the existing debug test clock)."
+  - (c) "Accept and retry. No product change. A measured step whose window overlapped the sync is re-run once, and the case fails only if traffic appears again. The suites can't tell sync traffic apart on an opaque carrier, so this is a retry policy, and AGENTS.md forbids weakening cases; I don't recommend it."
+- **Chosen:** (a). Each network keeps its own background due time: a background sync sets it 60 seconds plus jitter later, and an explicit sync sets it 60 seconds after the explicit one, so that network gets at least 60 seconds rather than the "at least 50" in the option, and other networks' schedules are unaffected.
+- **Reason given:** none beyond choosing it.
+
+### DIR-1: an on-demand refresh counts for earlier changes (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** agent directory (DIR): when hosts query each other's agents.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). The access purity suites failed now and then on one stray QUIC exchange during a step that must send no traffic. It was the directory worker's refresh, `GET /peer/v1/networks/{network}/agents`: the worker looks for map and policy changes every 2 seconds and refreshes within the contract's 10 seconds, so a refresh owed for an earlier step could start after the suites' 0.3-second quiet check. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [launch-contract.md](launch-contract.md), the directory's "When".
+
+#### DIR-1. How the purity suites stop seeing a refresh owed for an earlier change
+
+- **Options:**
+  - (a) "On-demand refresh counts (Recommended). Contract and daemon: an on-demand refresh (POST /v1/directory/refresh, `agents --refresh`) counts as the refresh owed for any change made before it started, so the worker doesn't repeat it. The suites then do one on-demand refresh, wait for quiet, and measure. That costs well under a second per measured step, and it also removes duplicate refreshes after `agents --refresh`."
+  - (b) "Suites wait for the refresh. No daemon change. Before each measured step, the suites wait until each peer's directory `refreshed_at` is newer than the last state change, or until 10 s pass. That adds about 2–10 s per measured step: roughly 30–80 s per suite across about 40 steps, which pushes these second-tier suites further past 2 minutes."
+  - (c) "Tighten the contract bound. The contract states the actual bound (the check runs every 2 s, so a refresh starts within about 3 s of a change), and the suites wait 3 s of quiet before each measured step. That's simple, but it costs about 3 s per step (roughly 40 s per suite) and ties the contract to the worker's polling period."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+### OUT-1 and OUT-2: readable output by default (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** CLI output (OUT): what commands print by default.
+- **Source:** the owner's answers, 2026-11-10, on issue [#158](https://github.com/peerspan/peerspan/issues/158). In 0.2.0 qualification (evidence F1, F2, F3, F13), `install-release.sh` printed a JSON block before its "Installed Peerspan …" message, `network list`, which the quick start uses to find the network ID, printed only JSON, and `allow` and `deny` printed the whole signed policy. ML-5 deferred the raw-JSON link review screens to this change. The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [cli-output-contract.md](cli-output-contract.md).
+- **Fix that needs no decision,** recorded with these entries: the installer's PATH hint appears only when a new login shell would not have the launcher directory on its `PATH`.
+
+#### OUT-1. Which commands print a readable summary
+
+- **Options:**
+  - (a) "Every command (Recommended). Matches ML-5 (\"#158 cleans up the output of every command at once\"). Everyday commands get hand-written summaries; the rest get a generic readable layout. `--json` works on every command. This is the larger change, and every suite call that parses JSON gains `--json`."
+  - (b) "Named commands only. network list/members, allow, deny, block/unblock, install/uninstall, invite, the link approve/commit review screens, and the installer. Every other command keeps printing JSON for now. This is a smaller and quicker PR, but the output stays inconsistent."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### OUT-2. How a command chooses between the summary and JSON
+
+- **Options:**
+  - (a) "--json flag only (Recommended). Readable by default everywhere, including when piped; scripts pass --json. This is predictable and matches status/agents today. It breaks any existing script that parses default output, which is acceptable at 0.2.x; the release notes will say so."
+  - (b) "Readable only on a terminal. Readable when stdout is a TTY and JSON when piped, with --json to force it. Existing scripts keep working, but the same command prints different things under a pipe."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+### STAT-1 and STAT-2: peer delivery failures in status (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** status (STAT): what `peerspan status` reports under "Needs attention".
+- **Source:** the owner's answers, 2026-11-10, on issue [#159](https://github.com/peerspan/peerspan/issues/159). In 0.2.0 qualification step 5 (evidence F22), bob's daemon was stopped while alice had a task queued for him. alice's `status --json` showed `delivery.peer_errors` with `transport_unavailable` for bob's host and a pending proof, and `agents` showed bob/claude as "connected, host error". Human `status` said "Nothing needs attention". The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [launch-contract.md](launch-contract.md), attention item 19, `peer_delivery_failing`.
+- **Fix that needs no decision,** recorded with these entries: a new item, `peer_delivery_failing`, with one entry per peer host, naming the peer, what is waiting and the errors it last failed with. Like every attention item, it makes `status` exit 1.
+
+#### STAT-1. What counts as waiting
+
+- **Options:**
+  - (a) "All waiting work (recommended). Messages, task submissions and calls still `unknown` for that peer, plus network updates (proofs) not yet delivered to it. One entry per peer, with counts by kind."
+  - (b) "Messages and tasks only. Only what users sent: messages and tasks still `unknown` for that peer. Network updates and calls are left out."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### STAT-2. When the item appears
+
+- **Options:**
+  - (a) "After 2 minutes (recommended). Only when the oldest waiting delivery to that peer has been failing for at least 2 minutes. A short blip or a quick restart, like the relay switch in F21 (~35 s), doesn't make `status` exit 1."
+  - (b) "After first failure. As soon as one attempt to that peer has failed, like the old `policy_delivery_failing` item 4. Quicker to notice, but noisier."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+### MSG-1 and MSG-2: exit status of a refused send (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** peer messaging (MSG): `send` and `message send`.
+- **Source:** the owner's answers, 2026-11-10, on issue [#160](https://github.com/peerspan/peerspan/issues/160). In 0.2.0 qualification step 4 (evidence F17), `message send` to a receiver that had withdrawn access returned `state` `rejected` after HTTP 403 and exited 0, so a script checking the exit status treated it as delivered. The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [peer-messaging-contract.md](peer-messaging-contract.md#start-and-configure) (CLI outcomes) and [launch-contract.md](launch-contract.md) (`send`).
+- **Supersedes:** "A successfully submitted send can return `unknown` or `rejected`; inspect its `state`, rather than treating CLI exit zero as remote acceptance" in the peer-messaging contract.
+
+#### MSG-1. A send the receiver refuses (state `rejected`)
+
+- **Options:**
+  - (a) "Exit 1 (recommended). Print the JSON as now, plus `error: rejected: <receiver's reason>` on stderr, and exit 1, the same as other CLI failures."
+  - (b) "Distinct exit code. Use a separate code such as 125 (what `task run` uses for a rejected task), so scripts can tell 'receiver refused' apart from a local error."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### MSG-2. A send with no answer yet (state `unknown`)
+
+- **Options:**
+  - (a) "Keep exit 0 (recommended). The send is stored and the host retries it, so the command did its part. Scripts check `state` or run `message inspect` later."
+  - (b) "Nonzero exit. Treat 'not yet accepted' as a failure, so a script never takes exit 0 to mean the message was delivered."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+### ML-3 to ML-5: joining a teammate, step by step (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** machine linking (ML): what each participant sees and runs when a new person joins.
+- **Source:** the owner's answers, 2026-11-10, "1a, 2a, 3b works", on issues [#156](https://github.com/peerspan/peerspan/issues/156) and [#157](https://github.com/peerspan/peerspan/issues/157). Both joins in 0.2.0 qualification and the four-machine demo needed operator help. The inviter's status suggested `link approve` on the inviter, which failed with `error: host daemon: invalid`. The joiner was never shown the request ID its own `link approve --person` needed. And every link command ended with `linking is incomplete; follow the returned next step` and an empty `next`, even after its own step succeeded. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) sections 8.1, 8.3, 8.4, 16 and its verification cases; [machine-linking-transactions.md](machine-linking-transactions.md) (exit status and `next`); [quick-start.md](quick-start.md), "Invite a teammate".
+- **Fixes that need no decision,** recorded with these entries: the inviter's `link_request_waiting` names whose step it is and on which machine. `next` is never empty while a request is neither linked nor terminal.
+
+#### ML-3. Exit status when your part is done but someone else's step remains
+
+- **Options:**
+  - (a) "Exit 0 (recommended). Print 'your part is done', what happens next and where. Non-zero stays for real failures, or when this machine still has a step to do. Scripts then fail only on actual errors."
+  - (b) "Keep exiting non-zero, as specified today, but with a real `next` and a message that isn't 'follow the returned next step'."
+- **Chosen:** (a). It replaces "Incomplete CLI operations exit nonzero with the public view and next step" in the transactions contract.
+- **Reason given:** none beyond choosing it.
+
+#### ML-4. How the joiner gets their `link approve` step
+
+- **Options:**
+  - (a) "`up --join` does the owner approval itself (recommended). After the joiner chooses 'create a new person', it shows the owner review and asks 'Approve this exact machine? [y/N]' in the same session. That removes the separate `link approve --person` step from the quick start."
+  - (b) "Keep the separate step, but have `up --join` print the request ID and the exact `peerspan link approve … --person …` command."
+- **Chosen:** (a). A new person's machine now has two default-no prompts, owner approval and then commit, where spec 8.4 said one.
+- **Reason given:** none beyond choosing it.
+
+#### ML-5. The raw-JSON review screens
+
+- **Options:**
+  - (a) "In this change: a short human summary before each 'Approve/Commit this exact machine?' prompt (person, machine key fingerprint, scope names, expiry), with JSON behind `--json`."
+  - (b) "Later, with #158's output pass (recommended). This change stays focused on who does what next; #158 then cleans up the output of every command at once."
+- **Chosen:** (b). The review screens are covered by [#158](https://github.com/peerspan/peerspan/issues/158).
+- **Reason given:** none beyond choosing it.
+
+### INST-12: a stable path to the installed release (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** install (INST): paths that stay the same across upgrades.
+- **Source:** the owner's answer, 2026-11-10, on issue [#183](https://github.com/peerspan/peerspan/issues/183): "go with the stable path plus detection". The OpenCode plugin entry had to name a file inside one release's directory, which changes on every upgrade, and the installer keeps older releases, so an entry that was not updated silently loaded the previous release's plugin (found in the 0.2.0 four-machine demo, #164). The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [install-contract.md](install-contract.md), `scripts/install-release.sh`, "A stable link to the installed release"; [integrations/opencode/README.md](../integrations/opencode/README.md).
+
+#### INST-12. How the OpenCode plugin entry survives upgrades
+
+- **Options:**
+  - "A stable path. The installer maintains a link that always points at the current release's integrations, for example `~/.local/share/peerspan/current` → the active release. The plugin entry then names `…/peerspan/current/share/peerspan/integrations/opencode/plugin.mjs`. This is the smallest change. The link has to be swapped atomically with the launcher, and an upgrade while OpenCode is running would reload the new plugin only on OpenCode's next reload."
+  - "`peerspan` writes the entry. `peerspan attach opencode`, or a separate command, adds or updates the plugin entry in the OpenCode configuration, preserving comments and other plugins. The integration README currently promises that Peerspan \"changes no … OpenCode configuration\", so this needs an owner decision, and JSONC editing is error-prone."
+  - "Detect a stale entry. `attach opencode` and `session doctor` compare the loaded plugin's version with the daemon's, and print the exact path to use. This doesn't remove the manual step, but it makes the mismatch visible."
+- **Chosen:** the stable path plus detection. Peerspan still writes no OpenCode configuration. Detection compares the file each entry resolves to with the running release's plugin, rather than a version string.
+- **Reason given:** none beyond choosing it.
+
+### INST-9 to INST-11: bundled Node.js and our own release verifier (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** install: removing the Node.js 22 prerequisite from the one-line install.
+- **Source:** the owner's answers, 2026-11-10, on issue [#170](https://github.com/peerspan/peerspan/issues/170). During 0.2.0 publication (step 9), the one-liner on a clean Ubuntu 24.04.5 machine stopped at "Node.js 22 or later is required but node was not found", and every fresh machine in qualification needed Node installed by hand. Ubuntu 24.04's own `nodejs` package is version 18. The options below are quoted from the issue and from the questions put to the owner.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md#release-verifier) and [Bundled Node.js](install-contract.md#bundled-nodejs).
+- **Implementing PRs:** [#173](https://github.com/peerspan/peerspan/pull/173) (the verifier, its workflow, the Node-free install scripts and the bundled Node.js, with placeholder verifier digests); then the pull request that pins `verifier-v1`.
+- **Supersedes:** the verification half of [INST-1](#inst-1-signing-scheme), "verified with Node's built-in crypto". The signing scheme itself, an Ed25519 signature over `release.json`, is unchanged.
+
+#### INST-9. Node.js for the install and the integrations
+
+- **Options:**
+  - (1) "Ship a pinned Node.js runtime inside each host bundle (per architecture); the installer verifies the manifest without Node (for example in the Rust binary or with a small static verifier)."
+  - (2) "Have the installer download a pinned, checksum-verified Node.js into Peerspan's own directory when none ≥22 is found."
+  - (3) "Keep requiring Node but print exact per-distro steps from the bootstrap."
+- **Chosen:** (1).
+- **Reason given:** none beyond choosing it: "option 1, bundle node in the release".
+
+#### INST-10. What verifies the release before Node is available
+
+- **Options:**
+  - (a) "The `openssl` command (recommended). OpenSSL 3 (Ubuntu 22.04+, Debian 12) checks the signature and `sha256sum` checks file digests. `openssl` comes with ca-certificates, which curl needs for HTTPS, so it's there wherever the one-liner works. Nothing new needs to be trusted."
+  - (b) "`openssl`, falling back to a system Node 22+ as today. Covers unusual minimal images, but means keeping two checking paths identical."
+  - (c) "A small checker program the bootstrap downloads, with its SHA-256 written into `install.sh`. Needs nothing on the machine, but it's a second file to build, pin and update."
+- **Chosen:** (c), against the recommendation.
+- **Reason given:** "mainly because of all the hacks/vulns i think our own program to verify would be easier to maintain from a security perspective".
+
+#### INST-11. Which Node.js line the bundle carries
+
+- **Options:**
+  - (a) "Node 24 LTS, v24.22.2 (recommended). Supported until April 2028. It's a step up from what we tested, so the integration tests and installed acceptance re-run on it."
+  - (b) "Node 22 LTS, v22.23.4. Exactly what qualification used, so lowest risk now, but a forced upgrade within months."
+  - (c) "Node 26 LTS, v26.13.0. The newest LTS, supported to April 2029, but the least tested with our dependencies (the MCP SDK, `ws`, the OpenCode plugin)."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it: "option a, node 24".
+
+### INST-8: the first release key (2026-11-05)
+
+- **Date:** 2026-11-05.
+- **Area:** install.
+- **Source:** the owner generated an Ed25519 key pair on their own machine and sent the public key, 2026-11-05: "KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc - this is the 43 char public key".
+- **Recorded in:** this log.
+- **Contract section:** [install-contract.md](install-contract.md#changing-the-release-keys).
+- **Options:** options not recorded.
+- **Chosen:** `PEERSPAN_RELEASE_KEYS` is exactly one key, `KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc`, in both `scripts/install.sh` and `scripts/install-release.sh`. It replaces the off-curve placeholder `AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`. The private key is held offline by the owner ([INST-2](#inst-2-who-holds-the-key-and-when-signing-happens)).
+- **Checked before recording:** the value is 43 base64url characters that decode to 32 bytes, Node imports it as an Ed25519 public key, its y coordinate is canonical, and it is not one of the small-order values the contract rejects.
+- **Reason given:** the owner's release key, which replaces the placeholder (INST-6).
+
+### INST-7: no conformance suite for the install scripts (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install.
+- **Source:** the owner's answer, 2026-11-04, after the independent `install` suite (62 cases, 689 lines, about 29 s) was written and run against the implementation: "get rid of the conformance tests, we don't need conformance for the install scripts". The question was whether to keep the over-budget suite per-push, trim it, or move it to the second tier.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md); its Verification section is removed.
+- **Options:**
+  - (a) Keep the suite per-push as written, recording the line-budget exception ([DEC-OWN14](#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)).
+  - (b) Trim it toward about 400 lines by merging similar refusal cases.
+  - (c) Move it to the second tier.
+  - (d) No conformance suite for the install scripts. This was the owner's own option.
+- **Chosen:** (d). The install scripts are checked by the release procedure's live installs: before publication, `install-release.sh --from` with the signed manifest on clean machines; after publication, the real one-liner. The written suite is not merged.
+- **Consequence:** the bootstrap's refusal paths have no automated check, and the bootstrap first runs for real after publication. The prerelease rollback in the release procedure covers a failure there.
+- **Reason given:** "we don't need conformance for the install scripts".
+
+### INST-6: who may change the release keys (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install.
+- **Source:** the owner's question on PR [#126](https://github.com/peerspan/peerspan/pull/126): "if we push sign-release --generate, isn't that key generation now part of the repo? anyone can run it". The answer: generating a key gives no trust; only the keys listed in `PEERSPAN_RELEASE_KEYS` are trusted, so the list is what needs protecting. The owner answered "yes please" to the options below.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md#changing-the-release-keys).
+- **Implementing PRs:** #126 (`.github/CODEOWNERS`); the implementation PR (the `PEERSPAN_RELEASE_KEYS` lists, holding a placeholder key until the owner's first key decision).
+- **Options:**
+  - (a) Keep `--generate`, and protect the key list: a CODEOWNERS rule for the install and signing scripts, key changes only by owner decision in a PR of their own, and a qualification check that the published and served key lists equal the decided one.
+  - (b) Drop `--generate` and document an `openssl` command in `releasing.md`. The security is the same either way.
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+- **Not yet in effect:** the `main` ruleset requires 0 approvals, doesn't require code-owner review, and lets organization administrators bypass it. Enforcing the CODEOWNERS rule needs the owner to change that ruleset.
+
+### INST-1 to INST-5: one-line install (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install: the one-line install from peerspan.dev for the promoted launch, without GitHub CLI.
+- **Source:** the owner's answers on the five "Owner decisions needed" of the [install proposal](install-proposal.md#owner-decisions-needed), PR [#125](https://github.com/peerspan/peerspan/pull/125). For INST-1, "ok go with ed25519"; for INST-2 to INST-5, "accept your recommendations". The options below are quoted from the proposal.
+- **Recorded in:** this log, the proposal and the contract.
+- **Contract section:** [install-contract.md](install-contract.md).
+- **Implementing PRs:** the implementation PR (`scripts/install.sh`, `scripts/sign-release.sh`, `scripts/install-release.sh`, the draft workflow's `release.json`, and the release procedure).
+
+#### INST-1. Signing scheme
+
+- **Options:**
+  - (a) "An Ed25519 signature over `release.json`, verified with Node's built-in crypto against a pinned key."
+  - (b) "Sigstore keyless signing from the release workflow. Users would need `cosign` or a downloaded verifier, which brings back the extra tool this proposal removes."
+  - (c) "Checksums only, as today."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it, after the question of why a signing scheme is needed: a checksum downloaded beside its archive doesn't stop someone who can replace files in a GitHub release.
+
+#### INST-2. Who holds the key, and when signing happens
+
+- **Options:**
+  - (a) "The owner holds it offline and signs at publication, after qualification."
+  - (b) "A GitHub Actions secret in a protected environment that requires the owner's approval. A GitHub compromise could then sign as well as replace assets."
+- **Chosen:** (a): a passphrase-encrypted key file on the owner's own machine, backed up in a password manager and a second device; a hardware key is a possible later change through key rotation.
+- **Reason given:** accepted as recommended, after asking whether the reason is the risk of a GitHub compromise (it is) and where the key would live.
+
+#### INST-3. Where `/install` comes from
+
+- **Options:**
+  - (a) "A copy committed to the website repository, updated when the bootstrap changes."
+  - (b) "A Vercel rewrite to the script on GitHub. This makes the website depend on GitHub, and a change to `main` would reach users without a release."
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+
+#### INST-4. How "latest" is found
+
+- **Options:**
+  - (a) "GitHub's `releases/latest`, so the launch release is a full release and not a prerelease."
+  - (b) "A `latest` pointer file on the website, updated at each publication."
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+
+#### INST-5. `gh` in `install-release.sh`
+
+- **Options:**
+  - (a) "Replace it with HTTPS downloads."
+  - (b) "Keep `gh` as a fallback for private forks."
+- **Chosen:** (a). Private forks can still use `--from`.
+- **Reason given:** accepted as recommended.
 
 ### RUN-6 and RUN-7: peerfs workspaces (2026-11-02)
 
@@ -785,6 +1382,12 @@ These are choices the [conversations proposal](conversations-proposal.md) left o
 
 - **Options:** (a) apply the DEC-Q25 rule, so expired contacts inside a request code still within its window are used as address hints; (b) let the requester refresh its contacts through the mailbox; (c) no change, so a direct-only `link` must be approved within 5 minutes or use a helper.
 - **Chosen:** (a), the recommendation.
+
+#### DEC-Q34. How many carrier endpoints a request keeps
+
+- **Found (2026-11-12, #207):** `link approve` refused with `quota_exceeded` between two installed hosts listening on `0.0.0.0`, the installer's default. Each host's contact named every local address, as the runtime contract allows: 6 on one machine (loopback, two container bridges, two private, one public), 4 on the other. The implementation capped a request's combined `carrier_endpoints` at 8, a number no contract stated, so the approver adding its own addresses to the requester's went over. The suites bind loopback only and never saw it.
+- **Options:** (a) derive the bound from its inputs: a request starts from this host's contact (8 first-contact addresses) and a code or invite of at most 4 contacts and 4 helpers, so 44 at most, and keeps at most 64; endpoints that frames bring in later, and this host's own addresses added on approval, are kept while they fit and otherwise left out, never refused; (b) advertise fewer addresses: leave loopback and container bridges out of contacts; (c) both.
+- **Chosen:** (a), the recommendation. Endpoints are transport hints, so a hint left out costs one path, while refusing the frame stopped the request. (b) contradicts the runtime contract, which names container-bridge and VPN addresses as valid hints and lets same-machine hosts reach each other over loopback, and a bridge cannot be told from a LAN interface reliably. Reading many endpoints one after another is slower when several are unreachable; that is unchanged in kind from the 8 before.
 
 ### DEC-S: simplifying the coordinator-free design (2026-10-27)
 

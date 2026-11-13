@@ -170,7 +170,8 @@ host contract supplied to the Go repository. The tracking PR must not claim the
 whole milestone complete when only a local adapter exists.
 
 The plan's original baseline used schema29 for runtime tasks. Conversations
-subsequently added schema30; PF-1(a) allocates additive schema31 in the
+subsequently added schema30, runtime agents schema31 and peerboxes schema32;
+PF-1(a) allocates additive schema33 in the
 [local contract](peerfs-local-contract.md#7-storage-errors-and-implementation-order).
 Later storage changes allocate against actual main and test upgrade/restore;
 they must not take a version reserved by another accepted track.

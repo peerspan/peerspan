@@ -747,7 +747,9 @@ state, or any attempt to reinterpret it as secret. No seed/secret/capability
 occurs in record, events or public status.
 
 carrier_endpoints is a mutable transport-only array of
-`{kind:"participant"|"helper",address,public_key}` sorted by kind/address/key.
+`{kind:"participant"|"helper",address,public_key}` sorted by kind/address/key,
+at most 64 entries (DEC-Q34). Entries that a frame writer's contact or this
+host's own contact would add past 64 are left out, never refused.
 Replacing a carrier does not change context, intent, frames or consent. An
 outbound entry is exactly
 `{role,writer_public_key,frame_id,acknowledged_by:[{address,public_key}]}`.

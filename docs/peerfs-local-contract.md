@@ -326,11 +326,12 @@ Do not add a second database, signing-key file, background provider monitor,
 per-signature audit table or signature-byte log. This document allocates no
 schema number on its own: the original baseline used29 for runtime tasks.
 The implementation allocation below follows actual main, including its later
-conversations schema30. Check existing identity/authority/history, old-binary
+conversations schema30, runtime agents schema31 and peerboxes schema32 (#221,
+which merges first). Check existing identity/authority/history, old-binary
 refusal and full-state restore.
 
-PF-1(a) is additive **schema31 over prior-main30** (which includes agent
-descriptions). Its private storage is exactly:
+PF-1(a) is additive **schema33 over prior-main32** (which includes agent
+descriptions, runtime agents and peerboxes). Its private storage is exactly:
 
 ```sql
 CREATE TABLE peerfs_bindings (
@@ -354,10 +355,10 @@ CREATE UNIQUE INDEX peerfs_live_inode ON peerfs_bindings(device,inode) WHERE sta
 Device/inode blobs are unsigned64-bit big-endian values. `format:1` is implicit
 in the schema; it is emitted in every registration view. Validate the exact
 schema, indexes and stored row shapes on startup; a missing/malformed object at
-schema31 is corruption, not a request to recreate it. A pre31 state containing
+schema33 is corruption, not a request to recreate it. A pre33 state containing
 this reserved namespace is refused atomically. Identity/key fields must match
 the actual host; no filesystem/provider probe occurs during startup validation.
-Older schema30 binaries refuse31. Existing synthetic old-version fixtures omit
+Older schema32 binaries refuse33. Existing synthetic old-version fixtures omit
 this newer table; real upgrade/restore evidence uses genuine old binaries and
 complete private backups, without version rewriting.
 

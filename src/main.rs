@@ -22,6 +22,7 @@ mod onboarding_identity_cli;
 mod onboarding_identity_create;
 mod onboarding_owner_finalization_sign;
 mod onboarding_owner_sign;
+mod output;
 mod runtime_cli;
 mod service;
 mod sign_in_cli;
@@ -188,6 +189,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         cli::command_line(program()).print_help()?;
         return Ok(());
     };
+    // `onboarding` is the onboarding plugin's machine interface (guided
+    // session contract): it always prints JSON.
+    let machine = matches!(command, cli::Command::Onboarding(_));
+    output::set_json(command.sync_json(cli.json) || machine);
     if let cli::Command::Help { topic } = &command {
         return help(topic);
     }
@@ -226,7 +231,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         return integration::attach(command, cli.state).await;
     }
     if let cli::Command::Uninstall = command {
-        println!("{}", serde_json::to_string_pretty(&service::uninstall()?)?);
+        let value = service::uninstall()?;
+        if output::json() {
+            output::emit(&value)?;
+        } else {
+            println!("{}", output::uninstall(&value));
+        }
         return Ok(());
     }
     if let cli::Command::Install {
@@ -240,7 +250,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             None => default_directory()?,
         };
         let value = service::install(&directory, peer_listen, no_start).await?;
-        println!("{}", serde_json::to_string_pretty(&value)?);
+        if output::json() {
+            output::emit(&value)?;
+        } else {
+            println!("{}", output::install(&value));
+        }
         return Ok(());
     }
     let directory = match cli.state {
@@ -312,8 +326,26 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let code = task_run::run(&command, &directory).await?;
         std::process::exit(code);
     }
+    // A send the receiver refused fails after printing its record (MSG-1);
+    // `unknown` is stored and retried, so it still exits 0 (MSG-2).
+    let sends = matches!(
+        command,
+        cli::Command::Send { .. }
+            | cli::Command::Message(
+                cli::MessageCommand::Send { .. } | cli::MessageCommand::Retry { .. }
+            )
+    );
+    let summary = output::Summary::of(&command);
     let value = dispatch(command, &directory).await?;
-    println!("{}", serde_json::to_string_pretty(&value)?);
+    output::emit_for(&summary, &value)?;
+    if sends && value["state"] == "rejected" {
+        bail!(
+            "rejected: {}",
+            value["error"]
+                .as_str()
+                .unwrap_or("the receiving host refused this message")
+        );
+    }
     if value.get("creation_id").is_some() && value["committed"] == false {
         bail!("network creation requires review or signing repair");
     }

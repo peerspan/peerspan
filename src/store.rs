@@ -183,11 +183,11 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=31).contains(&version) {
+        if !(0..=33).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
-        if version < 31 {
+        if version < 33 {
             crate::peerfs::check_namespace(&tx)?;
         }
         // Main and the guided feature each used schema24 before integration.
@@ -311,7 +311,7 @@ impl Store {
         if !described {
             tx.execute_batch(DESCRIPTIONS)?;
         }
-        if version < 31 {
+        if version < 33 {
             tx.execute_batch(crate::peerfs::SCHEMA)?;
         }
         crate::peerfs::check_schema(&tx)?;
@@ -323,8 +323,10 @@ impl Store {
         crate::decentralized::storage::check_schema(&tx)?;
         // 29 is runtime tasks (runtime task contract): new record fields only.
         // 30 is conversations C7: the agent_descriptions table.
-        // 31 is PF-1(a): explicit local PeerFS bindings and typed host signing.
-        tx.execute_batch("PRAGMA user_version = 31;")?;
+        // 31 is runtime agents (runtime agent contract): new record fields only.
+        // 32 is peerboxes (peerbox contract), reserved for #221, which merges first.
+        // 33 is PF-1(a): explicit local PeerFS bindings and typed host signing.
+        tx.execute_batch("PRAGMA user_version = 33;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")

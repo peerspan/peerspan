@@ -2,18 +2,37 @@
 """Slim suite 4, sync: propagation between three hosts, catching up after being offline, high-water marks,
 bans that a stale peer cannot erase, and the repair route.
 
-alice creates a network, bob and carol join. Written from docs/decentralized-spec.md sections 4.2, 5.1 and
-10, and the wire appendix sections 15 and 16.7.
+alice creates a network, bob and carol join. Each host advertises one QUIC address, an opaque counted UDP
+carrier that forwards the bytes unchanged to its real peer listener (`counted_peer.CountedUDP`), so the suite
+can count what reaches each host. Written from docs/decentralized-spec.md sections 4.2, 5.1 and 10 (with SYNC-1:
+an explicit sync restarts that network's background interval) and its section 20 items 47, 48 and 48a, the
+wire appendix sections 15 and 16.7, and docs/launch-contract.md (DIR-1: an on-demand directory refresh counts
+for earlier changes).
 """
 import json
 import os
+import sqlite3
 import subprocess
+import time
+from contextlib import closing
 
+from counted_peer import CountedUDP, refresh_owed_directories, sync_networks
 from harness import Suite, check, create_network, join_new_person, members, ssh_key, wait_for
 
 suite = Suite("sync", __doc__)
-a, b, c = suite.host("alice"), suite.host("bob"), suite.host("carol")
+a, b, c = suite.host("alice", start=False), suite.host("bob", start=False), suite.host("carol", start=False)
+for _h in (a, b, c):
+    _h.counted = CountedUDP(("127.0.0.1", _h.peer_port))
+    _path = _h.root / "transport.json"
+    _path.write_text(json.dumps({"format": 1, "advertise_bootstrap": [f"127.0.0.1:{_h.bootstrap_port}"],
+                                 "advertise_quic": [_h.counted.address], "rendezvous": [], "relays": [],
+                                 "publish_contacts": False}))
+    _path.chmod(0o600)
+    _h.extra_args = ["--transport-config", str(_path)]
+    _h.start()
 state = {}
+QUIET_AFTER_SYNC = 50.0  # spec 20 item 48a: no background sync for at least 50 s after an explicit one
+RESUMES_WITHIN = 30.0  # item 48a: without another explicit sync, background sync resumes within 30 s more
 
 
 def need(*names):
@@ -83,6 +102,53 @@ def _():
     for host in (a, c):
         learns(host, bob, version)
     state["bob_version"] = version
+
+
+def outbox_empty(host):
+    """No delivery owed to a peer (storage contract: dec_outbox), read-only."""
+    for path in host.state.glob("*.db"):
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dec_outbox'").fetchone():
+                return db.execute("SELECT count(*) FROM dec_outbox").fetchone()[0] == 0
+    check(False, f"{host.name}: no host database with dec_outbox")
+
+
+def carriers():
+    return tuple(h.counted.counts() for h in (a, b, c))
+
+
+@suite.case("explicit_sync_restarts_background_interval", "spec 10 timing (SYNC-1); 20 item 48a")
+def _():
+    need("bob_version")  # after the policy change above; before any host is stopped, so nothing is left to retry
+    hosts, net = (a, b, c), state["net"]
+    for host in hosts:
+        wait_for(lambda host=host: outbox_empty(host), timeout=30, interval=0.25,
+                 message=f"{host.name}'s deliveries to peers to drain")
+    # Every host syncs explicitly, so none has a background sync of this network due for 60 s; then one
+    # directory refresh each, which counts for every earlier change (DIR-1), so nothing else is owed.
+    began = time.monotonic()
+    sync_networks(hosts, (net,))
+    refresh_owed_directories(hosts, (net,))
+    # Only the trailing datagrams of those exchanges (their last ACKs) may still arrive.
+    previous, since = carriers(), time.monotonic()
+    while time.monotonic() - since < 0.3:
+        check(time.monotonic() - began < 40, "the carriers did not settle after the explicit syncs and refreshes")
+        time.sleep(0.05)
+        if carriers() != previous:
+            previous, since = carriers(), time.monotonic()
+    settled = time.monotonic() - began
+    while time.monotonic() - began < QUIET_AFTER_SYNC:
+        time.sleep(0.25)
+        now = carriers()
+        check(now == previous, f"UDP reached a host {time.monotonic() - began:.1f}s after the explicit syncs, "
+              f"within the {QUIET_AFTER_SYNC:.0f}s with no background sync (SYNC-1); carriers (alice, bob, carol: "
+              f"in datagrams, in bytes, back datagrams, back bytes) {previous} -> {now}")
+    print(f"  no datagram from {settled:.1f}s to {QUIET_AFTER_SYNC:.0f}s after the explicit syncs", flush=True)
+    while carriers() == previous:
+        check(time.monotonic() - began < QUIET_AFTER_SYNC + RESUMES_WITHIN,
+              f"no background sync within {QUIET_AFTER_SYNC + RESUMES_WITHIN:.0f}s of the explicit syncs (item 48a)")
+        time.sleep(0.25)
+    print(f"  background traffic resumed {time.monotonic() - began:.1f}s after the explicit syncs", flush=True)
 
 
 @suite.case("offline_host_catches_up", "spec 10: a host that was offline learns what it missed")

@@ -69,11 +69,11 @@ def public_view(status, value):
 def rows(host, query, params=()):
     databases = []
     for path in host.state.glob('*.db'):
-        with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as database:
+        with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=30)) as database:
             if database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 databases.append(path)
     check(len(databases) == 1, 'expected one actual host database')
-    with closing(sqlite3.connect(f'file:{databases[0]}?mode=ro', uri=True)) as database:
+    with closing(sqlite3.connect(f'file:{databases[0]}?mode=ro', uri=True, timeout=30)) as database:
         return database.execute(query, params).fetchall()
 
 

@@ -156,7 +156,7 @@ def logical_records(host):
     check(paths, "no host state database")
     result = {}
     for path in paths:
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
             result[path.name] = {"schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
@@ -182,7 +182,7 @@ def _():
     view = observation(a)
     check(all(view[field] == [] for field in ("networks", "agents", "requests", "attention")),
           "empty host has nonempty onboarding collections")
-    result = a.cli("onboarding", timeout=10)
+    result = a.cli("--json", "onboarding", timeout=10)
     check(result.ok and isinstance(result.json, dict), "onboarding CLI failed on an incomplete empty host")
     cli = observation(a, result.json)
     check({k: v for k, v in cli.items() if k != "observed_at"}
@@ -212,7 +212,7 @@ def _():
     # No background traffic or adapter renewal has been introduced in this host.
     for _ in range(6):
         matches_status(a, observation(a))
-        result = a.cli("onboarding", timeout=10)
+        result = a.cli("--json", "onboarding", timeout=10)
         check(result.ok, "CLI read of two networks failed")
         observation(a, result.json)
     for method in ("POST", "PUT", "PATCH", "DELETE"):

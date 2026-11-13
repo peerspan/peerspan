@@ -56,6 +56,11 @@ pub(crate) struct Record {
     /// for a record written before stage times were kept.
     #[serde(default = "empty")]
     pub stage_at: String,
+    /// The `--person-key` path a joining person gave on this machine, so the
+    /// local `next` approval is exact (ML-3); `-` when the key is discovered.
+    /// Local only: it never leaves this host.
+    #[serde(default = "empty")]
+    pub person_key_path: String,
 }
 /// Each stage times out after 10 minutes of inactivity (spec 8.5).
 const STAGE_SECONDS: i64 = 600;
@@ -251,7 +256,7 @@ impl Pending {
             let d = descriptor.as_ref().ok_or_else(|| Error::new("invalid"))?;
             super::catalog::Catalog::read(d, &b64(&r.catalog_base64, MAX_CATALOG)?)?;
         }
-        check(r.carrier_endpoints.len() <= 8)?;
+        check(r.carrier_endpoints.len() <= bootstrap::MAX_CARRIER_ENDPOINTS)?;
         let mut prior = None;
         for value in &r.carrier_endpoints {
             let o = object(value)?;
@@ -455,7 +460,7 @@ impl Pending {
             Vec::new()
         };
         Ok(
-            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":[]}),
+            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,r.contact_invitation_base64!="-",state,network,&person,&r.owner_offer_id,&r.selection_id,&r.person_key_path)}),
         )
     }
     pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
@@ -696,10 +701,18 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
 }
 /// Shared protocol operation; the caller commits its exact consent atomically.
 pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(u16, Vec<u8>)> {
-    fields(
-        input,
-        "mode network_id person_public_key migration_proposal_id contact_invitation helpers",
-    )?;
+    let key_path = match input.get("person_key_path") {
+        Some(_) => text(input, "person_key_path")?.to_owned(),
+        None => empty(),
+    };
+    check(key_path == "-" || key_path.starts_with('/'))?;
+    let mut shape =
+        "mode network_id person_public_key migration_proposal_id contact_invitation helpers"
+            .to_owned();
+    if input.contains_key("person_key_path") {
+        shape.push_str(" person_key_path");
+    }
+    fields(input, &shape)?;
     let mode = text(input, "mode")?;
     check(matches!(mode, "new" | "renew"))?;
     let migration = text(input, "migration_proposal_id")?;
@@ -894,8 +907,8 @@ pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(
         )
     });
     carrier_endpoints.dedup();
-    if carrier_endpoints.len() > 8 {
-        return Err(Error::quota("more than 8 carrier endpoints"));
+    if carrier_endpoints.len() > bootstrap::MAX_CARRIER_ENDPOINTS {
+        return Err(Error::quota("more than 64 carrier endpoints"));
     }
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(|_| Error::new("internal"))?;
@@ -959,6 +972,7 @@ pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(
             json!({"role":"request","writer_public_key":host,"frame_id":frame.frame_id,"acknowledged_by":[]}),
         ],
         stage_at: empty(),
+        person_key_path: key_path,
     };
     let p = Pending {
         id: id.clone(),
@@ -992,6 +1006,82 @@ pub(crate) fn after_create_commit(store: &Store, id: &str) -> Result<()> {
 }
 /// Public request views within the caller's existing read snapshot. Never
 /// returns pairing material or advances the request's state.
+/// The public view's `next` (machine-linking transactions: never empty while a
+/// request is neither linked nor terminal; ML-3). Each line is "WHO, on
+/// WHERE: WHAT", with the exact command when the step runs on this host.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn next_steps(
+    id: &str,
+    roles: &[String],
+    invited: bool,
+    state: &str,
+    network: &str,
+    person: &str,
+    owner_offer: &str,
+    selection: &str,
+    key_path: &str,
+) -> Vec<String> {
+    let has = |role: &str| roles.iter().any(|r| r == role);
+    let requester = has("requester");
+    let owner = has("owner");
+    let administrator = has("administrator");
+    // An explicit key file is named, so the command runs as given.
+    let key = if key_path == "-" {
+        String::new()
+    } else {
+        format!(" --person-key {}", shell_word(key_path))
+    };
+    match state {
+        // A request made from an invite is a new person joining from their
+        // own original machine, which approves it (ML-4); a same-person link
+        // is approved on another machine of that person.
+        "pending" if requester && invited => vec![format!(
+            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}{key}"
+        )],
+        "pending" if requester => vec![format!(
+            "owner, on a machine of the person: peerspan link approve {id} --network {network}"
+        )],
+        // Another host's request: preparing the owner review here adds the
+        // owner role but must not change the view (guided section 42), so
+        // this entry does not depend on that role.
+        "pending" => vec![format!(
+            "owner, on a machine of the person: peerspan link approve {id} --network {network}; for a new person that is the joining machine, where peerspan up --join asks 'Approve this exact machine?'"
+        )],
+        "needs_selection" if requester => vec![format!(
+            "requester, on this machine: select the owner offer with peerspan link resume {id}"
+        )],
+        "needs_selection" => vec![
+            "requester, on the joining machine: select the owner offer (automatic when there is exactly one)".into(),
+        ],
+        "needs_administrator" if administrator => vec![format!(
+            "administrator, on this machine: peerspan link admit {id} --network {network} --person {person} --owner-offer {owner_offer} --selection {selection}"
+        )],
+        "needs_administrator" => vec![
+            "administrator, on an administrator's machine: run the peerspan link admit command its peerspan status shows".into(),
+        ],
+        // The joining person's key may be one the daemon cannot use itself
+        // (a key file or ssh-agent), so the joiner signs it here.
+        "needs_owner_finalization" if requester && invited => vec![format!(
+            "owner, on this machine: peerspan link finalize {id} --approve{key}"
+        )],
+        "needs_owner_finalization" if owner || requester => vec![format!(
+            "owner, on this machine: finalization runs automatically under the owner's approval; peerspan link resume {id} asks for an immediate pass"
+        )],
+        "needs_owner_finalization" => vec![
+            "owner, on the joining machine or a machine of the person: finalization runs automatically under the owner's approval".into(),
+        ],
+        "needs_commit" if requester => vec![format!(
+            "requester, on this machine: answer 'Commit this exact machine link?' with peerspan link resume {id}"
+        )],
+        "needs_commit" => vec![
+            "requester, on the joining machine: confirm 'Commit this exact machine link?'".into(),
+        ],
+        "finalizing" => vec![
+            "requester, on the joining machine: applying the committed link runs automatically, as on every participant".into(),
+        ],
+        _ => Vec::new(),
+    }
+}
 pub(crate) fn views_in(c: &Connection, now: &str) -> Result<Vec<Value>> {
     ids_in(c)?.iter().map(|id| load(c, id)?.view(now)).collect()
 }
@@ -1044,4 +1134,16 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     let view = p.view(&controls::local_decision_time()?)?;
     tx.commit().map_err(db)?;
     bytes(&view)
+}
+/// `path` as one POSIX shell word, quoted only when it needs it.
+fn shell_word(path: &str) -> String {
+    if !path.is_empty()
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b))
+    {
+        path.into()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
 }

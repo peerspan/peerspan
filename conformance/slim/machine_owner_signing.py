@@ -257,7 +257,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -267,7 +267,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -321,10 +321,11 @@ def context(parent):
 
 def advance_to(h, moment):
     h.clock.set(math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
+    h.clock_changed = time.monotonic()  # GU.impl42f settling starts here
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -373,6 +374,10 @@ def whole(f):
 
 
 def quiet(f):
+    # GU.impl42f: the host erases mailboxes a clock change expired within 2 s
+    # (spec 9.2) as its own maintenance; settle that before any measurement.
+    last = max(getattr(f[k], 'clock_changed', float('-inf')) for k in ('a', 'b'))
+    time.sleep(max(0, last + 2 - time.monotonic()))
     settled(f['a'])
     previous = (whole(f), traffic(f))
     def stable():
@@ -496,7 +501,7 @@ def world(name='main'):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             rows = [db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (item['invitation_id'],)).fetchone()
                     for item in invitations]
         return all(row is None or row[0] is None for row in rows)
@@ -518,7 +523,7 @@ def select_provider(f, provider):
 
 
 def intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'exact receipt/ordinary intent missing')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
@@ -526,7 +531,7 @@ def intent(h, iid):
 
 def dual_records(h, receipt):
     ids = (receipt['consent_id'], receipt['review']['intent_id'])
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db, db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db, db:
         db.execute('BEGIN')
         rows = [db.execute('SELECT record FROM dec_intents WHERE intent_id=?', (iid,)).fetchone() for iid in ids]
     check(all(row is not None for row in rows), 'coherent approval snapshot lost one intent')
@@ -613,7 +618,7 @@ def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, o
     h = f['a']; parent = parent or f['parent']
     data = override if override is not None else input_for(f, action, prepared, parent=parent, inspected=inspected, replace=replace)
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
         check(result.ok == (status == 200), 'private consent CLI outcome mismatch')
         public(result.stderr, str(h.state), *f['secrets'])
         if not result.ok:
@@ -839,7 +844,7 @@ def held_transport(f):
 
 
 def kind_ids(h, kind):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return {row[0] for row in db.execute('SELECT intent_id FROM dec_intents WHERE kind=?', (kind,))}
 
 
@@ -1032,7 +1037,7 @@ def initial_plan(f):
           and offer['person_lease_id'] == frozen['person_lease_id'] and offer['scopes'] == 7
           and offer['not_after'] == frozen['not_after'] and offer['member'] == frozen['member']
           and offer['host_public_key'] == f['b'].public_key and offer['device_public_key'] == frozen['device_public_key'], 'exact finite owner offer target/parents')
-    with closing(sqlite3.connect(f'file:{db_path(f["a"])}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(f["a"])}?mode=ro', uri=True, timeout=30)) as db:
         network = json.loads(db.execute('SELECT record FROM networks WHERE id=?', (f['network']['id'],)).fetchone()[0])
     check(offer['descriptor'] == json.loads(base64.b64decode(network['descriptor_base64'], validate=True)), 'owner offer changed genuine descriptor')
     plan[(1, 'host')] = ('ed25519', f['a'].public_key, packet_message(packet))
@@ -1106,7 +1111,7 @@ def validate_signing(f, value):
 def signing_op(f, action, *, status=200, code=None, override=None, cli=False):
     h = f['a']; data = override if override is not None else signing_input(f, sign=action == 'sign')
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=100 if action == 'sign' else 8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=100 if action == 'sign' else 8)
         check(result.ok == (status == 200), 'private signing CLI outcome mismatch')
         value = result.json
         public(result.stderr, str(h.root), *f['secrets'])
@@ -1154,11 +1159,55 @@ def helper_summary(databases):
     return summary
 
 
-def retired_expired_helper(h):
+def retirement_categories(databases):
+    """Per-mailbox (state, ciphertext) categories, keyed only in memory."""
+    categories = {}
+    for name, database in databases.items():
+        for row in database.get('mailboxes', ()):
+            if len(row) != 12:
+                return None
+            categories[(name, row[0])] = (row[10] if row[10] in {'active', 'deleted', 'expired'} else 'unknown',
+                                          type(row[11]) is int and row[11] > 0)
+    return categories
+
+
+def retirement_classification(phase, first, last, now, process):
+    """GU.impl43c failure-only categories from the wait's own captures; no IO."""
+    before = retirement_categories(first) if first is not None else None
+    after = retirement_categories(last) if last is not None else None
+    buckets = dict.fromkeys(('<=2', '<=5', '>5'), 0)
+    if after is not None and type(now) is int:
+        for database in last.values():
+            frames = database.get('frames', ())
+            for row in database.get('mailboxes', ()):
+                if type(row[5]) is not int or row[5] > now:
+                    continue
+                if row[10] in ('deleted', 'expired') and row[11] == 0 and not any(
+                        len(frame) == 6 and frame[0] == row[0] for frame in frames):
+                    continue
+                late = now - row[5]
+                buckets['<=2' if late <= 2 else '<=5' if late <= 5 else '>5'] += 1
+    else:
+        buckets = 'unknown'
+    if process is None:
+        host = 'stopped'
+    elif callable(getattr(process, 'poll', None)):
+        host = 'running' if process.poll() is None else 'exited'
+    else:
+        host = 'unknown'
+    return {'phase': phase if phase in {'fresh-expiry', 'retained-history'} else 'unknown',
+            'changed_during_wait': 'unknown' if before is None or after is None else
+                                   'any' if before != after else 'none',
+            'unretired_seconds_past_expiry': buckets,
+            'host_process': host}
+
+
+def retired_expired_helper(h, phase='unknown'):
     """Observe real collection on the live original; do not start its peer."""
     last = {}
     def retired():
         now = int(h.now().timestamp()); data = records(h); last['captured'] = data
+        last.setdefault('first', data); last['now'] = now
         found = False
         for database in data.values():
             if not ({'mailboxes', 'frames'} & set(database)):
@@ -1182,6 +1231,12 @@ def retired_expired_helper(h):
             print('machine_signing_retirement_failure_public=' + json.dumps(helper_summary(last.get('captured', {})), sort_keys=True), flush=True)
         except Exception:
             pass
+        try:
+            print('machine_signing_retirement_failure_class_public=' + json.dumps(retirement_classification(
+                phase, last.get('first'), last.get('captured'), last.get('now'), getattr(h, 'process', 'unknown')),
+                sort_keys=True), flush=True)
+        except Exception:
+            pass  # A diagnostic cannot replace the original timeout verdict.
         raise
 
 
@@ -1250,7 +1305,7 @@ def signature_fault(f, guard):
     target = max(h.now(), f['b'].now()) + timedelta(seconds=2)
     check(target < parse_time(f['prepared']['consent']['review']['expires_at']), 'atomic fault exhausted original consent')
     advance_to(h, target); guard()
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         clock_before = db.execute('SELECT record FROM dec_clock').fetchone()[0]
     # No write order is assumed. The last of the three genuine record updates
     # trips ABORT only after every intended piece is visible inside that TX.
@@ -1431,7 +1486,7 @@ def _():
     target = parse_time(expired['prepared']['consent']['review']['expires_at']) + timedelta(seconds=1)
     check(target < parse_time(expired['prepared']['request']['expires_at']), 'fixed expiry stimulus exhausted signed request instead')
     advance_to(expired['a'], target)
-    retired_expired_helper(expired['a'])
+    retired_expired_helper(expired['a'], phase='fresh-expiry')
     expired_view = pure_signing(expired, guard=guard, phase='fresh-expiry')
     check(expired_view['signing']['can_sign'] is False and expired_view['signing']['state'] != 'signed', 'expired fresh action remained enabled')
     pure_signing(expired, 'sign', guard=guard, phase='fresh-expiry', status=409, code='review_expired')
@@ -1446,7 +1501,7 @@ def _():
     check(get(h, PROJECT + '/' + old_parent['flow_id'])['state'] == 'invalidated', 'ordinary restart did not detach old parent')
     for local in (h, f['b']):
         advance_to(local, parse_time(f['prepared']['request']['expires_at']) + timedelta(seconds=1))
-    retired_expired_helper(h)
+    retired_expired_helper(h, phase='retained-history')
     quiet(f); receipt = intent(h, f['prepared']['consent']['consent_id']); owner = intent(h, f['prepared']['consent']['review']['intent_id'])
     for action in ('signing', 'sign'):
         for cli in (False, True):
@@ -1468,7 +1523,7 @@ def _():
         quiet(f); before, counters = whole(f), traffic(f)
         status, value = raw_post(h, action, maximum)
         check(status == 200, f'exact64KiB {action} HTTP {status}'); validate_signing(f, value)
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=100 if action == 'sign' else 8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=100 if action == 'sign' else 8)
         check(result.ok and result.json['signing'] == value['signing'], 'exact64KiB private CLI parity')
         malformed = [b'null', b'[]', b'{', raw + b'{}', maximum + b' ',
             raw.replace(b'"request_id":', b'"request_id":"link_' + b'0' * 64 + b'","request_id":'),

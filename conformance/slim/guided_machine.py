@@ -77,14 +77,14 @@ def digest(domain, value):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
     return matches[0]
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -139,18 +139,18 @@ def statement_id(envelope):
     return 'ds_' + hashlib.sha256(message.encode()).hexdigest()
 
 def intent_rows(h, rid, kind):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return [(row[0], json.loads(row[1]), row[2]) for row in db.execute(
             "SELECT intent_id,record,secret FROM dec_intents WHERE kind=? AND json_extract(record,'$.operation_id')=? ORDER BY intent_id", (kind, rid))]
 
 def load_intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'exact metadata/ordinary intent vanished')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
 
 def coherent(f, consent):
-    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db, db:
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db, db:
         db.execute('BEGIN')
         records = [db.execute('SELECT record FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
                    for iid in (consent['consent_id'], consent['review']['intent_id'])]
@@ -392,7 +392,7 @@ def validate_consent(f, value):
     no_original(f); public(value, *f['secrets'])
 
 def operation(h, rid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         rows = db.execute('SELECT network_id,context_id,activation_id,manifest_id,record,locally_applied '
                           'FROM dec_operations WHERE request_id=?', (rid,)).fetchall()
     check(len(rows) <= 1, 'multiple local applications for one genuine request')
@@ -403,7 +403,7 @@ def operation(h, rid):
                 record=json.loads(row[4]), locally_applied=row[5])
 
 def network_anchor(f):
-    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT record FROM dec_clock WHERE network_id=?', (f['network']['id'],)).fetchone()
     check(row is not None, 'target-network retained clock anchor missing')
     record = json.loads(row[0])
@@ -508,7 +508,7 @@ def application_proof(f, value, h):
           'application did not atomically retain outcome/retire pairing secret')
     check([v['id'] for v in get(b, '/v2/networks')] == [f['network']['id']], 'application adopted another network')
     if h is b:
-        with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True, timeout=30)) as db:
             selected = db.execute('SELECT provider_kind,person_key,device_key,lease_id FROM dec_signers WHERE network_id=? AND context_id=?',
                 (f['network']['id'], f['network']['context_id'])).fetchall()
         check(selected == [('device', f['person'], review['device_public_key'], review['device_lease_id'])], 'application selected another device/provider')
@@ -678,7 +678,7 @@ def no_original(f):
 
 
 def rows(h, query, params=()):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return db.execute(query, params).fetchall()
 
 
@@ -949,7 +949,7 @@ def _():
     f.update(a=a, b=b, secrets=[])
     check(a.id != b.id and a.public_key != b.public_key and not a.original.exists() and not b.original.exists(),
           'genuine isolated fresh hosts/original prerequisite')
-    result = a.cli('network', 'create', 'Combined "東京" network', '--as', 'Existing "é" person', timeout=60)
+    result = a.cli('--json', 'network', 'create', 'Combined "東京" network', '--as', 'Existing "é" person', timeout=60)
     check(result.code == 0 and type(result.json) is dict, 'ordinary local network creation failed')
     net = result.json
     check(net['id'] == 'net_' + hashlib.sha256(base64.b64decode(net['genesis_root_public_key'], validate=True)).hexdigest()
@@ -1102,7 +1102,7 @@ def _():
     validate_completion(f, completed)
     f['completion'] = completed
     # Fresh private CLI Lookup; no repeated mutation and no replacement project.
-    lookup = b.cli('onboarding', 'join', 'machine-commit', 'lookup', '--stdin',
+    lookup = b.cli('--json', 'onboarding', 'join', 'machine-commit', 'lookup', '--stdin',
         input=compact({'flow_id': f['flow']['flow_id'], **body}).decode(), timeout=5)
     check(lookup.code == 0, 'fresh pure CLI consent Lookup failed after lost200')
     public(lookup.stdout + lookup.stderr, *f['secrets'])

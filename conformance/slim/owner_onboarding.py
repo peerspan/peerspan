@@ -74,7 +74,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -82,7 +82,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -202,14 +202,14 @@ def payload(flow, owner=None):
 
 
 def intent(h, intent_id):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (intent_id,)).fetchone()
     check(row is not None, "review references no ordinary durable intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]), "secret": row[4]}
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -441,7 +441,7 @@ def _():
     approved = owner(h, flow, "approve", prepared)
     check(approved["owner"]["state"] == "approved" and approved["owner"]["review"]["intent_id"] == iid,
           "exact retry after rollback did not approve original intention")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         count = db.execute("SELECT count(*) FROM dec_intents WHERE kind='owner'").fetchone()[0]
     check(count == 1, "rollback/retry created duplicate ordinary owner intentions")
 
@@ -455,7 +455,7 @@ def _():
         if action != "approve":
             actual, response = raw_post(h, path(flow, action), maximum)
             check(actual == 200 and response["owner"] == prepared["owner"], f"{action} exact64KiB API boundary")
-            result = h.cli("onboarding", "join", "owner", action, "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **body}), timeout=10)
+            result = h.cli("--json", "onboarding", "join", "owner", action, "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **body}), timeout=10)
             check(result.ok and result.json["owner"] == prepared["owner"], f"literal private CLI {action} parity"); public(result.stdout)
         context_json = compact(body["context"])
         duplicate = b'{"context":' + context_json + b',"context":' + context_json + encoded[1 + len(b'"context":') + len(context_json):]
@@ -487,7 +487,7 @@ def _():
         check(not result.ok, f"CLI {action} consumed stdin without --stdin"); public(result.stdout + result.stderr)
     # Exact CLI byte ceiling includes its extra flow_id field.
     cli_body = compact({"flow_id": flow["flow_id"], **payload(flow)})
-    result = h.cli("onboarding", "join", "owner", "prepare", "--stdin", input=(cli_body + b" " * (65536 - len(cli_body))).decode(), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "owner", "prepare", "--stdin", input=(cli_body + b" " * (65536 - len(cli_body))).decode(), timeout=10)
     check(result.ok and result.json["owner"] == prepared["owner"], "private CLI exact64KiB ceiling")
     other_flow = {**flow, "flow_id": "flow_" + "0" * 32}
     for action in ("prepare", "lookup", "approve"):
@@ -523,7 +523,7 @@ def _():
                 response = http.client.HTTPResponse(stream); response.begin(); response.read()
                 check(response.status == 404, f"bootstrap exposed owner {action}: HTTP {response.status}")
     # Approval still needs its explicit private CLI action and exact digest.
-    result = h.cli("onboarding", "join", "owner", "approve", "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **payload(flow, prepared)}), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "owner", "approve", "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **payload(flow, prepared)}), timeout=10)
     check(result.ok and result.json["owner"]["state"] == "approved", "private CLI exact approval failed"); validate(h, flow, result.json)
     public(result.stdout, source()["code"], adapter.token)
     missing = suite.host("no-daemon", start=False); before = private_files(missing.root)

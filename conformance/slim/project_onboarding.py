@@ -124,7 +124,7 @@ def db_path(host):
     # ancillary stores may also use .db files in the same private directory.
     matches = []
     for path in sorted(host.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one host database containing the networks table")
@@ -132,7 +132,7 @@ def db_path(host):
 
 
 def records(host, *, omit_flow=False):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -145,7 +145,7 @@ def records(host, *, omit_flow=False):
 
 
 def flow_rows(host):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM onboarding_project_flows ORDER BY flow_id")]
 
@@ -439,7 +439,7 @@ def _():
         check(type(value["version"]) is int and value["version"] == 1 and value["host_id"] == a.id
               and value["context"] == context, "lookup did not preserve the exact private host/context")
         check(value["flow"] == expected and value["agents"] == get(a, "/v1/agents"), "lookup picked the wrong flow/agent list")
-        cli = a.cli("onboarding", "project", "lookup", "--stdin", input=json.dumps(context))
+        cli = a.cli("--json", "onboarding", "project", "lookup", "--stdin", input=json.dumps(context))
         check(cli.ok and cli.json == value, "lookup CLI differs from its owner API")
         check(records(a) == before, "context lookup changed consent, expiry, activity or logical records")
         return value
@@ -509,14 +509,14 @@ def _():
 @suite.case("cli_stdin_validation_and_unavailable_daemon", "guided onboarding 3 verification 7; 4 verification 7")
 def _():
     body = proposal("cli-private", native="native-cli-private-marker")
-    made = a.cli("onboarding", "project", "prepare", "--stdin", input=json.dumps(body))
+    made = a.cli("--json", "onboarding", "project", "prepare", "--stdin", input=json.dumps(body))
     check(made.ok and made.json, "CLI prepare from explicit bounded stdin failed")
     flow = made.json
     validate(a, body, flow)
     check(get(a, BASE + "/" + flow["flow_id"]) == flow, "CLI prepare differs from owner API")
     check(a.ok("onboarding", "project", "inspect", flow["flow_id"]) == flow, "CLI inspect differs from owner API")
     payload = {"flow_id": flow["flow_id"], **decision(flow, "decline")}
-    decided = a.cli("onboarding", "project", "decide", "--stdin", input=json.dumps(payload))
+    decided = a.cli("--json", "onboarding", "project", "decide", "--stdin", input=json.dumps(payload))
     check(decided.ok and decided.json == get(a, BASE + "/" + flow["flow_id"]), "CLI decision differs from owner API")
     before = records(a)
     for command in ("prepare", "decide"):
@@ -634,7 +634,7 @@ def _():
     identity, activity = get(source, "/v1/host"), events(source)
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute("PRAGMA table_info(onboarding_project_flows)"))
         foreign = list(db.execute("PRAGMA foreign_key_list(onboarding_project_flows)"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema-24 flow columns/types")
@@ -658,7 +658,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
+    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
           and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not create empty schema-24/25/26/27 flow tables")
     check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES)}

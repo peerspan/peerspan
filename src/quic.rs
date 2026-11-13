@@ -71,6 +71,9 @@ const SERVER_NAME: &str = "peerspan-peer";
 const CID_LENGTH: usize = 4;
 /// A direct attempt is bounded so a relay fallback still fits the request bound.
 const DIRECT_HANDSHAKE: Duration = Duration::from_secs(2);
+/// A peer's direct addresses dialed together: its chosen address and at most
+/// seven more of its signed ones.
+const MAX_DIRECT_ADDRESSES: usize = 8;
 const RELAY_READY: Duration = Duration::from_secs(2);
 const RELAY_REFRESH: Duration = Duration::from_secs(5);
 /// Connection setup (direct attempt, relay readiness, and handshake) fits in
@@ -385,13 +388,16 @@ impl Transport {
                 .ok_or_else(|| anyhow::anyhow!("peer request bound exhausted"))
         };
         let mut failure = None;
-        if let Some(direct) = paths.direct {
+        if !paths.direct.is_empty() {
             let bound = if !paths.relays.is_empty() {
                 DIRECT_HANDSHAKE
             } else {
                 HANDSHAKE
             };
-            match self.dial(store, peer, key, direct, remaining(bound)?).await {
+            match self
+                .dial(store, peer, key, &paths.direct, remaining(bound)?)
+                .await
+            {
                 Ok(connection) => return Ok(connection),
                 Err(error) => failure = Some(error),
             }
@@ -412,7 +418,13 @@ impl Transport {
                 continue;
             }
             match self
-                .dial(store, peer, key, *synthetic, remaining(HANDSHAKE)?)
+                .dial(
+                    store,
+                    peer,
+                    key,
+                    std::slice::from_ref(synthetic),
+                    remaining(HANDSHAKE)?,
+                )
                 .await
             {
                 Ok(connection) => return Ok(connection),
@@ -421,26 +433,57 @@ impl Transport {
         }
         Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")))
     }
+    /// Dials every address at once and keeps the first pinned handshake that
+    /// completes; the others are abandoned. Each attempt has the same bound.
     async fn dial(
         &self,
         store: &Arc<Store>,
         peer: &Peer,
         key: &[u8],
-        address: SocketAddr,
+        addresses: &[SocketAddr],
         bound: Duration,
     ) -> anyhow::Result<Connection> {
         let mut config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(
             client_config(store.clone(), peer)?,
         )?));
         config.transport_config(transport_config());
-        let connecting = self.endpoint.connect_with(config, address, SERVER_NAME)?;
-        let connection = tokio::time::timeout(bound, connecting)
-            .await
-            .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
-        if negotiated(&connection).as_deref() != Some(ALPN) {
-            connection.close(VarInt::from_u32(1), b"alpn");
-            anyhow::bail!("peer did not negotiate {}", String::from_utf8_lossy(ALPN));
+        let mut attempts = JoinSet::new();
+        let mut failure = None;
+        for &address in addresses {
+            let connecting = match self
+                .endpoint
+                .connect_with(config.clone(), address, SERVER_NAME)
+            {
+                Ok(connecting) => connecting,
+                Err(error) => {
+                    failure = Some(anyhow::Error::from(error));
+                    continue;
+                }
+            };
+            attempts.spawn(async move {
+                let connection = tokio::time::timeout(bound, connecting)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
+                if negotiated(&connection).as_deref() != Some(ALPN) {
+                    connection.close(VarInt::from_u32(1), b"alpn");
+                    anyhow::bail!("peer did not negotiate {}", String::from_utf8_lossy(ALPN));
+                }
+                Ok((address, connection))
+            });
         }
+        let (address, connection) = loop {
+            match attempts.join_next().await {
+                Some(Ok(Ok(connected))) => break connected,
+                Some(Ok(Err(error))) => failure = Some(error),
+                Some(Err(error)) => failure = Some(error.into()),
+                None => {
+                    return Err(
+                        failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address"))
+                    );
+                }
+            }
+        };
+        attempts.abort_all();
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(
                 peer.id.clone(),
@@ -484,6 +527,7 @@ pub(crate) async fn request(
     let out = request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
@@ -507,10 +551,35 @@ pub(crate) async fn request_direct(
     request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
         true,
+        ContactLearning::Allow,
+    )
+    .await
+}
+/// `request` to a member at all of `addresses` (the endpoints of one signed
+/// target) dialed together with its other signed addresses, so one address
+/// that drops packets never holds the request while another answers
+/// (runtime contract: a member's signed QUIC addresses are dialed together).
+pub(crate) async fn request_any(
+    store: Arc<Store>,
+    peer: &Peer,
+    addresses: &[SocketAddr],
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    request_on(
+        store,
+        peer,
+        addresses,
+        method,
+        path,
+        body,
+        false,
         ContactLearning::Allow,
     )
     .await
@@ -526,6 +595,7 @@ pub(crate) async fn request_current_routes(
     request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
@@ -659,14 +729,22 @@ pub(crate) async fn completion_request(
                 continue;
             };
             transport.relays.route(&host, &helper);
-            let connected =
-                transport
-                    .endpoint
-                    .connect_with(config.clone(), address.into(), SERVER_NAME)?;
-            if let Ok(Ok(connection)) = tokio::time::timeout(HANDSHAKE, connected).await {
+            for attempt in 0..RELAY_REFUSED_ATTEMPTS {
+                if attempt > 0 {
+                    tokio::time::sleep(refused_pause(attempt)).await;
+                }
+                let connected =
+                    transport
+                        .endpoint
+                        .connect_with(config.clone(), address.into(), SERVER_NAME)?;
+                let connection = match tokio::time::timeout(HANDSHAKE, connected).await {
+                    Ok(Ok(connection)) => connection,
+                    Ok(Err(error)) if refused(&error) => continue,
+                    _ => break,
+                };
                 if negotiated(&connection).as_deref() != Some(COMPLETION_ALPN) {
                     connection.close(1u32.into(), b"alpn");
-                    continue;
+                    break;
                 }
                 let Some(_route) =
                     transport
@@ -674,11 +752,12 @@ pub(crate) async fn completion_request(
                         .outgoing_completion(&store, address.into(), &key)
                 else {
                     connection.close(1u32.into(), b"identity");
-                    continue;
+                    break;
                 };
                 if let Ok(response) = exchange(connection, body.clone()).await {
                     return Ok(response);
                 }
+                break;
             }
             transport.relays.retire_completion(&store, &host);
         }
@@ -697,9 +776,12 @@ pub(crate) async fn completion_request(
 }
 /// One fresh proof-repair connection, never reused for ordinary peer work.
 /// The caller checks the remembered context pin before requesting public bytes.
+/// Every address in `addresses` (at most eight) is dialed together and the
+/// first pinned repair handshake that completes is used.
 pub(crate) async fn request_repair(
     store: Arc<Store>,
     peer: &Peer,
+    addresses: &[SocketAddr],
     path: &str,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -708,23 +790,52 @@ pub(crate) async fn request_repair(
         crate::peer::pinned_client_config(store, key, crate::decentralized::peer::REPAIR_ALPN)?,
     )?));
     config.transport_config(transport_config());
-    let connecting = transport
-        .endpoint
-        .connect_with(config, peer.address.parse()?, SERVER_NAME)?;
-    let connection = tokio::time::timeout(Duration::from_secs(5), connecting).await??;
-    if negotiated(&connection).as_deref() != Some(crate::decentralized::peer::REPAIR_ALPN) {
-        connection.close(VarInt::from_u32(1), b"alpn");
-        anyhow::bail!("peer did not negotiate proof repair");
+    let mut attempts = JoinSet::new();
+    let mut failure = None;
+    for &address in addresses.iter().take(MAX_DIRECT_ADDRESSES) {
+        let connecting = match transport
+            .endpoint
+            .connect_with(config.clone(), address, SERVER_NAME)
+        {
+            Ok(connecting) => connecting,
+            Err(error) => {
+                failure = Some(anyhow::Error::from(error));
+                continue;
+            }
+        };
+        attempts.spawn(async move {
+            let connection = tokio::time::timeout(Duration::from_secs(5), connecting)
+                .await
+                .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
+            if negotiated(&connection).as_deref() != Some(crate::decentralized::peer::REPAIR_ALPN) {
+                connection.close(VarInt::from_u32(1), b"alpn");
+                anyhow::bail!("peer did not negotiate proof repair");
+            }
+            Ok(connection)
+        });
     }
+    let connection = loop {
+        match attempts.join_next().await {
+            Some(Ok(Ok(connection))) => break connection,
+            Some(Ok(Err(error))) => failure = Some(error),
+            Some(Err(error)) => failure = Some(error.into()),
+            None => {
+                return Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")));
+            }
+        }
+    };
+    attempts.abort_all();
     let result = exchange(&connection, "GET", path, b"")
         .await
         .map_err(|e| e.error);
     connection.close(VarInt::from_u32(0), b"repair complete");
     result
 }
+#[allow(clippy::too_many_arguments)]
 async fn request_on(
     store: Arc<Store>,
     peer: &Peer,
+    extra: &[SocketAddr],
     method: &str,
     path: &str,
     body: &[u8],
@@ -738,9 +849,17 @@ async fn request_on(
         ContactLearning::Disabled => (None, paths(&store, &transport, peer).await?),
     };
     let peer = learned.as_ref().unwrap_or(peer);
+    for address in extra.iter().map(|a| crate::disco::normalize(*a)) {
+        if paths.direct.len() >= MAX_DIRECT_ADDRESSES {
+            break;
+        }
+        if !paths.direct.contains(&address) {
+            paths.direct.push(address);
+        }
+    }
     if direct_only {
         paths.relays.clear();
-        if paths.direct.is_none() {
+        if paths.direct.is_empty() {
             anyhow::bail!("peer has no direct address");
         }
     }
@@ -790,6 +909,24 @@ impl std::fmt::Display for Unauthenticated {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("peer refused this host's authentication")
     }
+}
+/// A relayed participant that has not admitted this host yet holds one
+/// provisional route for it, and another connection from this host (such as
+/// ordinary sync) can claim it first. That connection is rejected within
+/// milliseconds and the route is freed, so a refused completion handshake is
+/// retried a few times, still inside the 30-second completion bound.
+const RELAY_REFUSED_ATTEMPTS: u32 = 4;
+/// About 100 ms times the attempt number, with up to 100 ms of jitter so a
+/// retry does not land on the same tick as this host's other relayed traffic.
+fn refused_pause(attempt: u32) -> Duration {
+    let mut jitter = [0u8; 1];
+    let _ = getrandom::fill(&mut jitter);
+    Duration::from_millis(100 * u64::from(attempt) + u64::from(jitter[0]) * 100 / 255)
+}
+/// Whether the server refused the connection before its handshake began.
+fn refused(error: &quinn::ConnectionError) -> bool {
+    matches!(error, quinn::ConnectionError::ConnectionClosed(close)
+        if close.error_code == quinn::TransportErrorCode::CONNECTION_REFUSED)
 }
 /// Whether a QUIC connection closed with a TLS (crypto) error, either side.
 fn crypto_close(error: &quinn::ConnectionError) -> bool {
@@ -935,16 +1072,17 @@ async fn open_download(connection: &Connection, path: &str) -> Result<Download, 
         recv,
     })
 }
-/// Where a peer can be reached: its direct UDP address, and the relay of the
-/// lowest-ID network both hosts belong to with the peer's synthetic address.
+/// Where a peer can be reached: its direct UDP addresses, dialed together, and
+/// the relays with the peer's synthetic address.
 struct Paths {
-    direct: Option<SocketAddr>,
+    direct: Vec<SocketAddr>,
     relays: Vec<(Coordinator, SocketAddr)>,
 }
 impl Paths {
     fn all(&self) -> Vec<SocketAddr> {
         self.direct
-            .into_iter()
+            .iter()
+            .copied()
             .chain(self.relays.iter().map(|(_, a)| *a))
             .collect()
     }
@@ -1051,11 +1189,24 @@ fn learn_contact(
     })
 }
 async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow::Result<Paths> {
-    let direct = if peer.address.is_empty() {
-        None
-    } else {
-        Some(peer.address.parse()?)
-    };
+    let mut direct: Vec<SocketAddr> = Vec::new();
+    if !peer.address.is_empty() {
+        direct.push(crate::disco::normalize(peer.address.parse()?));
+        // The member's other signed addresses; the chosen one may be a private
+        // or bridge address this host cannot reach.
+        let id = peer.id.clone();
+        let others = blocking(store.clone(), move |s| s.product_dial_addresses(&id))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        for address in others {
+            if direct.len() >= MAX_DIRECT_ADDRESSES {
+                break;
+            }
+            if !direct.contains(&address) {
+                direct.push(address);
+            }
+        }
+    }
     let id = peer.id.clone();
     let coordinator = if cfg!(test) {
         blocking(store.clone(), move |s| s.relay_coordinator(&id))
@@ -1087,7 +1238,7 @@ async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow
                 .map(|endpoint| (endpoint, SocketAddr::V4(synthetic))),
         );
     }
-    if direct.is_none() && relays.is_empty() {
+    if direct.is_empty() && relays.is_empty() {
         anyhow::bail!("peer has no dial address or shared relay");
     }
     Ok(Paths { direct, relays })

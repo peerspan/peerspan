@@ -202,8 +202,12 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
     if !display && let Some(o) = v.as_object_mut() {
         o.remove("display_code");
     }
-    if v.is_array() {
-        println!("{}", serde_json::to_string_pretty(&v)?);
+    if let Some(items) = v.as_array() {
+        if crate::output::json() {
+            println!("{}", serde_json::to_string_pretty(&v)?);
+        } else {
+            println!("{}", crate::output::link_views(items));
+        }
         return Ok(());
     }
     // `join` adds its trust answer (CLI output, not part of the daemon view).
@@ -213,11 +217,40 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
         o.remove("trusted_error");
     }
     view(&checked)?;
-    println!("{}", serde_json::to_string_pretty(&v)?);
-    if v["state"] != "linked" {
-        bail!("linking is incomplete; follow the returned next step");
+    if crate::output::json() {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{}", crate::output::link_view(&v));
     }
+    if v["state"] == "linked" {
+        return Ok(());
+    }
+    let next: Vec<&str> = v["next"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    for line in &next {
+        eprintln!("Next: {line}");
+    }
+    // ML-3: a step still due on this machine, or a request that can no longer
+    // complete, exits nonzero; a request that only waits on another
+    // participant or machine means this machine's part is done.
+    let terminal = matches!(
+        v["state"].as_str(),
+        Some("cancelled" | "expired" | "blocked")
+    );
+    if terminal || next.is_empty() || next.iter().any(|line| due_here(line)) {
+        bail!("linking is incomplete; the next step above is due on this machine");
+    }
+    eprintln!("This machine's part is done; the request now waits on another machine.");
     Ok(())
+}
+/// Whether a `next` line (see `requests::next_steps`) names a step a person
+/// still has to take on this machine.
+pub(crate) fn due_here(line: &str) -> bool {
+    line.contains(", on this machine: ") && !line.contains("runs automatically")
 }
 async fn confirm(question: &str) -> Result<bool> {
     Ok(matches!(
@@ -246,12 +279,26 @@ async fn private_code(stdin: bool) -> Result<String> {
     );
     Ok(value)
 }
-fn describe(review: &Value) -> Result<()> {
+/// Prints the review before its prompt: a summary, or the object with
+/// `--json` (docs/cli-output-contract.md section 2.1, ML-5).
+async fn describe(local: &Local<'_>, review: &Value) -> Result<()> {
     shape(
         review,
         "stage network_id context_id person_id person_public_key host_public_key device_public_key root_state_id provider owner_offer_id selection_id administrator_offer_id person_lease_id host_lease_id binding_lease_id device_lease_id scopes not_after authority_warning",
     )?;
-    eprintln!("{}", serde_json::to_string_pretty(review)?);
+    if crate::output::json() {
+        eprintln!("{}", serde_json::to_string_pretty(review)?);
+        return Ok(());
+    }
+    // A joining machine does not know the network yet; it shows the ID only.
+    let networks = local.get("/v2/networks".into()).await.unwrap_or_default();
+    let name = networks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|n| n["id"] == review["network_id"])
+        .and_then(|n| n["name"].as_str());
+    eprintln!("{}", crate::output::review(review, name));
     Ok(())
 }
 fn pins(r: &Value, approve: bool) -> Value {
@@ -668,7 +715,20 @@ pub async fn resume(
     }
     guide(socket, v, interactive).await
 }
-pub(crate) async fn guide(socket: &Path, mut v: Value, interactive: bool) -> Result<Value> {
+pub(crate) async fn guide(socket: &Path, v: Value, interactive: bool) -> Result<Value> {
+    guide_join(socket, v, interactive, None).await
+}
+/// `guide`, for a person joining from their own original machine: owner
+/// finalization is part of the owner's own approval on this machine (spec 8.3,
+/// quick start step 4), so when it is due it is signed here with that person's
+/// key (`join_key`: the selected `--person-key`, or the discovered original).
+pub(crate) async fn guide_join(
+    socket: &Path,
+    mut v: Value,
+    interactive: bool,
+    join_key: Option<Option<PathBuf>>,
+) -> Result<Value> {
+    let mut finalize_tried = false;
     view(&v)?;
     let code = v.get("display_code").cloned();
     if let Some(code) = code.as_ref().and_then(Value::as_str) {
@@ -697,7 +757,7 @@ pub(crate) async fn guide(socket: &Path, mut v: Value, interactive: bool) -> Res
                 }
                 let route = format!("{path}/{}", if commit { "commit" } else { "selection" });
                 let preview = local.post(route.clone(), body).await?;
-                describe(&preview["review"])?;
+                describe(&local, &preview["review"]).await?;
                 if !confirm(if commit {
                     "Commit this exact machine link? [y/N]"
                 } else {
@@ -720,6 +780,44 @@ pub(crate) async fn guide(socket: &Path, mut v: Value, interactive: bool) -> Res
                         preview["request"]["owner_finalization_id"].clone();
                 }
                 v = request(&local.post(route, body).await?)?;
+            }
+            "needs_owner_finalization" if join_key.is_some() && !finalize_tried => {
+                finalize_tried = true;
+                let input = Consent {
+                    request_id: text(&v, "request_id")?.to_owned(),
+                    owner_offer: None,
+                    network: None,
+                    context: None,
+                    expect_person: None,
+                    expect_host_key: None,
+                    expect_device_key: None,
+                    selection: None,
+                    administrator_offer: None,
+                    owner_finalization: None,
+                    approve: true,
+                };
+                let keys = Keys {
+                    person_key: join_key.clone().flatten(),
+                    root_key: None,
+                };
+                match consent(socket, input, "finalization", Some(keys)).await {
+                    Ok(next) => v = next,
+                    Err(error) => {
+                        // A daemon that finalized under the same approval
+                        // first makes this a harmless conflict; any other
+                        // failure stops here instead of waiting to expiry.
+                        v = local.get(path.clone()).await?;
+                        view(&v)?;
+                        if v["state"] == "needs_owner_finalization"
+                            && v["owner_finalization_id"] == "-"
+                        {
+                            return Err(error.context(format!(
+                                "owner finalization was not signed; next: {}",
+                                v["next"]
+                            )));
+                        }
+                    }
+                }
             }
             _ => {
                 eprintln!("Linking: {}; next: {}", text(&v, "state")?, v["next"]);
@@ -847,17 +945,20 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         .signer
         .as_deref()
         .unwrap_or(if admin { "network_root" } else { "auto" });
-    let private = match (&input.request, input.code_stdin) {
+    // An explicit resume also reads a waiting administrator's carriers, so
+    // its view has the owner offer and selection that arrived (ML-6).
+    let (private, resumed) = match (&input.request, input.code_stdin) {
         (Some(id), false) => {
             let view = local
                 .post(format!("{}/resume", base(id)?), json!({}))
                 .await?;
-            view["display_code"]
+            let code = view["display_code"]
                 .as_str()
                 .context("this request's code is not here yet; enter it with --code-stdin")?
-                .to_owned()
+                .to_owned();
+            (code, Some(view))
         }
-        _ => private_code(input.code_stdin).await?,
+        _ => (private_code(input.code_stdin).await?, None),
     };
     let now = local_decision_time()?;
     let token = PairingToken::read(&private, &now)?;
@@ -922,10 +1023,13 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
             true,
         )
     };
-    let person = input
-        .person
-        .as_deref()
-        .unwrap_or(text(&n, "person_public_key")?);
+    // `link admit REQUEST_ID` admits the request's own person; the review
+    // below shows it before anything is signed.
+    let person = match (input.person.as_deref(), &resumed) {
+        (Some(person), _) => person,
+        (None, Some(view)) if admin => text(view, "person_public_key")?,
+        (None, _) => text(&n, "person_public_key")?,
+    };
     ensure!(
         key(person),
         "supply the exact target original person with --person"
@@ -983,12 +1087,31 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         "/v2/link/approvals"
     };
     if admin {
-        ensure!(
-            input.owner_offer.is_some() && input.selection.is_some(),
-            "administrator review needs --owner-offer and --selection"
-        );
-        body["owner_offer_id"] = json!(input.owner_offer);
-        body["selection_id"] = json!(input.selection);
+        // With a request ID and neither flag, take both from the request as
+        // just read (ML-6). Until they exist, this machine's step is not
+        // ready, so this exits nonzero (ML-3) and changes nothing.
+        let (offer, selection) = match (&input.owner_offer, &input.selection, &resumed) {
+            (Some(offer), Some(selection), _) => (offer.clone(), selection.clone()),
+            (None, None, Some(view)) => {
+                let id = text(view, "request_id")?;
+                let offer = text(view, "owner_offer_id")?;
+                let selection = text(view, "selection_id")?;
+                ensure!(
+                    offer != "-",
+                    "join request {id} has no owner offer on this machine yet: the joining person approves on their own machine, and the approval takes a few seconds to arrive here; run this again after they approve"
+                );
+                ensure!(
+                    selection != "-",
+                    "join request {id} still waits for the joining machine's selection of the owner offer to arrive here; run this again in a few seconds"
+                );
+                (offer.to_owned(), selection.to_owned())
+            }
+            _ => bail!(
+                "administrator review needs --owner-offer and --selection, or a request ID on this machine"
+            ),
+        };
+        body["owner_offer_id"] = json!(offer);
+        body["selection_id"] = json!(selection);
     } else {
         let mut provider = if pending {
             json!({"kind":"original_person","person_public_key":person,"scopes":0,"not_after":"-"})
@@ -1045,7 +1168,7 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         preview?
     };
     describe_shape(&result)?;
-    describe(&result["review"])?;
+    describe(&local, &result["review"]).await?;
     if input.approve || interactive && confirm("Approve this exact machine? (y/N)").await? {
         let prior = result["review"].clone();
         body["approve"] = json!(true);
@@ -1062,6 +1185,40 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         .await?;
     }
     request(&result)
+}
+/// The owner review of a new person's own join request, on the joining machine
+/// right after the identity choice (spec 8.1 step 5, ML-4): the same review as
+/// `link approve REQUEST_ID --network NETWORK_ID --person PERSON`, asked as
+/// "Approve this exact machine?". Without a terminal it previews only, and the
+/// request's `next` names the same step.
+pub(crate) async fn approve_own_join(
+    socket: &Path,
+    request_id: &str,
+    network: &str,
+    person: &str,
+    person_key: Option<PathBuf>,
+    interactive: bool,
+) -> Result<Value> {
+    let input = Approval {
+        request: Some(request_id.to_owned()),
+        network: network.to_owned(),
+        person: Some(person.to_owned()),
+        expect_host_key: None,
+        expect_device_key: None,
+        signer: None,
+        signature_format: "auto".into(),
+        scopes: None,
+        not_after: None,
+        owner_offer: None,
+        selection: None,
+        code_stdin: false,
+        approve: false,
+        keys: Keys {
+            person_key,
+            root_key: None,
+        },
+    };
+    approval(socket, input, false, interactive).await
 }
 async fn consent(socket: &Path, input: Consent, kind: &str, keys: Option<Keys>) -> Result<Value> {
     let local = Local(socket);
@@ -1090,7 +1247,7 @@ async fn consent(socket: &Path, input: Consent, kind: &str, keys: Option<Keys>) 
     body["approve"] = json!(false);
     let route = format!("{}/{kind}", base(&input.request_id)?);
     let mut result = local.post(route.clone(), body).await?;
-    describe(&result["review"])?;
+    describe(&local, &result["review"]).await?;
     if input.approve {
         let reviewed = result["review"].clone();
         let mut fixed = pins(&reviewed, true);

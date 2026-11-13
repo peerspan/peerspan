@@ -126,7 +126,7 @@ class Host:
 
     def cli(self, *args, body=None):
         try:
-            result = subprocess.run([str(self.executable), '--state', str(self.state), *args],
+            result = subprocess.run([str(self.executable), '--state', str(self.state), '--json', *args],
                 input=None if body is None else json.dumps(body), capture_output=True, text=True,
                 env=self.env, cwd=self.work, timeout=self.budget.timeout(5))
         except subprocess.TimeoutExpired:
@@ -637,7 +637,8 @@ import json, os, subprocess, sys
 REAL = REAL_LITERAL
 ATTEMPTS = ATTEMPTS_LITERAL
 args = sys.argv[1:]
-if len(args) >= 6 and args[-4:] == ['onboarding', 'project', 'decide', '--stdin']:
+words = [word for word in args if word != '--json']  # OUT-2: --json before or after the subcommand
+if len(words) >= 6 and words[-4:] == ['onboarding', 'project', 'decide', '--stdin']:
     first = not os.path.exists(ATTEMPTS)
     with open(ATTEMPTS, 'a') as log:
         log.write('attempt\\n')

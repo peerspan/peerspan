@@ -1,3 +1,11 @@
+/// This build's version: the release VERSION that `scripts/package-release.sh`
+/// passes in `PEERSPAN_RELEASE_VERSION`, or the crate version with `-dev` for
+/// any other build.
+pub const VERSION: &str = match option_env!("PEERSPAN_RELEASE_VERSION") {
+    Some(version) => version,
+    None => concat!(env!("CARGO_PKG_VERSION"), "-dev"),
+};
+
 pub mod adapter;
 pub mod adapter_connection;
 pub mod adapter_outbound;
@@ -62,6 +70,7 @@ pub mod relay;
 pub mod remote;
 pub mod retry;
 pub mod runtime;
+pub mod runtime_agent;
 pub mod runtime_task;
 pub mod sources;
 pub mod status;

@@ -70,7 +70,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one actual host database")
@@ -78,7 +78,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -93,7 +93,7 @@ def without(value, *keys):
 
 
 def rows(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute(f"SELECT * FROM {TABLE} ORDER BY flow_id")]
 
@@ -504,19 +504,19 @@ def _():
     network = create_network(h, "cli", "owner")
     parent = project(h, "cli-private")
     body = proposal(parent, network)
-    empty = h.cli("onboarding", "invitation", "lookup", "--stdin", input=json.dumps({"context": context(parent)}))
+    empty = h.cli("--json", "onboarding", "invitation", "lookup", "--stdin", input=json.dumps({"context": context(parent)}))
     check(empty.ok and empty.json["flow"] is None, "CLI lookup did not preserve exact null view")
-    made = h.cli("onboarding", "invitation", "prepare", "--stdin", input=json.dumps(body))
+    made = h.cli("--json", "onboarding", "invitation", "prepare", "--stdin", input=json.dumps(body))
     check(made.ok, "CLI prepare failed")
     flow = made.json
     validate(h, parent, network, flow)
-    check(h.cli("onboarding", "invitation", "inspect", flow["flow_id"]).json == flow, "CLI inspect parity")
+    check(h.cli("--json", "onboarding", "invitation", "inspect", flow["flow_id"]).json == flow, "CLI inspect parity")
     decision_body = {"flow_id": flow["flow_id"], **decision(flow)}
-    result = h.cli("onboarding", "invitation", "decide", "--stdin", input=json.dumps(decision_body))
+    result = h.cli("--json", "onboarding", "invitation", "decide", "--stdin", input=json.dumps(decision_body))
     check(result.ok and result.json["state"] == "issued", "CLI exact approval failed")
     issued = result.json
     private_body = without(decision_body, "decision")
-    private = h.cli("onboarding", "invitation", "handoff", "--stdin", input=json.dumps(private_body))
+    private = h.cli("--json", "onboarding", "invitation", "handoff", "--stdin", input=json.dumps(private_body))
     check(private.ok and private.json == handoff(h, issued), "CLI private handoff parity")
     token = private.json["invitation"]
     inputs = {"lookup": {"context": context(parent)}, "prepare": body, "decide": decision_body, "handoff": private_body}
@@ -524,7 +524,7 @@ def _():
     for command, payload in inputs.items():
         encoded = json.dumps(payload)
         exact_bound = " " * (65536 - len(encoded.encode())) + encoded
-        valid = h.cli("onboarding", "invitation", command, "--stdin", input=exact_bound)
+        valid = h.cli("--json", "onboarding", "invitation", command, "--stdin", input=exact_bound)
         check(valid.ok, f"CLI {command} refused exact 64KiB input")
         if command != "handoff":
             public(valid.json, token)
@@ -626,7 +626,7 @@ def _():
     identity, activity = get(source, "/v1/host"), get(source, "/v1/activity?limit=1000")
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute(f"PRAGMA table_info({TABLE})"))
         foreign = list(db.execute(f"PRAGMA foreign_key_list({TABLE})"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema26 ordered TEXT columns")
@@ -647,7 +647,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),
@@ -926,7 +926,7 @@ def _():
     body = {"context": context(parent), "invitation": code}
     before = state_snapshot(h)
     exact = json.dumps(body); exact = " " * (65536 - len(exact.encode())) + exact
-    result = h.cli("onboarding", "invitation", "preview", "--stdin", input=exact)
+    result = h.cli("--json", "onboarding", "invitation", "preview", "--stdin", input=exact)
     check(result.ok and result.json == preview(h, parent, code), "private preview CLI/API parity at64KiB")
     public(result.json, code)
     for data in ('null', json.dumps(body) + ' {}', '{"context":null,' + json.dumps(body)[1:],

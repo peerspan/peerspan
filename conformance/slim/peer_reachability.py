@@ -45,7 +45,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import exchange_current_contacts, peer_address, peer_request
+from counted_peer import exchange_current_contacts, peer_address, peer_request, refresh_then_quiet
 
 suite = Suite("peer_reachability", __doc__)
 BASE = "/v1/onboarding/reachability"
@@ -261,7 +261,7 @@ def validate(h, parent, net, person, value, bounds):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
@@ -271,7 +271,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -305,7 +305,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -359,7 +359,7 @@ def current_contacts(f, window_seconds):
         net = get(local, "/v2/networks/" + f["net"])
         check(net["authority"]["state"] == "usable", "pure readiness fixture lacks current authority")
         for remote in (f["a"], f["b"]):
-            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
                 row = db.execute("SELECT sequence,record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
                     (f["net"], net["context_id"], remote.public_key)).fetchone()
             check(row is not None, "pure fixture lacks retained bound current signed contact")
@@ -769,7 +769,7 @@ def restart_project(f):
 
 def outboxes_empty(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_outbox").fetchone()[0]:
                 return False
     return True
@@ -830,7 +830,7 @@ def world():
     rid = join_new_person(a, b, "bob", key, net["id"])
     bounds = []
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             bounds.extend(row[0] for row in db.execute("SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     state.update(a=a, b=b, net=net["id"], alice=net["person_public_key"], bob=ssh_public_base64(key),
         request_id=rid, request_deadline=get(b, "/v2/link/requests/" + rid)["expires_at"], invitation_bounds=bounds,
@@ -871,12 +871,12 @@ def world():
         local.restart()
     restart_project(state)
     current_contacts(state, 55)
-    for local in (a, b):
-        quiet(state, local, require_retirement=True)
+    refresh_then_quiet((a, b), (state["net"],), lambda: [quiet(state, local, require_retirement=True) for local in (a, b)],
+                       lambda: tuple(snapshot(local) for local in (a, b)))  # DIR-1
     before, counts = whole(state), traffic(state)
     observe(state, outcome="not_verified")
     began = b.now()
-    result = b.cli("onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
+    result = b.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
     check(result.ok, "bootstrap-only no-route private CLI failed")
     verify(state, state["pb"], request(state), result.json, (began, b.now()))
     check(result.json["reachability"]["result"] == "not_verified", "bootstrap-only request invented a usable peer route")
@@ -897,8 +897,8 @@ def world():
     current_contacts(state, 55)
     restart_project(state)
     state["pa"] = project(a, "target")
-    for local in (a, b):
-        quiet(state, local, require_retirement=True)
+    refresh_then_quiet((a, b), (state["net"],), lambda: [quiet(state, local, require_retirement=True) for local in (a, b)],
+                       lambda: tuple(snapshot(local) for local in (a, b)))  # DIR-1
     state["fresh_window"] = min(a.started_at, b.started_at)
     state["ready"] = True
     return state
@@ -933,7 +933,7 @@ def _():
     check(first["reachability"]["http_status"] == 200, "genuine authenticated receiver did not return200")
     selected_io(f, before)
     h = f["b"]; began = h.now()
-    result = h.cli("onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
+    result = h.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
     check(result.ok, "exact private reachability CLI failed")
     verify(f, f["pb"], request(f), result.json, (began, h.now()))
     check(result.json["reachability"]["result"] == "authenticated_response" and result.json["reachability"]["http_status"] == 200,
@@ -991,8 +991,8 @@ def _():
     for field, value in (("project_root", str(suite.work / "different-project")), ("native_session_id", "different-conversation"),
                          ("project_review_id", "review_" + "0" * 64)):
         refusals.append(({**body, "context": {**body["context"], field: value}}, 409, "review_changed"))
-    for local in (f["a"], h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], h)],
+                       lambda: tuple(snapshot(local) for local in (f["a"], h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for invalid, status, code in refusals:
         observe(f, body=invalid, status=status, code=code)
@@ -1013,8 +1013,8 @@ def _():
 @suite.case("actual_dispatched_counted_exchange_rechecks_detached_parent_without_lock_or_rebind", "guided38 verification4")
 def _():
     f = world(); h, target = f["b"], f["a"]
-    for local in (target, h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((target, h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (target, h)],
+                       lambda: tuple(snapshot(local) for local in (target, h)))  # DIR-1
     old = f["pb"]; body = request(f); counts = traffic(f)
     generation = target.counted_peer.arm()
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -1045,13 +1045,13 @@ def _():
 def _():
     f = world(); h, target = f["b"], f["a"]
     check(f["no_route_pure"], "genuine no-current-route capture was omitted")
-    for local in (target, h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((target, h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (target, h)],
+                       lambda: tuple(snapshot(local) for local in (target, h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for _ in range(2):
         observe(f, outcome="authenticated_response")
     began = h.now()
-    result = h.cli("onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
+    result = h.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
     check(result.ok, "repeated private reachability read failed")
     verify(f, f["pb"], request(f), result.json, (began, h.now()))
     check(result.json["reachability"]["result"] == "authenticated_response", "repeat lost current pinned transport")
@@ -1088,8 +1088,8 @@ def _():
         invalid.append(compact({**body, **extra}))
     invalid.extend([compact({**body, "peer_host_id": "host_1"}), compact({**body, "network_id": "net_1"}),
         compact({**body, "person_public_key": "bad"}), compact({**body, "context": {**body["context"], "extra": "PRIVATE_INPUT"}})])
-    for local in (f["a"], h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], h)],
+                       lambda: tuple(snapshot(local) for local in (f["a"], h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for number, data in enumerate(invalid):
         status, denied = raw(h, data)

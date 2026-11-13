@@ -35,7 +35,8 @@ locally, are valid now.
 - **No quorum.** Ordinary work never waits for another host. A host that cannot
   reach anyone keeps working until its grants expire or it learns of a ban.
 - **Joining** uses an invite code. The new machine's request travels back to
-  the inviter by itself. One prompt on the new machine confirms the link.
+  the inviter by itself. On the new machine, a new person approves their own
+  machine and then confirms the link; an existing person only confirms it.
 - **Helpers are optional.** A helper is a small server that holds encrypted
   mailboxes and forwards encrypted packets. It cannot admit anyone, sign
   anything or read traffic. Nothing Peerspan operates is required.
@@ -455,9 +456,19 @@ expires.
    key is pinned by the invite's signature (DEC-Q25). If every path fails
    within one 30-second attempt, `join` prints the `psl2-` request code, which
    the user sends to the inviter by hand.
-5. **Approval.** The inviter's status shows `link_request_waiting`. The owner
-   and the admin review and approve it with `link approve REQUEST_ID` and `link
-   admit REQUEST_ID` (section 8.3).
+5. **Approval.** The owner and the admin review and approve it (section 8.3).
+   For a **new person**, the owner is the joining person, so `join` and `up
+   --join` show the owner review on the new machine right after the identity
+   choice and ask `Approve this exact machine? [y/N]` (ML-4). A yes signs the
+   owner offer there; there is no separate `link approve` for the joiner. The
+   command then keeps running: it waits for the admission, signs owner
+   finalization under that same approval, and asks the commit prompt, so the
+   joiner runs no other command. For an
+   **existing person**, the owner approves with `link approve REQUEST_ID` on one
+   of that person's machines. The inviter's status shows
+   `link_request_waiting`, naming whose step comes next and where (section 16).
+   The admin then runs the `link admit` command that status gives, which reads
+   the request's owner offer and selection itself (ML-6).
 6. **Commit.** The new machine shows everything it is about to accept and asks
    once: `Commit this exact machine link? [y/N]`.
 7. **Apply.** Each participant checks the complete request and applies it.
@@ -516,7 +527,10 @@ Each stage is a signed **packet** (appendix section 9).
 
 - The owner reviews with `peerspan link approve` (API `POST /v2/link/approvals`),
   given either the request ID of a request that arrived through the return path
-  or a request code.
+  or a request code. A new person's owner review runs inside `join` or `up
+  --join` on the new machine (section 8.1 step 5), using the same review and
+  the guided contract's owner preparation; the joiner never has to find a
+  request ID.
   For an admitted owner, scopes default to 15 capped by the owner's path. For a
   new person, the proposed scopes default to 7. The deadline defaults to the
   request's `created_at` plus 7 days, capped by every parent.
@@ -528,8 +542,11 @@ Each stage is a signed **packet** (appendix section 9).
 
 ### 8.4 Prompts on the new machine
 
-- **One prompt.** The only consent prompt is at commit: `Commit this exact
-  machine link? [y/N]`. Blank means no; only `y` or `yes` (any case) means yes.
+- **Prompts.** An existing person's machine has one consent prompt, at commit:
+  `Commit this exact machine link? [y/N]`. A new person's machine has two: the
+  owner review, `Approve this exact machine? [y/N]`, right after the identity
+  choice, and then the commit prompt (ML-4). Blank means no; only `y` or `yes`
+  (any case) means yes.
   The review shows the network, inviter, owner, person, admin, scopes,
   deadline and every grant being accepted.
 - **Selection** is signed without a prompt when exactly one valid owner offer
@@ -578,7 +595,9 @@ prompt. An expired device grant proves the key but signs nothing.
   erases the secret and frames and keeps a public tombstone.
 - **Limits**: 8 active and 4096 total requests per host (invite rows count only
   toward the 4096, DEC-Q32); 64 frames and 32 MiB of
-  ciphertext per request; 4096 outcomes per network.
+  ciphertext per request; 4096 outcomes per network; 64 carrier endpoints per
+  request, where endpoints past 64 that frames or this host's own contact
+  would add are left out, never refused (DEC-Q34).
 
 ## 9. Delivery paths
 
@@ -619,6 +638,9 @@ adds no authority, and a failed path leaves the request intact for another.
 - A host serves the same mailbox routes as a helper. A participant may host it.
 - The mailbox's lifetime equals the request window (DEC-Q1). At expiry or
   `DELETE` all ciphertext is erased and a small tombstone is kept for 24 hours.
+  The host erases an expired mailbox within 2 seconds of its expiry on the
+  host's clock, without waiting for a request, and that erasure is the host's
+  own maintenance, not part of any request ([MBX-1](decision-log.md)).
 - Limits: 64 frames per mailbox, 32 MiB ciphertext per mailbox, 4 active
   mailboxes per client host, 2 writes per second (burst 8), 1 read per second
   (burst 4).
@@ -704,7 +726,11 @@ helper is valid: then only direct paths are used.
   jitter. New outgoing records are tried at once and then every 2 seconds,
   backing off to 60 seconds. `POST /v2/networks/{id}/sync` (`peerspan network
   sync`) contacts known peers, 4 at a time, 5 seconds each, 30 seconds in total,
-  and returns what it learned and which peers were unreachable.
+  and returns what it learned and which peers were unreachable. It also
+  restarts that network's background interval: the next background sync of the
+  network comes at least 60 seconds after the explicit one, and other networks
+  keep their own schedule. Other syncs the daemon starts itself, such as a
+  send's contact-learning sync, do not count ([SYNC-1](decision-log.md#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10)).
 - **Repair.** A host whose grants lapsed can still fetch records from a peer
   that once admitted it and has not revoked it, on `peerspan-state-repair/1`,
   `GET /repair/v1/networks/{id}/catalog`, at most 1 request per second (burst
@@ -912,7 +938,22 @@ as legacy history.
   `network_state_conflict`, `network_clock_rollback`,
   `network_root_unreachable`, `person_device_signer_unavailable`, then
   `link_request_waiting`. Each gives the network, the cause and the
-  command to run. A clock rollback tells the user to fix the clock or wait;
+  command to run. `link_request_waiting` names whose step comes next and on
+  which machine, and gives a command only when that step runs on this host:
+  - on a host that can admit: `peerspan link admit REQUEST_ID --network
+    NETWORK_ID`, run as given. Until the request's owner offer and selection
+    arrive, the cause says it waits on the joining machine. An administrator
+    does not read the request's carriers before it acts (guided session
+    contract sections 20 to 22), so status cannot tell when they have arrived;
+    `link admit REQUEST_ID` reads them (an explicit `link resume` of such a
+    request reads its carriers) and takes the person, owner offer and
+    selection from the request. They travel through the request's carriers, so
+    they arrive a few seconds after the joiner approves. Before they arrive it
+    says whose step remains, changes nothing and exits nonzero (ML-6);
+  - an existing person's request without an owner offer, on a machine of that
+    person: `peerspan link approve REQUEST_ID --network NETWORK_ID`;
+  - otherwise the cause names whose step it is, with no command here. A clock
+    rollback tells the user to fix the clock or wait;
   there is no command to lower the stored time.
 - **Errors** are `{code,error,details:{network_id,context_id,request_id,stage,
   required_ids,conflict_ids,next}}` with the status codes in the appendix.
@@ -1028,6 +1069,7 @@ options are in the decision log. No question is open.
 | Q31 | A verifier finds a renewer's own grant as the current head of `device/PERSON/SIGNING_KEY`; no format change. | DEC-Q31 |
 | Q32 | Invite rows do not count toward the 8 active pending requests, only toward the 4096 total. | DEC-Q32 |
 | Q33 | Inside a request code still within its window, expired contacts are used as address hints. | DEC-Q33 |
+| Q34 | A request keeps at most 64 carrier endpoints; more are left out, never refused. | DEC-Q34 |
 
 ## 20. Verification
 
@@ -1136,18 +1178,28 @@ named, with no change to stored state other than the stored decision time.
 **Joining**
 
 28. Create, invite and join with the Rust CLI and daemon, no coordinator and
-    no helper; the joiner sees exactly one default-no
-    consent prompt, at commit; with a pinned key that exists locally there is
-    no identity choice.
+    no helper. A new person's joiner sees exactly two default-no consent
+    prompts, owner approval and then commit, and runs no other command. A
+    joiner whose pinned key exists locally has no identity choice. Neither
+    the inviter nor the joiner ever needs a request ID it was not shown.
 29. The request reaches the inviter without a code over a direct address, and
     through a helper when the inviter has no reachable address; the inviter's
-    status shows `link_request_waiting` and `link approve REQUEST_ID` works.
+    status shows `link_request_waiting`. For a new person it says the
+    request waits on the joining machine and gives `peerspan link admit
+    REQUEST_ID --network NETWORK_ID`. Run before the joiner approves, that
+    command says the request still waits on the joining machine, admits
+    nothing and exits nonzero, as it does in the few seconds the owner offer
+    and selection take to arrive; run as given after they arrive, it admits
+    the request (ML-6).
     With neither path, `join` prints a `psl2-` code within about 30 seconds and
     the manual path completes.
 30. An invite used 30 minutes after issue, whose contacts are past their own
     300-second expiry, still returns the request over the inviter's address.
     A direct-only `link` request code approved 9 minutes after it was made
     still delivers the owner offer over the requester's address.
+    Two hosts whose contacts each name 8 first-contact addresses (set with
+    `advertise_bootstrap`) link a second machine and join a new person to
+    completion; no step refuses with `quota_exceeded` (DEC-Q34).
 31. `network reinvite` for 20 old members on a host with 8 active join
     requests succeeds and every invite's return path works.
 32. An invite is accepted at `expires_at` − 1 second and refused at
@@ -1199,6 +1251,10 @@ named, with no change to stored state other than the stored decision time.
 47. A received catalog cannot erase a known ban, fork or high-water mark.
 48. A former member with expired grants fetches records on the repair ALPN; an
     unknown or revoked key gets nothing; repair grants nothing.
+48a. After `POST /v2/networks/{id}/sync`, the host sends no background sync of
+    that network for at least 50 seconds, counted on an opaque UDP carrier
+    while nothing else is owed (SYNC-1). Without another explicit sync,
+    background sync of that network resumes within the following 30 seconds.
 
 **Signing plans**
 

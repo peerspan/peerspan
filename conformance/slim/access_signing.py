@@ -46,7 +46,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, join_new_person,
                      parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("access_signing", __doc__)
 BASE = "/v1/onboarding/access-consent"
@@ -175,14 +175,14 @@ def current_policy(h, net, person):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
     return paths[0]
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -210,7 +210,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -265,7 +265,7 @@ def inspection(h, parent, network, person):
 
 def intent(h, iid):
     check(re.fullmatch(r"dint_[0-9a-f]{32}", iid), "noncanonical durable intent ID")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (iid,)).fetchone()
     check(row is not None, "receipt references no retained ordinary intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]), "secret": row[4]}
@@ -328,8 +328,10 @@ def directory(f):
         check(len(known) == 1 and known[0]["state"] == "ok", "current genuine peer startup query has not completed")
 
 def stable(f):
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    def both():
+        for local in (f["a"], f["b"]):
+            quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), both, lambda: whole(f))  # DIR-1
 
 def whole(f):
     return snapshot(f["a"]), snapshot(f["b"])
@@ -592,7 +594,7 @@ def world():
     exchange_current_contacts(suite, a, b, net["id"])
     bounds = []
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             bounds.extend(row[0] for row in db.execute("SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     check(bounds, "actual invitation retirement deadlines missing")
     state.update(a=a, b=b, net=net["id"], alice=net["person_public_key"], bob=ssh_public_base64(key), key=key,
@@ -796,7 +798,7 @@ def sign_exact(f, h, parent, prepared, *, cli=False, phase="device_signature"):
     stable(f)
     before, remote, counters = snapshot(h), snapshot(f["a"] if h is f["b"] else f["b"]), traffic(f)
     if cli:
-        result = h.cli("onboarding", "access", "sign", "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=True)).decode(), timeout=95)
+        result = h.cli("--json", "onboarding", "access", "sign", "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=True)).decode(), timeout=95)
         check(result.ok, "exact explicit private CLI policy signing failed")
         value = result.json; signing_view(h, parent, prepared, value); public(result.stderr)
     else:
@@ -830,7 +832,7 @@ def _():
     for command in ("signing", "sign"):
         check(pure_operation(f, h, parent, prepared, command)["signing"] == signed["signing"], "exact signed replay changed marker")
         stable(f); before, counters = whole(f), traffic(f)
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
         check(result.ok and result.json["signing"] == signed["signing"] and result.json["access"] == signed["access"], "private CLI exact signature observation/replay parity")
         signing_view(h, parent, prepared, result.json); public(result.stderr)
         strict_unchanged(f, before, counters, "pure_" + command)
@@ -1083,7 +1085,7 @@ def _():
         for command in ("signing", "sign"):
             value = operation(f, local, parent, prepared, command)
             check(value["access"] == signed["access"] and value["signing"] == signed["signing"], "historical API lost exact signed consent/slot")
-            result = local.cli("onboarding", "access", command, "--stdin", input=compact(signing_input(f, local, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
+            result = local.cli("--json", "onboarding", "access", command, "--stdin", input=compact(signing_input(f, local, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
             check(result.ok and result.json["access"] == signed["access"] and result.json["signing"] == signed["signing"], "historical private CLI changed exact signed marker")
             signing_view(local, parent, prepared, result.json); public(result.stderr)
         check((intent(local, prepared["access"]["access_id"]), intent(local, prepared["access"]["review"]["intent_id"])) == retained[name],
@@ -1103,7 +1105,7 @@ def _():
         encoded = compact(data); maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["signing"] == signed["signing"], "exact64KiB signed API history")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "sign" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "sign" else 8)
         check(result.ok and result.json["signing"] == signed["signing"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),
@@ -1200,7 +1202,7 @@ def _():
             h.stop(kill=True)
             with closing(sqlite3.connect(database)) as db, db:
                 db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, target))
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (31,), "signature continuation changed schema31")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (33,), "signature continuation changed schema31")
     print("LIMIT output_bounds: no genuine oversized/unsafe frozen section31 receipt or aggregate capacity boundary; no authority/template/seed fabricated", flush=True)
 
 

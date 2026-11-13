@@ -11,6 +11,13 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 pub const ALPN: &[u8] = b"peerspan-bootstrap/1";
 pub const MAX_FRAME_PLAIN: usize = 4 << 20;
 pub const MAX_FRAME_POST: usize = 8 << 20;
+/// The most carrier endpoints one link request keeps (DEC-Q34). A request is
+/// created from this host's own contact (8 first-contact addresses), plus a
+/// code or invite of at most 4 contacts (8 each) and 4 helpers: 44 at most.
+/// Frames then add their writers' contacts, which are kept as long as they
+/// fit. Endpoints are transport hints only, so one left out costs a path,
+/// never a request.
+pub const MAX_CARRIER_ENDPOINTS: usize = 64;
 
 fn bytes(v: &Value) -> Result<Vec<u8>> {
     serde_json::to_vec(v).map_err(|_| Error::new("internal"))

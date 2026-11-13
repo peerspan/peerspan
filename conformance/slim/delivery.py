@@ -930,7 +930,7 @@ def _():
         code = None
     if code is None:  # still running: it must at least refuse to use the file
         g.process = p
-        made = g.cli("network", "create", "gail", "--as", "gail")
+        made = g.cli("--json", "network", "create", "gail", "--as", "gail")
         hand_out = g.cli("invite", "x", "--network", made.json["id"]) if made.ok and made.json else made
         check(not hand_out.ok, "a daemon started with publish_contacts:true and handed out an invite with it")
     else:

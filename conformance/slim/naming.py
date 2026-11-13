@@ -59,7 +59,7 @@ def project(path):
 
 
 def attach(host, harness="claude", directory=None, name=None, extra=()):
-    args = ["attach", harness, "--integrations", bundles(), *extra]
+    args = ["--json", "attach", harness, "--integrations", bundles(), *extra]  # its object (OUT-2)
     if directory is not None:
         args += ["--directory", directory]
     if name is not None:

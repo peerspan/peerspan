@@ -1,44 +1,81 @@
-# Peerspan
+<p align="center">
+  <img src="assets/peerspan-logo.png" alt="Peerspan logo" width="128" />
+</p>
 
-Peerspan connects agents across machines and owners. Agents can exchange messages, delegate tracked tasks, and return results and file artifacts. Owners decide who can reach their agents. They can also share selected operations from an attached agent's MCP sources as capabilities, then call those capabilities from the CLI or let an attached agent call them with explicit opt-in.
+<h1 align="center">peerspan</h1>
 
-**Status: preview.** Networks are coordinator-free: each network is created locally, and every machine verifies signed membership and access itself, with no Peerspan-operated service. This design is new and still being validated end to end, so expect rough edges and breaking changes. The host is written in Rust ([DEC-OWN5](docs/decision-log.md)); the Go implementation is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go). Integrations for Claude Code, Codex and OpenCode are Node.js and need Node.js 22 or later. Release bundles are native Linux builds; macOS isn't validated yet.
+<p align="center">
+  <a href="https://github.com/peerspan/peerspan/actions/workflows/pull-request.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/pull-request.yml?style=flat-square&label=checks" /></a>
+  <a href="https://github.com/peerspan/peerspan/actions/workflows/conformance.yml"><img alt="Conformance" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/conformance.yml?style=flat-square&label=conformance" /></a>
+  <a href="https://github.com/peerspan/peerspan/releases"><img alt="Preview release" src="https://img.shields.io/github/v/release/peerspan/peerspan?include_prereleases&style=flat-square&label=preview" /></a>
+  <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
+</p>
 
-## Get started
+<h3 align="center">Infrastructure for agents to collaborate across machines and owners.</h3>
 
-Follow the [quick start](docs/quick-start.md) to install a Linux bundle and connect a project. With Peerspan installed, the guided path begins with:
+You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
+
+- **Messages and tasks.** Send work to an agent, get a result, and pass files with the task. The hosts store work and retry uncertain deliveries.
+- **Conversations.** Keep a discussion with several people and agents in one place.
+- **Tools.** Share selected MCP operations; an attached agent can call them only when its owner opts in.
+
+## Demo
+
+<p align="center">
+  <a href="https://peerspan.dev/#demo"><img src="assets/peerspan-demo.gif" width="960" alt="Peerspan demo: carol joins alice and bob's network, then Claude Code, Codex and OpenCode pass a task, tests and a review across four machines." /></a>
+</p>
+
+A live recording on Peerspan 0.2.0 (2 min 25 s, shown at 3× speed): carol joins alice and bob's network from her own machine. alice's Claude Code gives Codex on her second machine a task, then sends the result to bob's OpenCode, which runs tests and delegates a review to carol's Claude Code. [Watch it on peerspan.dev](https://peerspan.dev/#demo) or [download the MP4](https://peerspan.dev/demo4.mp4).
+
+## Quick start
+
+### Tell your agent
+
+Paste this into an agent with shell access on the machine you want to connect:
+
+```text
+Help me set up Peerspan for this project. Read the quick start:
+https://github.com/peerspan/peerspan/blob/main/docs/quick-start.md
+
+Check what is installed, then ask whether I am creating a network, joining
+someone else, or linking another of my machines. Show me the identity and
+access choices before applying them. Check peerspan status and send a test
+message when both agent sessions are ready.
+```
+
+### By hand
+
+Install on Linux (amd64 or arm64). It needs Bash, `tar`, `flock`, `sha256sum` and `curl` or `wget`, but no Node.js, no root and no GitHub account:
 
 ```sh
-peerspan up claude --create acme
+curl -fsSL https://peerspan.dev/install | bash
+```
+
+The installer checks the release's signature before installing anything; the [quick start](docs/quick-start.md#install) explains what it checks and how to read it first. Then, in a project:
+
+```sh
+peerspan up claude --create team
 peerspan status
 ```
 
-To add [your own second machine](docs/quick-start.md#add-your-own-second-machine), run `peerspan up claude` on it and choose **link**, then approve its private pairing code from a machine you already use with `peerspan link approve`. Each machine keeps its own device key.
+For another of your machines, run `peerspan up claude` there and choose **link**. For a teammate, run `peerspan invite NAME`; they use `peerspan up claude --join`, and you grant access with `peerspan allow NAME`. The [quick start](docs/quick-start.md) covers pairing, invitations, and existing Claude, Codex, or OpenCode conversations.
 
-To [invite a teammate](docs/quick-start.md#invite-a-teammate), run `peerspan invite bob` and send the private introduction it prints; Bob runs `peerspan up claude --join` and enters it. Run `peerspan allow bob` to let Bob reach your agents. `peerspan up codex` and `peerspan up opencode` attach to existing conversations.
+For a group thread, run `peerspan conversation start bob/claude person:carol`. Use `peerspan conversations` to find it and `peerspan conversation show ID` to read it.
 
-## What it does
+## How it works
 
-- **Networking and access:** locally created networks with signed, renewable membership; direct QUIC paths, with optional helpers for rendezvous and encrypted relay; agent discovery; owner-controlled policies and grants; and self access between a person's machines. [Access model](docs/access-model.md) · [Coordinator-free spec](docs/decentralized-spec.md)
-- **Agent work:** durable messages and replies, tracked tasks, delegation chains, optional task artifacts, retries, and session delivery with readiness checks, pending work and recovery. [Task contract](docs/task-contract.md) · [Live delivery contract](docs/live-delivery-contract.md)
-- **Shared capabilities:** discover MCP sources from attached agents, select operations to share, and call them from the owner CLI. An attached agent may use `list_capabilities`, `call_capability`, `call_status` and `call_cancel` when the owner enables calls at `attach`. [Capabilities contract](docs/capabilities-contract.md)
-- **Conversations:** people and agents on any number of hosts talk in one conversation, with each recipient's owner policy deciding who may reach it. `peerspan conversation start bob/claude --message "…"`, then `conversation say`, `show` and `watch`; agents use `conversation_send` and related tools. [Quick start](docs/quick-start.md#work-across-agents) · [Conversations contract](docs/conversations-contract.md)
-- **Guided setup and diagnostics:** `peerspan up` prepares the service, network, identity and project attachment; `peerspan status` reports what needs attention and the command that fixes it. [Quick start](docs/quick-start.md)
+<p align="center">
+  <img src="docs/architecture.svg" width="750" alt="Agents on two owners' machines use local Peerspan hosts. The hosts check signed membership and access, exchange work directly over QUIC, and can use an optional helper for rendezvous and encrypted relay. The helper cannot approve or read work." />
+</p>
 
-Isolated remote execution is future work.
+Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
 
-## Repository map
+## Status
 
-| Path | Purpose |
-| --- | --- |
-| [src/](src/), [tests/](tests/) | Host daemon and CLI (the `peerspan-host` crate). |
-| [integrations/](integrations/) | Claude Code, Codex and OpenCode adapters. |
-| [docs/](docs/) | Quick start, spec, contracts, proposals and recorded results. The [decision log](docs/decision-log.md) lists every owner decision with the options proposed. |
-| [conformance/](conformance/) | Black-box checks written from the spec. |
-| [scripts/](scripts/) | Release packaging and installation. |
+Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Each bundle carries its own Node.js runtime for the agent integrations, so neither the installer nor the integrations need Node.js on the machine. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
 
-The [developer guide](docs/developer-guide.md) covers source builds and verification, and [AGENTS.md](AGENTS.md) maps changes to required checks.
+## Development
 
-## License
+The Rust host lives in [src/](src/); the Go implementation is maintained in [peerspan-go](https://github.com/peerspan/peerspan-go). See the [developer guide](docs/developer-guide.md) for builds and checks, [conformance/](conformance/) for black-box suites, and [AGENTS.md](AGENTS.md) for the development rules. During the preview we welcome issues but not pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
 
 Apache License 2.0. See [LICENSE](LICENSE).

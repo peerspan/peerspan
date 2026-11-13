@@ -2,8 +2,18 @@ name: Pull request checks
 
 on:
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'assets/**'
+      - 'scripts/**'
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'assets/**'
+      - 'scripts/**'
 
 permissions:
   contents: read
@@ -26,7 +36,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -66,7 +76,9 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt
           rustup default stable
       - name: Rust format
-        run: cargo fmt --check
+        run: |
+          cargo fmt --check
+          cargo fmt --check --manifest-path verifier/Cargo.toml
 
   clippy:
     name: Rust Clippy
@@ -87,7 +99,9 @@ jobs:
         with:
           cache-on-failure: true
       - name: Rust Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path verifier/Cargo.toml -- -D warnings
 
   test:
     name: Rust tests and build

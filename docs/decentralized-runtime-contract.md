@@ -978,8 +978,11 @@ fields. No bare --yes authorizes linking. Code/token inputs use hidden TTY or
 `invite MEMBER` produces psi2 contact/approval introduction, not membership;
 `join` verifies/reviews it before choosing/generating an original person and
 returns the psl2 request plus the explicit return-code/approval next step.
-It is a pending success envelope/nonzero until actual local linking completes,
-never a misleading admitted/bound result. Existing identity/key selection and
+At a terminal it then shows the owner review and asks `Approve this exact
+machine?`, and keeps running through admission, owner finalization and the
+commit prompt (spec 8.1 step 5, 8.4; ML-4). Without a terminal it returns the
+pending request with its `next`, exiting nonzero because the owner approval is
+due on this machine (ML-3). It is never a misleading admitted/bound result. Existing identity/key selection and
 source/private-file permissions remain. A same-person `link` creates a device
 request without asking to copy/generate an original-person key. An original
 person is selected only on its own original machine or explicit new-person join.
@@ -990,8 +993,11 @@ and `Commit this exact machine link?` with y/N in brackets or parentheses.
 Blank declines; only trimmed case-insensitive y/yes approves. JSON stdout is
 always the flat LINK_VIEW, with display_code only for the explicit allowed
 requester display action. Auxiliary approval wrappers are internal, never the
-final CLI output. Incomplete work and every refusal exit nonzero with exact
-public next action; human prompts/guidance use stderr. No prompt may approve a
+final CLI output. A failure, a refusal, a declined prompt, or a step still due
+on this machine exits nonzero with the exact public next action. A command
+whose own step completed exits 0 even when the request still waits on another
+participant or machine, naming whose step comes next and where
+([ML-3](decision-log.md#ml-3-exit-status-when-your-part-is-done-but-someone-elses-step-remains)); human prompts/guidance use stderr. No prompt may approve a
 mutable subsequent packet or regenerate an escaped final commit.
 
 `up` preserves existing setup/profile/service behavior but uses these new-mode
@@ -1512,13 +1518,25 @@ the bound port only inside private signed contact handoffs. This makes the
 normal reachable LAN pair work without manual serve flags; addresses are hints,
 not public roster publication or a promise of NAT traversal. Explicit advertise
 and optional independently operated helper configuration handle other paths.
+A member's signed contacts can name several QUIC addresses, for example a
+private network, container bridge or VPN address beside a public one; their
+order carries no preference. A host dialing a coordinator-free member dials
+every currently signed QUIC address of that member (at most eight) together,
+each within the one direct-handshake bound, and uses the first pinned
+handshake that completes; one unreachable address never hides another, and
+the relay fallback follows only after all of them fail. This holds for every
+request to the member, including catalog sync and outgoing record delivery,
+contact exchange and state repair: an address that silently drops packets
+costs no request more time than a member without it. A manual peer hint
+keeps its precedence: a host with one dials only the hint, never the member's
+signed addresses, and a wrong key at the hint is still refused.
 Do not silently rewrite an existing service unit to add listeners: preserve it
 and return the exact bootstrap-listener configuration/restart repair step.
 No public unauthenticated roster/address enumeration is started. Existing peer
 QUIC and actual default integration behavior remain explicit. The separate
-[optional helper operator](decentralized-helper-contract.md) supplies Go-only
-peerspan-helper; neither host bundle launches/requires it, and no second helper
-implementation is needed for both host clients to replace operators.
+[optional helper operator](decentralized-helper-contract.md) supplies
+`peerspan-helper`, which the release ships as a Rust binary in its own archive;
+the host bundle neither launches nor requires it.
 
 New create/join/link/up reject `--coordinator`, `--coordinator-key` and new-mode
 JSON coordinator fields, rather than ignore them or interpret an empty value as
@@ -1570,6 +1588,15 @@ The independent author derives runtime cases after this contract is pinned:
 - Truthful info/status/provider and inactive-policy device warnings; guided
   pending resumes/default-no, no code redisplay, exact original attachment and
   real adapter readiness; installed normal packages with no mandatory helpers.
+- A member whose signed contact advertises an unreachable QUIC address that
+  sorts before its reachable one (for example `127.0.0.1:1` beside the real
+  listener) is still reached directly, with no helper configured: messages,
+  task submission and the agent directory work in both directions within the
+  request bound, and status shows no delivery attention for that peer. The
+  same holds when that address silently drops packets instead of refusing
+  them, and for policy changes: when one owner allows or denies the other,
+  the other's directory lists or drops the agent within 10 seconds, as with
+  no unreachable address.
 - Replace all helpers with independent operators, restrictive NAT/relay failure,
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately

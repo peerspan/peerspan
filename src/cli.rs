@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(
     name = "peerspan-host",
+    version = peerspan_host::VERSION,
     about = "Run and control a local Peerspan host daemon",
     after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session.",
     disable_help_subcommand = true
@@ -20,6 +21,9 @@ pub struct Cli {
     /// Print help listing every command
     #[arg(long, hide = true)]
     pub help_advanced: bool,
+    /// Print the full JSON object instead of a readable summary
+    #[arg(long, global = true)]
+    pub json: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -602,9 +606,6 @@ pub struct ApprovalsArgs {
     /// Also the approvals decided in the last 7 days
     #[arg(long)]
     pub all: bool,
-    /// Print JSON
-    #[arg(long)]
-    pub json: bool,
 }
 #[derive(Debug, Subcommand)]
 pub enum ApprovalsCommand {
@@ -639,9 +640,6 @@ pub struct SourcesArgs {
     /// Only this agent
     #[arg(long, value_name = "NAME")]
     pub agent: Option<String>,
-    /// Print JSON
-    #[arg(long)]
-    pub json: bool,
 }
 #[derive(Debug, Subcommand)]
 pub enum SourcesCommand {
@@ -913,6 +911,80 @@ pub enum AgentCommand {
         text: Option<String>,
         #[arg(long)]
         clear: bool,
+    },
+    /// Run an agent's tasks in this host's runtime: its launch profile
+    #[command(subcommand)]
+    Runtime(AgentRuntimeCommand),
+    /// Store or remove a runtime agent's model credential
+    #[command(subcommand)]
+    Credential(AgentCredentialCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentRuntimeCommand {
+    /// Create or replace an agent's launch profile; omitted options take
+    /// their defaults
+    Set {
+        /// Agent ID or name on this host
+        agent: String,
+        /// Directory holding the harness's binaries: the Codex release's,
+        /// or Claude Code's `claude`
+        #[arg(long, value_name = "DIR")]
+        harness_dir: PathBuf,
+        /// codex or claude; default codex
+        #[arg(long, value_name = "HARNESS", value_parser = ["codex", "claude"])]
+        harness: Option<String>,
+        /// OCI image each run boots, such as python:3.12-slim; default the
+        /// runtime's own image
+        #[arg(long, value_name = "REF")]
+        image: Option<String>,
+        /// The peerfs branch each task forks; default main
+        #[arg(long, value_name = "BRANCH")]
+        from_branch: Option<String>,
+        /// none or internet; default internet
+        #[arg(long, value_name = "NETWORK", value_parser = ["none", "internet"])]
+        network: Option<String>,
+        /// vCPUs per run; default 2
+        #[arg(long, value_name = "N")]
+        cpus: Option<i64>,
+        /// Memory per run in MiB; default 2048
+        #[arg(long, value_name = "N")]
+        memory_mib: Option<i64>,
+        /// Each run's time limit, such as 90s, 10m or 2h; default 1h
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+        /// Tasks of this agent dispatched or running at once; default 3
+        #[arg(long, value_name = "N")]
+        max_runs: Option<i64>,
+    },
+    /// Show one agent's launch profile, or every profile
+    Show {
+        /// Agent ID or name on this host
+        agent: Option<String>,
+        /// Print the JSON (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove an agent's launch profile
+    Clear {
+        /// Agent ID or name on this host
+        agent: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCredentialCommand {
+    /// Store the agent's OpenAI API key, read from a file
+    Set {
+        /// Agent ID or name on this host
+        agent: String,
+        #[arg(long, value_name = "PATH")]
+        from_file: PathBuf,
+    },
+    /// Remove the agent's credential
+    Clear {
+        /// Agent ID or name on this host
+        agent: String,
     },
 }
 
@@ -1673,6 +1745,9 @@ pub struct TaskTo {
     /// RFC3339 deadline for an agent to accept it; default one hour
     #[arg(long, value_name = "TIME")]
     pub deadline: Option<String>,
+    /// Print the full JSON object instead of a readable summary
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1905,7 +1980,7 @@ pub fn advanced_help(name: &str) -> String {
     )
 }
 
-const OPTIONS: &str = "Options:\n      --state <DIR>  Private state directory; otherwise use XDG_STATE_HOME or HOME\n  -h, --help         Print help\n\n";
+const OPTIONS: &str = "Options:\n      --state <DIR>  Private state directory; otherwise use XDG_STATE_HOME or HOME\n      --json         Print the full JSON object instead of a readable summary\n  -h, --help         Print help\n\n";
 
 fn heading(command: &clap::Command, name: &str) -> String {
     format!(
@@ -2071,6 +2146,28 @@ impl Command {
     }
 
     /// Run starts the daemon; every other command uses its local control socket.
+    /// Makes the global `--json` and a command's own `--json` the same
+    /// setting (docs/cli-output-contract.md, OUT-2), and returns it.
+    pub fn sync_json(&mut self, global: bool) -> bool {
+        let local = match self {
+            Self::Conversation(ConversationCommand::Show { json, .. })
+            | Self::Status { json }
+            | Self::Conversations { json, .. }
+            | Self::Agents { json, .. }
+            | Self::Shares { json, .. }
+            | Self::Discover { json, .. }
+            | Self::Approvals(ApprovalsArgs {
+                command: Some(ApprovalsCommand::Show { json, .. }),
+                ..
+            })
+            | Self::Runtime(RuntimeCommand::Show { json })
+            | Self::Capability(CapabilityCommand::List { json })
+            | Self::Session(SessionCommand::Pending { json, .. }) => json,
+            _ => return global,
+        };
+        *local |= global;
+        *local
+    }
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)
@@ -2124,7 +2221,8 @@ impl Command {
                 | NetworkCommand::Bind { .. }
                 | NetworkCommand::Unbind { .. },
             )
-            | Self::Agent(AgentCommand::Describe { .. }) => return None,
+            | Self::Agent(AgentCommand::Describe { .. })
+            | Self::Agent(AgentCommand::Runtime(_) | AgentCommand::Credential(_)) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Runtime(RuntimeCommand::Show { .. }) => (Method::GET, "/v1/runtime".into(), None),
             Self::Onboarding(_) => (Method::GET, "/v1/onboarding".into(), None),

@@ -254,7 +254,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -264,7 +264,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -318,10 +318,11 @@ def context(parent):
 
 def advance_to(h, moment):
     h.clock.set(math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
+    h.clock_changed = time.monotonic()  # GU.impl42f settling starts here
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -370,6 +371,10 @@ def whole(f):
 
 
 def quiet(f):
+    # GU.impl42f: the host erases mailboxes a clock change expired within 2 s
+    # (spec 9.2) as its own maintenance; settle that before any measurement.
+    last = max(getattr(f[k], 'clock_changed', float('-inf')) for k in ('a', 'b'))
+    time.sleep(max(0, last + 2 - time.monotonic()))
     settled(f['a'])
     previous = (whole(f), traffic(f))
     def stable():
@@ -489,7 +494,7 @@ def world(name='main'):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             rows = [db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (item['invitation_id'],)).fetchone()
                     for item in invitations]
         return all(row is None or row[0] is None for row in rows)
@@ -511,7 +516,7 @@ def select_provider(f, provider):
 
 
 def intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'exact receipt/ordinary intent missing')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
@@ -519,7 +524,7 @@ def intent(h, iid):
 
 def dual_records(h, receipt):
     ids = (receipt['consent_id'], receipt['review']['intent_id'])
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db, db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db, db:
         db.execute('BEGIN')
         rows = [db.execute('SELECT record FROM dec_intents WHERE intent_id=?', (iid,)).fetchone() for iid in ids]
     check(all(row is not None for row in rows), 'coherent approval snapshot lost one intent')
@@ -607,7 +612,7 @@ def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, o
     h = f['a']; parent = parent or f['parent']
     data = override if override is not None else input_for(f, action, prepared, parent=parent, inspected=inspected, replace=replace)
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
         check(result.ok == (status == 200), 'private consent CLI outcome mismatch')
         public(result.stderr, str(h.state), *f['secrets'])
         if not result.ok:
@@ -833,7 +838,7 @@ def held_transport(f):
 
 
 def kind_ids(h, kind):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return {row[0] for row in db.execute('SELECT intent_id FROM dec_intents WHERE kind=?', (kind,))}
 
 
@@ -852,7 +857,7 @@ def _():
     ed25519(f['b'].public_key, packet['host_signature'], packet_message(packet), 'consent-request-host')
     ed25519(signed['device_public_key'], packet['device_signature'], packet_message(packet), 'consent-request-device')
     before, counters = whole(f), traffic(f)
-    check(all(db['$version'] == (31,) for side in before for db in side[0].values()
+    check(all(db['$version'] == (33,) for side in before for db in side[0].values()
               if 'dec_intents' in db), 'machine consent changed required existing schema31')
     owners, receipts = kind_ids(h, 'owner'), kind_ids(h, 'machine_owner_review')
     value = op(f, 'prepare', inspected=initial['inspection']); f['prepared'] = value
@@ -1062,7 +1067,7 @@ def _():
         quiet(f); before, counters = whole(f), traffic(f)
         status, view = raw_post(h, action, maximum)
         check(status == 200 and view['consent'] == f['approved']['consent'], f'exact64KiB {action} refused/changed history')
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=8)
         check(result.ok and result.json['consent'] == view['consent'], 'exact64KiB private CLI parity')
         malformed = [b'null', b'[]', b'{', raw + b'{}', maximum + b' ',
             raw.replace(b'"request_id":', b'"request_id":"link_' + b'0' * 64 + b'","request_id":'),

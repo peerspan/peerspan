@@ -1407,8 +1407,7 @@ impl Store {
         }
         let file = self.person_key_file.read().ok().and_then(|f| f.clone());
         if let Some(path) = file
-            && let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(signing) = crate::persons::parse_openssh_private_key(&text)
+            && let Some(signing) = crate::persons::read_owner_key_file(&path)
             && signing.verifying_key().to_bytes() == key
         {
             return Ok(PersonSigner::File(signing));

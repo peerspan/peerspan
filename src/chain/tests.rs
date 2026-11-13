@@ -1099,7 +1099,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 31);
+    assert_eq!(version, 33);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",

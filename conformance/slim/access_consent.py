@@ -45,7 +45,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64,
                      wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("access_consent", __doc__)
 BASE = "/v1/onboarding/access-consent"
@@ -192,14 +192,14 @@ def current_policy(h, net, person):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
     return paths[0]
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -227,7 +227,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -287,7 +287,7 @@ def inspection(h, parent, network, person):
 
 def intent(h, iid):
     check(re.fullmatch(r"dint_[0-9a-f]{32}", iid), "noncanonical durable intent ID")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (iid,)).fetchone()
     check(row is not None, "receipt references no retained ordinary intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]), "secret": row[4]}
@@ -430,8 +430,10 @@ def directory(f):
 
 
 def stable(f):
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    def both():
+        for local in (f["a"], f["b"]):
+            quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), both, lambda: whole(f))  # DIR-1
 
 
 def whole(f):
@@ -557,7 +559,7 @@ def world():
     exchange_current_contacts(suite, a, b, net["id"])
     bounds = []
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             bounds.extend(row[0] for row in db.execute("SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     check(bounds, "actual contact invitation deadlines missing")
     state.update(a=a, b=b, net=net["id"], alice=net["person_public_key"], bob=ssh_public_base64(key), key=key,
@@ -724,7 +726,7 @@ def _():
         if command == "prepare":
             data["inspection_review_id"] = inspected["review_id"]
         before, counters = whole(f), traffic(f)
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
         check(result.ok and result.json["access"] == access, "exact private stdin API/CLI parity or idempotence")
         validate(h, parent, result.json, expected=prepared)
         check(purity_whole_diagnostic(whole(f), before, "prepare_cli") == before and purity_traffic_diagnostic(traffic(f), counters, "prepare_cli") == counters, "lookup/repeated prepare CLI changed state/files/carriers")
@@ -870,7 +872,7 @@ def _():
     before, remote, counters = snapshot(a), snapshot(h), traffic(f)
     request = {**key_body(external_parent, net, f["bob"]), "access_id": external["access"]["access_id"],
                "access_review_id": external["access"]["review_id"]}
-    result = a.cli("onboarding", "access", "approve", "--stdin", input=compact(request).decode(), timeout=8)
+    result = a.cli("--json", "onboarding", "access", "approve", "--stdin", input=compact(request).decode(), timeout=8)
     check(result.ok and result.json["access"]["state"] == "approved", "private CLI consent probed absent original signer")
     validate(a, external_parent, result.json, expected=external)
     assert_approved_pair(a, external, before, snapshot(a))
@@ -958,7 +960,7 @@ def _():
             data["inspection_review_id"] = prepared["access"]["review"]["inspection_review_id"]
         elif command == "approve":
             data.update(access_id=prepared["access"]["access_id"], access_review_id=prepared["access"]["review_id"])
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
         check(result.ok and result.json["access"] == approved["access"], "restarted exact private CLI history parity")
         validate(h, f["pb"], result.json, expected=prepared)
         public(result.stderr)
@@ -1016,7 +1018,7 @@ def input_case_startup(f):
             check(len(selected) == 1 and selected[0]["person_public_key"] == person
                   and selected[0]["binding_lease_id"] != "-" and parse_time(selected[0]["not_after"]) > window_end,
                   "fresh input startup lacks an actual current bound participant")
-            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
                 row = db.execute("SELECT sequence,record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
                                  (f["net"], view["context_id"], participant.public_key)).fetchone()
             check(row is not None, "fresh input startup lacks a retained bound participant hint")
@@ -1067,7 +1069,7 @@ def _():
         maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["access"] == approved["access"], "exact64KiB valid historical API body")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=8)
         check(result.ok and result.json["access"] == approved["access"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),
@@ -1156,7 +1158,7 @@ def _():
     check(not 200 <= status < 300, "nonsigning receipt reached ordinary action signature submission")
     public(denied)
     check(purity_whole_diagnostic(whole(f), before, "nonsigning_route") == before and purity_traffic_diagnostic(traffic(f), counters, "nonsigning_route") == counters, "nonsigning-route refusal mutated metadata, clock, signature or carrier")
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (31,), "new access metadata changed schema31 SQL/version")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (33,), "new access metadata changed schema31 SQL/version")
     absent = suite.host("absent", start=False)
     shutil.rmtree(absent.state)
     before = files(absent.root)

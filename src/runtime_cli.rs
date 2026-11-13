@@ -4,7 +4,10 @@
 use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, edit_conflict, top_principal},
     admin::Local,
-    cli::{Command, RuntimeCommand, resolved},
+    cli::{
+        AgentCommand, AgentCredentialCommand, AgentRuntimeCommand, Command, RuntimeCommand,
+        encoded, resolved,
+    },
 };
 use anyhow::{Context, bail};
 use chrono::TimeDelta;
@@ -103,7 +106,115 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
             .await?;
             Ok(Some(json!({ "enabled": false, "policy": policy })))
         }
+        Command::Agent(AgentCommand::Runtime(command)) => {
+            agent_runtime(&local, command).await.map(Some)
+        }
+        Command::Agent(AgentCommand::Credential(command)) => {
+            agent_credential(&local, command).await.map(Some)
+        }
         _ => Ok(None),
+    }
+}
+
+/// An agent ID or a local agent's name, as the agent's ID.
+async fn agent_id(local: &Local<'_>, agent: &str) -> anyhow::Result<String> {
+    let agents = local.get("/v1/agents".into()).await?;
+    agents
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| a["id"].as_str() == Some(agent) || a["name"].as_str() == Some(agent))
+        .and_then(|a| a["id"].as_str())
+        .map(str::to_owned)
+        .with_context(|| format!("not_found: no agent {agent:?} on this host"))
+}
+
+/// `agent runtime set|show|clear` (runtime agent contract, The launch
+/// profile).
+async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyhow::Result<Value> {
+    match command {
+        AgentRuntimeCommand::Set {
+            agent,
+            harness_dir,
+            harness,
+            image,
+            from_branch,
+            network,
+            cpus,
+            memory_mib,
+            timeout,
+            max_runs,
+        } => {
+            let id = agent_id(local, agent).await?;
+            let mut body = json!({
+                "harness_dir": std::path::absolute(harness_dir)?,
+            });
+            let timeout = timeout
+                .as_deref()
+                .map(crate::task_run::seconds)
+                .transpose()?;
+            for (field, value) in [
+                ("harness", harness.clone().map(Value::from)),
+                ("image", image.clone().map(Value::from)),
+                ("from_branch", from_branch.clone().map(Value::from)),
+                ("network", network.clone().map(Value::from)),
+                ("cpus", cpus.map(Value::from)),
+                ("memory_mib", memory_mib.map(Value::from)),
+                ("timeout_seconds", timeout.map(Value::from)),
+                ("max_runs", max_runs.map(Value::from)),
+            ] {
+                if let Some(value) = value {
+                    body[field] = value;
+                }
+            }
+            local
+                .put(format!("/v1/agents/{}/runtime", encoded(&id)), body)
+                .await
+        }
+        AgentRuntimeCommand::Show { agent: None, .. } => {
+            local.get("/v1/agents/runtime".into()).await
+        }
+        AgentRuntimeCommand::Show {
+            agent: Some(agent), ..
+        } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .get(format!("/v1/agents/{}/runtime", encoded(&id)))
+                .await
+        }
+        AgentRuntimeCommand::Clear { agent } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .delete(format!("/v1/agents/{}/runtime", encoded(&id)))
+                .await
+        }
+    }
+}
+
+/// `agent credential set|clear`: the key is read from a file and sent to
+/// the daemon, never printed.
+async fn agent_credential(
+    local: &Local<'_>,
+    command: &AgentCredentialCommand,
+) -> anyhow::Result<Value> {
+    match command {
+        AgentCredentialCommand::Set { agent, from_file } => {
+            let id = agent_id(local, agent).await?;
+            let value = std::fs::read_to_string(from_file)
+                .with_context(|| format!("cannot read {}", from_file.display()))?;
+            local
+                .put(
+                    format!("/v1/agents/{}/credential", encoded(&id)),
+                    json!({ "value": value }),
+                )
+                .await
+        }
+        AgentCredentialCommand::Clear { agent } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .delete(format!("/v1/agents/{}/credential", encoded(&id)))
+                .await
+        }
     }
 }
 

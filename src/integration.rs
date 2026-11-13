@@ -358,9 +358,21 @@ fn load_manifest(
     let mut m = selected.context("harness is not installed in the integration directory")?;
     if let Some(runner) = runner {
         m.command[0] = runner.to_string_lossy().into_owned()
+    } else if m.command[0] == "node"
+        && let Some(bundled) = bundled_node()
+    {
+        m.command[0] = bundled.to_string_lossy().into_owned()
     }
     m.command[0] = executable(&m.command[0])?;
     Ok(m)
+}
+/// The release's own Node.js runtime, `share/peerspan/node/bin/node` beside the
+/// binary's `bin/` (install contract, Bundled Node.js; INST-9). A source
+/// checkout has none, and integrations then run with `node` from `PATH`.
+fn bundled_node() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let node = exe.parent()?.join("../share/peerspan/node/bin/node");
+    node.is_file().then(|| absolute(&node).ok()).flatten()
 }
 struct HelperGroup(u32);
 impl Drop for HelperGroup {
@@ -1044,7 +1056,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             };
             let adapter = credential(&p)?["adapter"].take();
             let value = json!({"state":"configured","adapter_ready":false,"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"expires_at":adapter["expires_at"],"renewable":adapter["renewable"]==true,"destinations":p.request["routes"].as_array().unwrap().iter().map(|r|r["name"].clone()).collect::<Vec<_>>(),"launch_supported":p.harness.supports("launch"),"next":[crate::program(),"session",if p.harness.supports("launch"){ "start" }else{ "doctor" },"--directory",p.directory]});
-            println!("{}", serde_json::to_string_pretty(&value)?);
+            crate::output::emit(&value)?;
             return Ok(());
         }
         SessionCommand::Doctor { directory } => {
@@ -1054,7 +1066,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             };
             let p = load_profile(&directory, &state)?;
             let report = inspect(&p, provider_checks(&p).await).await;
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            crate::output::emit(&report)?;
             if report["adapter_ready"] != true {
                 bail!("session is not ready; inspect the diagnostic checks")
             };
@@ -1598,7 +1610,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         _ => bail!("not an attach command"),
     };
     let prepared = prepare_attach(command, state.clone()).await?;
-    let text = serde_json::to_string_pretty(&prepared.value)?;
+    let text = crate::output::render(&prepared.value);
     if !no_start && prepared.launchable {
         eprintln!("{text}");
         let workspace = prepared.value["workspace"].as_str().map(PathBuf::from);

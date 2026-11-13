@@ -9,6 +9,7 @@ import base64
 import concurrent.futures
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import secrets
 import select
@@ -72,9 +73,29 @@ class PeerHost(Host):
         return self.cli(*args)
 
     def submit(self, identity, agent, grant, content='hello', rid=None, deadline=None):
-        return self.cli('message', 'send', '--peer', identity['id'], '--agent', agent['id'],
-                        '--grant', grant['id'], '--deadline', deadline or timestamp(),
-                        '--content', content, '--request', rid or request_id())
+        return self.outbound('message', 'send', '--peer', identity['id'], '--agent', agent['id'],
+                             '--grant', grant['id'], '--deadline', deadline or timestamp(),
+                             '--content', content, '--request', rid or request_id())
+
+    def outbound(self, *args):
+        """A `message send` or `message retry` that reaches the outbound record (peer-messaging-contract CLI
+        outcomes, MSG-1, MSG-2): a `rejected` record exits 1 with `error: rejected: ` on stderr; any other state
+        exits 0, as Host.cli requires. Returns the parsed record."""
+        env = self.isolated(dict(os.environ))
+        if not self.keep_agent:
+            env.pop('SSH_AUTH_SOCK', None)
+        result = subprocess.run([self.binary, '--state', str(self.state), '--json', *args],
+                                capture_output=True, text=True, timeout=10, env=env)
+        try:
+            record = json.loads(result.stdout)
+        except ValueError:
+            raise AssertionError(('no outbound record', args, result.returncode, result.stdout, result.stderr))
+        if isinstance(record, dict) and record.get('state') == 'rejected':
+            assert result.returncode == 1 and result.stderr.startswith('error: rejected: '), \
+                ('rejected send must exit 1 with error: rejected: (MSG-1)', args, result.returncode, result.stderr)
+        else:
+            assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return record
 
 
 def fixture_context(host, temporary=None):
@@ -244,7 +265,7 @@ def check(sender_binary, receiver_binary, label):
             connection.execute('DROP TRIGGER fail_peer_event')
             connection.commit()
             connection.close()
-            recovered = sender.cli('message', 'retry', '--peer', b['id'], failed['request']['request_id'])
+            recovered = sender.outbound('message', 'retry', '--peer', b['id'], failed['request']['request_id'])
             assert recovered['state'] == 'accepted'
 
             # Drop a real response after durable acceptance, then restart both hosts.
@@ -264,7 +285,7 @@ def check(sender_binary, receiver_binary, label):
             # The restarted sender may already have retried it automatically; an
             # explicit retry then waits for that attempt and returns its outcome.
             assert sender.cli('message', 'inspect', '--peer', b['id'], rid)['state'] in ('unknown', 'accepted')
-            recovered = sender.cli('message', 'retry', '--peer', b['id'], rid)
+            recovered = sender.outbound('message', 'retry', '--peer', b['id'], rid)
             assert recovered['state'] == 'accepted', recovered
             assert len([message for message in receiver.cli('message', 'list') if message['request']['request_id'] == rid]) == 1
 
@@ -351,14 +372,14 @@ def check_origin(sender, receiver, a, b, sa, ra, grant, context):
     session = sender.cli('session', 'attach', '--agent', sa['id'], '--integration', 'test')
     second = sender.cli('agent', 'register', '--name', 'carol', '--owner', 'bob')
     origin = {'agent_id': sa['id'], 'session_id': session['id']}
-    sent = sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+    sent = sender.outbound('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
                       '--deadline', timestamp(), '--content', 'from an agent', '--request', request_id(),
                       '--from-agent', sa['id'], '--from-session', session['id'])
     assert sent['state'] == 'accepted' and sent['request']['origin'] == origin, sent
     rid = sent['request']['request_id']
     assert received(receiver, rid)['origin'] == origin
     # Agent only; session_id is omitted rather than null.
-    agent_only = sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+    agent_only = sender.outbound('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
                             '--deadline', timestamp(), '--content', 'agent only', '--from-agent', sa['id'])
     assert agent_only['state'] == 'accepted' and agent_only['request']['origin'] == {'agent_id': sa['id']}, agent_only
     assert received(receiver, agent_only['request']['request_id'])['origin'] == {'agent_id': sa['id']}
@@ -412,7 +433,7 @@ def check_origin(sender, receiver, a, b, sa, ra, grant, context):
     assert scoped['requester_agent_id'] == sa['id'], scoped
     assert receiver.cli('grant', 'create', '--peer', a['id'], '--agent', ra['id'], '--expires-at', timestamp(1200),
                         '--from-agent', 'agent_bad', success=False)
-    send = lambda *extra: sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', scoped['id'],
+    send = lambda *extra: sender.outbound('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', scoped['id'],
                                      '--deadline', timestamp(), '--content', 'scoped', *extra)
     assert send('--from-agent', sa['id'])['state'] == 'accepted'
     assert send('--from-agent', sa['id'], '--from-session', session['id'])['state'] == 'accepted'

@@ -735,9 +735,16 @@ Errors retain `{code, error}` plus `details` (strict object of `request_id`,
 | 500 | `internal`: generic internal error, with no secrets or partially applied mutation. |
 | 503 | `unavailable`: pinned coordinator unavailable or required fresh authority sync failed. |
 
-Preview/cancellation/status success does not mean linking succeeded. Incomplete
-CLI operations exit nonzero with the public view and next step; completed link
-exits 0. `up` resumes a linked person/provider before attachment and reports each
+Preview/cancellation/status success does not mean linking succeeded. A link
+command exits 0 when its own step completed: the request is linked, or it now
+waits only on another participant or machine. It then prints that this
+machine's part is done, what happens next and where. It exits nonzero when its
+step failed, was declined, or when this machine still has a step to take (ML-3).
+While a request is neither `linked` nor terminal, `next` is never empty. Each
+entry is one line naming who acts (owner, administrator or requester), on which
+machine (this one, the joining machine, a machine of the person, or an
+administrator's machine), and the exact command when that step runs on this
+host. A step that runs automatically is named as such. `up` resumes a linked person/provider before attachment and reports each
 stage separately. Freshness for authority expansion requires a successful pinned
 sync under today's coordination freshness bound and inspection of structured
 sync errors; stale cached role claims alone cannot approve another machine.

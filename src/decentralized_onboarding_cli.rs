@@ -146,7 +146,13 @@ pub(crate) async fn create_join(
             json!({
                 "mode":"new", "network_id":intro.descriptor.network_id,
                 "person_public_key":person, "migration_proposal_id":"-",
-                "contact_invitation":token, "helpers":intro.helpers
+                "contact_invitation":token, "helpers":intro.helpers,
+                // An explicit key file is not discoverable later, so the
+                // local `next` approval names it (ML-3).
+                "person_key_path":match (choice.source, &choice.path) {
+                    ("option", Some(path)) => path.to_str().context("the --person-key path is not UTF-8")?,
+                    _ => "-",
+                }
             }),
         )
         .await?;
@@ -158,11 +164,50 @@ pub(crate) async fn create_join(
         "request creation changed the reviewed introduction or original identity"
     );
     eprintln!(
-        "The request was sent to the inviting machine through the invite's return path when it was reachable; otherwise return the private reply code to it. Owner and administrator approval follow there. Membership remains pending."
+        "The request was sent to the inviting machine through the invite's return path when it was reachable; otherwise return the private reply code to it. Membership remains pending."
     );
-    Ok(v)
+    // ML-4: the joining person owns this machine's request, so its owner
+    // review happens here, before the administrator admits it there. Without
+    // a terminal nothing can be approved: the output stays the request view
+    // (with any manual code), and its `next` names this step.
+    if !io::stdin().is_terminal() {
+        return Ok(v);
+    }
+    let request_id = v["request_id"]
+        .as_str()
+        .context("request creation returned no request ID")?
+        .to_owned();
+    let approved = crate::decentralized_link_cli::approve_own_join(
+        local.0,
+        &request_id,
+        &intro.descriptor.network_id,
+        &person,
+        person_key.clone(),
+        true,
+    )
+    .await?;
+    let mut approved = approved;
+    if let Some(code) = v.get("display_code") {
+        approved["display_code"] = code.clone();
+    }
+    if approved["owner_offer_id"] == "-" {
+        eprintln!(
+            "This machine is not approved yet; the request stays pending. Approve it later with: peerspan link approve {request_id} --network {} --person {person}",
+            intro.descriptor.network_id
+        );
+    } else {
+        eprintln!(
+            "Approved. The administrator on the inviting machine admits it next; this command waits for that."
+        );
+    }
+    Ok(approved)
 }
 
+/// Whether a new person's own join request is still waiting for its owner
+/// approval on this machine after `create_join` (declined, or no terminal).
+pub(crate) fn declined_owner_approval(v: &Value) -> bool {
+    v["role"] == "requester" && v["owner_offer_id"] == "-" && v["state"] == "pending"
+}
 #[allow(clippy::too_many_arguments)]
 async fn join(
     socket: &Path,
@@ -180,7 +225,19 @@ async fn join(
     );
     let token = input.read().await?;
     let v = create_join(&Local(socket), &token, person_key).await?;
-    let mut v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    // A declined (or not yet given) owner approval ends here: the request
+    // stays pending, `next` names the approval on this machine, and the
+    // command exits nonzero (spec 8.4, ML-3).
+    if declined_owner_approval(&v) {
+        return crate::decentralized_link_cli::output(v, true);
+    }
+    let mut v = crate::decentralized_link_cli::guide_join(
+        socket,
+        v,
+        io::stdin().is_terminal(),
+        Some(person_key.clone()),
+    )
+    .await?;
     let network = v["network_id"].as_str().unwrap_or_default().to_owned();
     let linked = v["state"] == "linked";
     // The output stays the exact LINK_VIEW (spec 15, wire formats 16.8)
@@ -284,7 +341,11 @@ async fn invite(
     eprintln!(
         "This private invite grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
     );
-    println!("{}", serde_json::to_string_pretty(&v)?);
+    if crate::output::json() {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{}", crate::output::invite(&v, member));
+    }
     Ok(())
 }
 
@@ -597,6 +658,6 @@ async fn reinvite(
             "invitation_id":v["invitation_id"],"invitation":v["invitation"],"expires_at":v["expires_at"]}));
     }
     let _ = old_id;
-    println!("{}", serde_json::to_string_pretty(&Value::Array(out))?);
+    crate::output::emit(&Value::Array(out))?;
     Ok(())
 }

@@ -101,6 +101,7 @@ class Host:
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(root / 'xdg state'),
                         XDG_RUNTIME_DIR=str(root / 'xdg runtime'))
         self.process, self.counter = None, 0
+        self.json_binary = None  # only this tree's installed binary takes --json (OUT-2); old ones print JSON
 
     def api(self, method, path, body=None, expected=200):
         self.counter += 1
@@ -121,7 +122,8 @@ class Host:
 
     def cli(self, *args):
         self.counter += 1
-        result = subprocess.run([str(self.binary), '--state', str(self.state), *args],
+        flag = ['--json'] if self.json_binary is not None and self.binary == self.json_binary else []
+        result = subprocess.run([str(self.binary), '--state', str(self.state), *flag, *args],
                                 env=self.env, cwd=self.root, stdin=subprocess.DEVNULL,
                                 capture_output=True, timeout=self.budget.remaining())
         private_json(self.root / f'cli-{self.counter:03d}.json',
@@ -308,6 +310,7 @@ def preserve_history(before, after, *, fresh_flow=None):
 
 def one_history(work, label, old_binary, expected_version, installed, budget):
     host = Host(work / label, old_binary, budget)
+    host.json_binary = installed
     restored = None
     try:
         host.start()
@@ -360,7 +363,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 31 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
+        require(upgraded['version'] == 33 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
                 'installed upgrade did not create schema31 with both complete table histories')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
@@ -387,7 +390,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(restored_records['version'] == expected_version, 'old binary changed restored schema version')
         preserve_history(original, restored_records)
         require(tree(restored.config) == manifests['config'], 'old binary changed restored original key/config')
-        return {'original_schema': expected_version, 'upgraded_schema': 31,
+        return {'original_schema': expected_version, 'upgraded_schema': 33,
                 'backup_mode_hash_match': True, 'public_history_retained': True,
                 'pending_review_retained': pending is not None, 'new_review': True,
                 'old_binary_refused_without_db_mutation': True, 'complete_restore_reopened': True,

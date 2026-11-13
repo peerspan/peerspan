@@ -51,7 +51,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, join_new_person,
                      parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("access_application", __doc__)
 BASE = "/v1/onboarding/access-consent"
@@ -197,7 +197,7 @@ def current_policy(h, net, person):
 def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
@@ -206,7 +206,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -242,7 +242,7 @@ def traffic(f):
 
 def retired_transport(f):
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
                 return False
             if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
@@ -311,7 +311,7 @@ def inspection(h, parent, network, person):
 
 def intent(h, iid):
     check(re.fullmatch(r"dint_[0-9a-f]{32}", iid), "noncanonical durable intent ID")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (iid,)).fetchone()
     check(row is not None, "receipt references no retained ordinary intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]),
@@ -344,9 +344,11 @@ def directory(f):
 
 
 
-def stable(f):
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+def stable(f, sync=True):
+    def both():
+        for local in (f["a"], f["b"]):
+            quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), both, lambda: whole(f), sync=sync)  # SYNC-1, DIR-1
 
 
 
@@ -511,7 +513,7 @@ def world():
     exchange_current_contacts(suite, a, b, net["id"])
     bounds = []
     for local in (a, b):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             bounds.extend(row[0] for row in db.execute("SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
     check(bounds, "actual invitation retirement deadlines missing")
     state.update(a=a, b=b, net=net["id"], alice=net["person_public_key"], bob=ssh_public_base64(key), key=key,
@@ -649,7 +651,7 @@ def applied_evidence(h, prepared):
     check(isinstance(catalog, dict) and catalog["context_id"] == action["context_id"]
           and any(item == {"id": result["proof_id"], "kind": "policy", "body_base64": result["statement_base64"]}
                   for item in catalog["objects"]), "ordinary result omits its exact signed policy proof")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         stored = db.execute("SELECT kind,body FROM dec_objects WHERE network_id=? AND context_id=? AND proof_id=?",
                             (action["network_id"], action["context_id"], result["proof_id"])).fetchone()
         admitted = db.execute("SELECT record FROM dec_admissions WHERE network_id=? AND context_id=? AND statement_id=?",
@@ -742,8 +744,8 @@ def strict_unchanged(f, before, counters, phase):
     check(purity_traffic_diagnostic(traffic(f), counters, phase) == counters, "application used original TCP or an enabled UDP path")
 
 
-def pure(f, h, parent, prepared, action="application", **options):
-    stable(f); before, counters = whole(f), traffic(f)
+def pure(f, h, parent, prepared, action="application", *, sync=True, **options):
+    stable(f, sync=sync); before, counters = whole(f), traffic(f)
     value = operation(f, h, parent, prepared, action, **options)
     strict_unchanged(f, before, counters, "pure_" + action)
     return value
@@ -817,7 +819,7 @@ def history_contact_bounds(f):
     bounds = []
     for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
         view = get(local, "/v2/networks/" + f["net"])
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             row = db.execute("SELECT record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
                              (f["net"], view["context_id"], remote.public_key)).fetchone()
         if row is None:
@@ -854,7 +856,7 @@ def history_live_bounds(f):
 def history_recorded_retries(f):
     retries = []
     for local in (f["a"], f["b"]):
-        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
             retries.extend(parse_time(row[0]) for row in db.execute(
                 "SELECT json_extract(record,'$.next_attempt_at') FROM dec_outbox"))
     return retries
@@ -889,7 +891,7 @@ def history_retire_generation(f):
     def delivered():
         for local in (f["a"], f["b"]):
             view = get(local, "/v2/networks/" + f["net"])
-            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True, timeout=30)) as db:
                 if db.execute("SELECT kind,body FROM dec_objects WHERE network_id=? AND context_id=? AND proof_id=?",
                               (f["net"], view["context_id"], pid)).fetchone() != ("policy", raw_statement):
                     return False
@@ -948,7 +950,7 @@ def _():
     applied = operation(f, h, parent, prepared, "apply")
     check(applied["application"] == {**marker, "state": "locally_applied"}, "explicit apply changed exact signed identity/proof")
     result = assert_application(h, prepared, old_action, old_receipt, old_events)
-    check(snapshot(h)[1:] == old_files and records(h)["$schema"] == f["schema"] and records(h)["$version"] == (31,),
+    check(snapshot(h)[1:] == old_files and records(h)["$schema"] == f["schema"] and records(h)["$version"] == (33,),
           "application created schema/key/private file state")
     check(get(h, f"/v2/networks/{f['net']}/members")["members"] == membership, "agent policy application changed network membership")
     entries = [entry for entry in peer_agents(f, f["a"], h) if entry["name"] == name]
@@ -963,7 +965,7 @@ def _():
         value = pure(f, h, parent, prepared, command)
         check(value["application"] == applied["application"], "applied API exact retry changed marker")
         before, counters = whole(f), traffic(f)
-        cli = h.cli("onboarding", "access", command, "--stdin",
+        cli = h.cli("--json", "onboarding", "access", command, "--stdin",
             input=compact(application_input(f, h, parent, prepared, apply=command == "apply")).decode(), timeout=95 if command == "apply" else 8)
         check(cli.ok and cli.json["application"] == applied["application"] and cli.json["access"] == applied["access"], "private CLI applied-state parity")
         application_view(h, parent, prepared, cli.json); public(cli.stderr)
@@ -1171,7 +1173,7 @@ def _():
         for command in ("application", "apply"):
             value = operation(f, local, parent, prepared, command)
             check(value["application"] == applied["application"] and value["access"] == applied["access"], "historical applied API changed exact consent/evidence marker")
-            result = local.cli("onboarding", "access", command, "--stdin",
+            result = local.cli("--json", "onboarding", "access", command, "--stdin",
                 input=compact(application_input(f, local, parent, prepared, apply=command == "apply")).decode(), timeout=95 if command == "apply" else 8)
             check(result.ok and result.json["application"] == applied["application"] and result.json["access"] == applied["access"],
                   "historical private CLI lost exact retained application")
@@ -1210,9 +1212,11 @@ def _():
             else:
                 db.execute("DELETE FROM dec_admissions WHERE network_id=? AND statement_id=?", (f["net"], sid))
         try:
-            h.start(); fault_startup_observed(f); stable(f)
+            # Deleted proof/admission evidence is what an explicit sync would fetch back, so this phase relies on
+            # the fresh start's full background interval instead (SYNC-1 sync left out; DIR-1 refresh kept).
+            h.start(); fault_startup_observed(f); stable(f, sync=False)
             for command in ("application", "apply"):
-                pure(f, h, parent, prepared, command, status=409, code="access_application_unavailable")
+                pure(f, h, parent, prepared, command, status=409, code="access_application_unavailable", sync=False)
         finally:
             h.stop(kill=True)
             with closing(sqlite3.connect(database)) as db, db:
@@ -1240,7 +1244,7 @@ def _():
         encoded = compact(data); maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["application"] == applied["application"], "exact64KiB applied API recovery failed")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "apply" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "apply" else 8)
         check(result.ok and result.json["application"] == applied["application"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),
@@ -1331,7 +1335,7 @@ def _():
         h.stop(kill=True)
         with closing(sqlite3.connect(database)) as db, db:
             db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (31,), "application continuation changed schema31")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (33,), "application continuation changed schema31")
     print("LIMIT cryptographic_capacity_acceptance: full catalog-closure corruption matrices, fork/quota/overflow, accepted message/task, native/model/installed/physical and full-state-upgrade boundaries are source/manual", flush=True)
 
 

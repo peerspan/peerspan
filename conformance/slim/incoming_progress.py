@@ -68,14 +68,14 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
     return matches[0]
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -120,7 +120,7 @@ def advance_to(h, moment):
     h.clock.set(math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -299,7 +299,7 @@ def retire_invitation_return(f):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True, timeout=30)) as db:
             row = db.execute("SELECT secret FROM dec_pending WHERE request_id=?", (f["invitation_id"],)).fetchone()
         return row is None or row[0] is None
     wait_for(retired, timeout=5, interval=.1, message="expired invitation return-row retirement before carrier accounting")
@@ -505,7 +505,7 @@ def _():
     before = snapshot(a); network = counts(f)
     actual, value = raw_post(a, maximum)
     check(actual == 200, f"exact64KiB API HTTP {actual}"); validate(f, value)
-    result = a.cli("onboarding", "admission", "progress", "--stdin", input=maximum.decode(), timeout=8)
+    result = a.cli("--json", "onboarding", "admission", "progress", "--stdin", input=maximum.decode(), timeout=8)
     check(result.ok, "exact64KiB private progress CLI failed"); validate(f, result.json)
     ctx = compact(data["context"])
     malformed = [b"null", b"[]", b"{", raw + b"{}", maximum + b" ",
@@ -732,7 +732,7 @@ def _():
           f"ordinary maintenance fixture cancellation HTTP {actual}")
     public(cancelled, f["code"], f["reply"])
     def terminal_transport_retired():
-        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True, timeout=30)) as db:
             row = db.execute("SELECT record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
             frames = db.execute("SELECT COUNT(*) FROM dec_frames WHERE request_id=?", (rid,)).fetchone()[0]
         if row is None:

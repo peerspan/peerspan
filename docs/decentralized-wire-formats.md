@@ -954,6 +954,7 @@ Dropped-addition keys:
 | New capability rule with principals | `capability rule CAPABILITY` |
 | New principal in a capability rule | `principal PRINCIPAL in capability rule CAPABILITY` |
 | New empty-principal capability claim | `claim CAPABILITY` |
+| New principal, or new actions or bounds for a principal, in a peerbox's rules ([peerbox contract](peerbox-contract.md)) | `peerbox PEERBOX on HOST for PRINCIPAL` |
 
 Older rows may spell a principal key with `of` instead of `in`; both mean the
 same addition, and one row may not hold both.
@@ -1064,6 +1065,7 @@ Ignored unless the process has `PEERSPAN_DEC_TEST_MODE=1`.
 | `di_` | invitation | section 10.1 |
 | `psi2-` | invite code | section 10.1 |
 | `psl2-` | request code | section 10.2 |
+| `psb1-` | peerbox invite code | [peerbox contract](peerbox-contract.md#invitations-for-new-participants) |
 | `create_` | creation | random, section 16.3 |
 | `act_` | action | section 16.4 |
 | `dint_` | signing plan | random, section 19.3 |

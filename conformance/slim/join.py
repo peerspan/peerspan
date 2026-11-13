@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Slim suite 1, join: create, invite, join a new person, link a second machine, refusals.
+"""Slim suite 1, join: create, invite, link a second machine (and the admin-stage fold), refusals, time limits.
+
+A new person joining (a teammate) is the separate join_teammate suite.
 
 Written from docs/decentralized-spec.md sections 6 and 8 and the wire appendix
 (docs/decentralized-wire-formats.md sections 9, 10, 16 and 20.2) only.
@@ -10,12 +12,12 @@ import json
 import math
 import time
 
-from harness import (Failure, Suite, b64url_json, check, commit, create_network, finalize, invite, join_request, link_view,
-                     parse_time, pull_until, rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked,
+from harness import (Failure, Suite, b64url_json, check, commit, create_network, invite, join_request, link_view,
+                     parse_time, pull_until, rfc3339, select, ssh_key, ssh_public_base64, wait_linked,
                      datetime, timedelta, timezone)
 
 suite = Suite("join", __doc__)
-a, b, a2 = suite.host("alice"), suite.host("bob"), suite.host("alice2")
+a, a2 = suite.host("alice"), suite.host("alice2")
 # A joiner whose clock the suite moves (debug-build test clock, DEC-OWN9; developer guide).
 c = suite.host("clocked", start=False)
 clock = c.root / "clock-offset"
@@ -45,10 +47,6 @@ def set_clock(moment):
     temporary = clock.with_suffix(".new")
     temporary.write_text(("-" if offset < 0 else "+") + f"{abs(offset)}s\n")
     temporary.replace(clock)
-
-
-def no_secret(text, code):
-    return text.replace(code, "<code>") if code else text
 
 
 @suite.case("create_network", "spec 6")
@@ -106,99 +104,23 @@ def _():
     payload = __import__("json").loads(base64.b64decode(code["payload_base64"]))
     check((parse_time(payload["expires_at"]) - parse_time(payload["issued_at"])).total_seconds() == 3600,
           "signed lifetime is not 3600 s")
-    state["return_secret"] = payload.get("return_secret_base64")
     check(payload["member"] == "bob" and payload["descriptor"], f"payload {sorted(payload)}")
     for seconds, accepted in ((59, False), (60, True), (86400, True), (86401, False)):
         status, body = invitation_within_one_second(net["id"], seconds)
         check((status == 201) == accepted, f"lifetime {seconds}s: {status} {body if status != 201 else ''}")
         if not accepted:
             check(body.get("code") == "invalid", f"lifetime {seconds}s refused with {body}")
-    longer = a.cli("invite", "x", "--network", net["id"], "--expires-in", "2h")
+    longer = a.cli("--json", "invite", "x", "--network", net["id"], "--expires-in", "2h")
     check(longer.ok, f"invite --expires-in 2h: {longer.stderr.strip()[-200:]}")
     left = (parse_time(longer.json["expires_at"]) - datetime.now(timezone.utc)).total_seconds()
     check(7100 <= left <= 7210, f"--expires-in 2h gave {left:.0f}s")
-
-
-@suite.case("join_new_person", "spec 8.1, 8.2, 8.4, 8.7; 20 items 28, 36, 37")
-def _():
-    (net,) = need("net")
-    key = ssh_key(b.root, "bob")
-    state["bob_key"] = key
-    request = join_request(b, invite(a, "bob", net["id"])["invitation"], key)
-    rid, code = request["request_id"], request["display_code"]
-    state["bob_request"] = request
-    # The request should reach the inviter through the invite's return path, with no code (DEC-Q3).
-    try:
-        wait_for(lambda: any(v["request_id"] == rid for v in a.api("GET", "/v2/link/requests")[1]), timeout=5)
-        state["returned"] = True
-    except AssertionError:
-        state["returned"] = False
-    check(rid.startswith("link_") and request["mode"] == "new" and request["role"] == "requester", f"request {request}")
-    window = (parse_time(request["expires_at"]) - parse_time(request["created_at"])).total_seconds()
-    check(window == 3600, f"request window {window:.0f}s, want created_at + 3600")
-    check(request["person_public_key"] == ssh_public_base64(key), "request names another person key")
-    b.ok_incomplete("link", "approve", "--network", net["id"], "--person-key", key, "--code-stdin", "--approve",
-                    input=code + "\n")
-    view = pull_until(b, rid, "owner_offer_id")
-    state["bob_single_offer_state"] = view["state"]
-    if view["state"] == "needs_selection":
-        select(b, view)
-    b.restart(kill=True)  # crash after selection: the same request continues (8.7)
-    view = link_view(b, rid)
-    check(view["selection_id"].startswith("dpk_"), f"selection lost across a restart: {view['selection_id']}")
-    a.ok_incomplete("link", "admit", "--network", net["id"], "--owner-offer", view["owner_offer_id"], "--selection",
-                    view["selection_id"], "--person", view["person_public_key"], "--expect-host-key",
-                    view["host_public_key"], "--expect-device-key", view["device_public_key"], "--code-stdin",
-                    "--approve", input=code + "\n")
-    a.restart(kill=True)  # crash after the administrator stage
-    view = pull_until(b, rid, "administrator_offer_id")
-    finalize(b, view, key)
-    view = pull_until(b, rid, "owner_finalization_id")
-    check(view["state"] == "needs_commit" and not view["commit_approved"], f"before commit: {view['state']}")
-    # The one consent prompt: blank means no (8.4).
-    declined = b.cli("link", "resume", rid, tty=True, input="\n", timeout=60)
-    check(not declined.ok, "a blank answer at commit exited 0")
-    check("Commit this exact machine link?" in declined.stderr + declined.stdout,
-          f"no commit prompt: {no_secret(declined.stderr[-300:], code)}")
-    view = link_view(b, rid)
-    check(view["state"] == "needs_commit" and not view["commit_approved"], f"blank answer changed state: {view['state']}")
-    check(b.api("GET", "/v2/networks")[1] == [], "a declined commit applied the network")
-    accepted = b.cli("link", "resume", rid, tty=True, input="yes\n", timeout=60)
-    check(accepted.ok, f"answering yes: exit {accepted.code}: {no_secret(accepted.stderr[-300:], code)}")
-    wait_linked(b, a, rid)
-    view = link_view(b, rid)
-    check(view["completed"][-1] == "locally_applied" and view["activation_id"].startswith("da_"), f"linked {view}")
-    members = {m["host_public_key"]: m for m in a.api("GET", f"/v2/networks/{net['id']}/members")[1]["members"]}
-    check(b.public_key in members and members[b.public_key]["member"] == "bob", "alice does not list bob's host")
-    check(members[b.public_key]["person_public_key"] == ssh_public_base64(key), "bob's host is bound to another person")
-    networks = b.api("GET", "/v2/networks")[1]
-    check(len(networks) == 1 and networks[0]["id"] == net["id"], f"bob's networks {networks}")
-    check(networks[0]["authority"]["state"] == "usable", f"bob's authority {networks[0]['authority']}")
-    check(networks[0]["provider"]["kind"] == "device" and networks[0]["provider"]["scopes"] == 7,
-          f"bob's provider {networks[0]['provider']} (new person default scopes 7)")
-    state["bob_joined"] = True
-
-
-@suite.case("join_request_returns_without_code", "spec 8.1 step 4 (DEC-Q3); appendix 10.1; 20 item 29")
-def _():
-    secret, returned = need("return_secret", "returned")
-    check(secret and len(base64.b64decode(secret)) == 16, "the invite payload carries no 16-byte return_secret_base64")
-    check(returned, "the inviter never received the join request through the invite's return path; "
-                    "join printed a psl2- code at once")
-
-
-@suite.case("single_offer_selected_without_prompt", "spec 8.4 (DEC-S5, DEC-Q5); 20 item 34")
-def _():
-    (seen,) = need("bob_single_offer_state")
-    check(seen != "needs_selection", "with exactly one owner offer the request still waited in needs_selection "
-                                      "(link resume asks 'Select this exact owner offer?')")
 
 
 @suite.case("link_second_machine", "spec 8.1 (link), 8.2, 8.7")
 def _():
     net, key = need("net", "alice_key")
     person = net["person_public_key"]
-    request = a2.cli("link", "--network", net["id"], "--expect-person", person, timeout=90).json
+    request = a2.cli("--json", "link", "--network", net["id"], "--expect-person", person, timeout=90).json
     check(request and request.get("display_code", "").startswith("psl2-"), "link printed no psl2- request code")
     rid, code = request["request_id"], request["display_code"]
     a.ok_incomplete("link", "approve", "--network", net["id"], "--person", person, "--expect-host-key",
@@ -255,7 +177,7 @@ def _():
     denied = a.cli("network", "group", "set", "--network", network, "--group", "no-admin", "--person", "alice", "--approve")
     check(not denied.ok, "the owner still has administrator authority after withdrawing its admin grant")
     machine = suite.host("root-only-machine")
-    request = machine.cli("link", "--network", network, "--expect-person", person, timeout=90).json
+    request = machine.cli("--json", "link", "--network", network, "--expect-person", person, timeout=90).json
     check(request and request.get("display_code"), "root-only link printed no request code")
     rid = request["request_id"]
     a.ok_incomplete("link", "approve", "--network", network, "--person", person,
@@ -316,7 +238,7 @@ def _():
         "member": "carol", "expected_person_public_key": ssh_public_base64(other),
         "expires_at": rfc3339(datetime.now(timezone.utc) + timedelta(hours=1))})
     check(status == 201, f"pinned invite: {status} {pinned}")
-    mismatch = c.cli("join", "--invite-stdin", "--person-key", key, input=pinned["invitation"] + "\n")
+    mismatch = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=pinned["invitation"] + "\n")
     check(not mismatch.ok and not (mismatch.json or {}).get("request_id"), "a join with a key the invite does not pin "
           "created a request")
     check(c.api("GET", "/v2/link/requests")[1] == before, "refused joins left join requests behind")
@@ -333,12 +255,12 @@ def _():
     made = invite(a, "carol", net["id"])
     expires = parse_time(made["expires_at"])
     set_clock(expires - timedelta(seconds=1))
-    last = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
+    last = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
     check((last.json or {}).get("request_id"), f"join at expires_at - 1 s: exit {last.code} {last.stderr.strip()[-200:]}")
     made = invite(a, "carol", net["id"])  # a fresh invite: re-joining the first one resumes its request
     expires = parse_time(made["expires_at"])
     set_clock(expires)
-    late = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
+    late = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
     check(not late.ok and "expired" in late.stderr and not (late.json or {}).get("request_id"),
           f"join at expires_at: exit {late.code} {late.stderr.strip()[-200:]}")
     state["clock_at"] = expires

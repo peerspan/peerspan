@@ -257,7 +257,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -267,7 +267,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -315,7 +315,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -425,7 +425,7 @@ def no_original(f):
     b = f['b']
     check(not (b.root / 'absent-person-key').exists() and not (b.root / 'absent-agent.sock').exists()
           and not (b.home / '.config/peerspan/person_ed25519').exists(), 'requester acquired an original source')
-    with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True, timeout=30)) as db:
         check(not db.execute("SELECT 1 FROM dec_intents WHERE kind='owner' AND json_extract(record,'$.operation_id')=?", (f['rid'],)).fetchone(),
               'requester acquired a local original owner intent')
 
@@ -511,7 +511,7 @@ def inspect_machine(f, *, status=200, code=None, cli=False, override=None, path=
         before, counters = whole(f), traffic(f)
     data = inspection_body(f) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester CLI success/refusal mismatch')
         public(result.stdout + result.stderr, *f['secrets'], str(f['b'].root))
@@ -569,7 +569,7 @@ def base_world(name='device'):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
         return row is None or row[0] is None
     wait_for(retired, timeout=5, interval=.1, message='actual automatic-return secret retirement')
@@ -643,7 +643,7 @@ def progress(f):
     wait_for(lambda: link_view(a, rid)['selection_id'] == view['selection_id'], timeout=10, interval=.1,
              message='existing computer retained exact requester selection')
     if link_view(b, rid)['owner_finalization_id'] == '-':
-        args = ['link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
+        args = ['--json', 'link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
             '--expect-person', view['person_public_key'], '--expect-host-key', view['host_public_key'],
             '--expect-device-key', view['device_public_key'], '--owner-offer', view['owner_offer_id'],
             '--selection', view['selection_id'], '--administrator-offer', '-', '--approve']
@@ -853,20 +853,20 @@ def endpoint(f, action):
 
 
 def intent_rows(h, rid, kind):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return [(row[0], json.loads(row[1]), row[2]) for row in db.execute(
             "SELECT intent_id,record,secret FROM dec_intents WHERE kind=? AND json_extract(record,'$.operation_id')=? ORDER BY intent_id", (kind, rid))]
 
 
 def load_intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'exact metadata/ordinary intent vanished')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
 
 
 def coherent(f, consent):
-    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db, db:
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db, db:
         db.execute('BEGIN')
         records = [db.execute('SELECT record FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
                    for iid in (consent['consent_id'], consent['review']['intent_id'])]
@@ -958,7 +958,7 @@ def op(f, action, prepared=None, *, pure=False, cli=False, status=200, code=None
         quiet(f); before, counters = whole(f), traffic(f)
     data = input_for(f, action, prepared) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', action, '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester consent CLI success/refusal mismatch')
         public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
@@ -1032,7 +1032,7 @@ def clock_rollback_regression(f, approved=None):
     local time. Do not call ordinary request GET through its rollback refusal.
     """
     quiet(f)
-    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT record FROM dec_clock WHERE network_id=?', (f['network']['id'],)).fetchone()
     check(row is not None, 'genuine target-network clock anchor missing')
     record = json.loads(row[0])
@@ -1053,7 +1053,7 @@ def clock_rollback_regression(f, approved=None):
             before, counters = whole(f), traffic(f)
             data = input_for(f, action, f['prepared'])
             if cli:
-                result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+                result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', action, '--stdin',
                     input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
                 check(result.ok, 'approved CLI history failed under genuine clock rollback')
                 public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
@@ -1126,7 +1126,7 @@ def renew_cancelled_fixture(f):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
         return row is None or row[0] is None
     wait_for(retired, timeout=5, interval=.1, message='fresh invitation reference actually retired')
@@ -1151,7 +1151,7 @@ def history_retirement(f):
     retired_expired_helper(f['b'])
     def retired():
         record, secret = pending(f['b'], f['rid'])
-        with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db:
             frames = db.execute('SELECT count(*) FROM dec_frames').fetchone()[0]
             retained = db.execute('SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL').fetchone()[0]
             outbox = db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0]
@@ -1228,7 +1228,7 @@ def _():
     check(status == 200, f'exact64KiB API Lookup HTTP {status}'); validate_consent(f, value); strict(f, before, counters, 'maximum')
     cli_data = compact({'flow_id': f['flow']['flow_id'], **data})
     quiet(f); before, counters = whole(f), traffic(f)
-    result = b.cli('onboarding', 'join', 'machine-commit', 'lookup', '--stdin', input=(cli_data + b' ' * (65536 - len(cli_data))).decode(), timeout=8)
+    result = b.cli('--json', 'onboarding', 'join', 'machine-commit', 'lookup', '--stdin', input=(cli_data + b' ' * (65536 - len(cli_data))).decode(), timeout=8)
     check(result.ok, 'exact64KiB CLI Lookup refused'); validate_consent(f, result.json); strict(f, before, counters, 'maximum-CLI')
     malformed = [b'null', b'[]', b'{', encoded + b'{}', maximum + b' ',
         b'{"context":' + ctx + b',"context":' + ctx + b',"join_review_id":' + compact(data['join_review_id']) + b'}',

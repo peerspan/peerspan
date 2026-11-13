@@ -60,7 +60,7 @@ def events(host):
 def db_path(host):
     matches = []
     for path in sorted(host.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one real host database")
@@ -68,7 +68,7 @@ def db_path(host):
 
 
 def records(host):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -370,7 +370,7 @@ def _():
     check(records(host) == before, "private retrieval wrote records or activity")
     check(host.api("POST", "/v1/adapters/" + record["id"] + "/verify-credential", {"token": secret["token"]}) == (200, {"matches": True}),
           "recovered token does not match the normal credential")
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db:
         digest = db.execute("SELECT token_hash FROM adapter_credentials WHERE id=?", (record["id"],)).fetchone()[0]
     check(digest == hashlib.sha256(secret["token"].encode()).hexdigest() and secret["token"] not in repr(records(host)),
           "credential persistence is not SHA256-only")
@@ -407,7 +407,7 @@ def _():
     original = credential(host, flow)
 
     def transport():
-        result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(payload))
+        result = host.cli("--json", "onboarding", "adapter", "transport", "--stdin", input=json.dumps(payload))
         check(result.ok, "private transport CLI failed")
         value = result.json
         check(set(value) == {"version", "adapter_id", "session_id", "token", "instance_id", "adapter_socket"}
@@ -473,7 +473,7 @@ def _():
         non_utf8.unlink()
     other_project, other = approved(host, "transport-other-flow")
     other_payload = {"flow_id": other["flow_id"], **without(decision(other), "decision")}
-    result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(other_payload))
+    result = host.cli("--json", "onboarding", "adapter", "transport", "--stdin", input=json.dumps(other_payload))
     check(result.ok and result.json["instance_id"] != private["instance_id"], "different flow/token reused the original instance")
     message = ("peerspan-guided-adapter-instance-v1\n" + other["flow_id"] + "\n" + other["review_id"]).encode()
     check(result.json["instance_id"] == "instance_" + hmac.new(bytes.fromhex(result.json["token"][6:]), message, hashlib.sha256).hexdigest(),
@@ -632,18 +632,18 @@ def _():
     host = suite.host("cli")
     attached = project(host, "cli-private")
     ctx = context(attached)
-    looked = host.cli("onboarding", "adapter", "lookup", "--stdin", input=json.dumps(ctx))
+    looked = host.cli("--json", "onboarding", "adapter", "lookup", "--stdin", input=json.dumps(ctx))
     check(looked.ok and looked.json == observe(host, attached, None), "lookup CLI/API differ")
-    result = host.cli("onboarding", "adapter", "prepare", "--stdin", input=json.dumps({"context": ctx}))
+    result = host.cli("--json", "onboarding", "adapter", "prepare", "--stdin", input=json.dumps({"context": ctx}))
     check(result.ok, "adapter prepare CLI failed")
     flow = result.json
     validate(host, attached, flow)
     check(host.ok("onboarding", "adapter", "inspect", flow["flow_id"]) == flow, "inspect CLI/API differ")
     payload = {"flow_id": flow["flow_id"], **decision(flow)}
-    result = host.cli("onboarding", "adapter", "decide", "--stdin", input=json.dumps(payload))
+    result = host.cli("--json", "onboarding", "adapter", "decide", "--stdin", input=json.dumps(payload))
     check(result.ok and result.json["state"] == "authorized" and "token_" not in result.stdout + result.stderr, "decision CLI exposed a token or failed")
     private_payload = without(payload, "decision")
-    result = host.cli("onboarding", "adapter", "credential", "--stdin", input=json.dumps(private_payload))
+    result = host.cli("--json", "onboarding", "adapter", "credential", "--stdin", input=json.dumps(private_payload))
     check(result.ok and result.json == credential(host, flow), "explicit private credential CLI/API differ")
     token = result.json["token"]
     before = records(host)
@@ -760,7 +760,7 @@ def _():
     identity, activity = get(source, "/v1/host"), events(source)
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute("PRAGMA table_info(onboarding_adapter_flows)"))
         foreign = list(db.execute("PRAGMA foreign_key_list(onboarding_adapter_flows)"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema25 adapter table columns/types")
@@ -784,7 +784,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
+    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not add empty schema25/26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"),
           "schema24 migration changed project/DEC/registry/history records")

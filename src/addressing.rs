@@ -380,6 +380,10 @@ pub async fn task_to(socket: &Path, args: Vec<String>) -> anyhow::Result<Value> 
         Ok(parsed) => parsed,
         Err(error) => error.exit(),
     };
+    // The shorthand's own parser sees a trailing `--json` (OUT-2).
+    if parsed.json {
+        crate::output::set_json(true);
+    }
     let mut body = json!({"to": parsed.target, "input": parsed.text});
     if let Some(network) = parsed.network {
         body["network"] = json!(network);

@@ -8343,6 +8343,35 @@ name to unknown; never print raw values/labels/paths/IDs. No assertion/setup/
 operation/purity-counter/bound change. Run once to classify this remaining
 observation; a passing sample leaves the prior cause unclassified.
 
+### GU.impl42f: settle mailbox expiry after a clock jump
+
+The case5 observation retained in GU.impl42b/42e is now classified. Full-tier run
+43103041743 (2026-11-11) and 7 of 20 local whole-suite samples capture, with the
+GU.impl42e allowlist, exactly the existing side's `frames` and `mailboxes`
+tables changed during a lookup or approve CLI step after the case's test-clock
+jump past request expiry, with no files/schema/version/database-set or carrier
+change ([#189](https://github.com/peerspan/peerspan/issues/189)). That is the
+existing host erasing expired participant mailboxes (decentralized spec
+section 9.2, [MBX-1](decision-log.md)): its own maintenance on the host clock,
+not work done by the pure step. The case's settling (`settled` and `quiet`,
+0.1 s of stable state) can end before that erasure runs, so the erasure lands
+inside the measured step.
+
+A measured purity step that follows a test-clock change starts only after
+mailbox expiry for that clock has settled: at least 2 seconds (the section 9.2
+bound) after the clock was changed, and then the existing stable-state and
+counter settling. This applies wherever a case changes the clock before a pure
+step, in sections 42 and 43 alike, and counts a change on either host of the
+fixture. It adds settling only where a pure step already settles: a comparison
+that settles nothing, such as a schema-only ABORT rollback check, keeps its
+existing timing. It is settling, not an allowance: the same
+whole DB/private-file/TCP+UDP comparison, allowed writes, actions, counters and
+bounds stay unchanged, and nothing that changes after settling is excused.
+Discarded: allowing `frames`/`mailboxes` changes in pure comparisons (it would
+also hide a pure step that wrote a mailbox), a debug switch that stops erasure
+(the suite would no longer test the daemon as shipped), and retrying a failed
+step.
+
 ## 43. Bounded existing-computer owner-offer signing
 
 GU.impl43 follows merged94. Add an explicit bounded private signing continuation
@@ -8651,6 +8680,35 @@ Discarded: client access to device seeds, new approval/journal, arbitrary signer
 inputs, broader resume/F/commit automation, proofless completion, indefinite
 polling, unbounded fallback or historical signature evidence as current readiness.
 Recommended under GU-OWN1; no new choice attributed to the owner.
+
+### GU.impl43c: classify a missed expired-ciphertext retirement
+
+Full-tier run 43114365969 (release commit b835498, first attempt) failed
+verification5 once: `retired_expired_helper` timed out after 5 s with one
+mailbox past expiry on the host clock still `active` with one frame, and one
+already `expired` ([#189](https://github.com/peerspan/peerspan/issues/189)).
+The rerun passed, as did 14 earlier full-tier runs and 40 local whole-suite
+runs on main 622541b (20 idle, 20 under CPU and disk load). Section 9.2 bounds
+erasure at 2 seconds (MBX-1), so the host missed its own bound. The cause is
+unclassified: the existing summary does not show whether erasure stopped or was
+only late, nor which of the case's two retirement waits failed.
+
+A separate contract-only author may add ONLY failure diagnostics to
+`retired_expired_helper` in machine_owner_signing. Give it an optional phase,
+default unknown; tag the case's two existing calls `fresh-expiry` and
+`retained-history`. On the wait's existing failure path only (its timeout, or a
+layout check it already makes), print one separate public line after the
+unchanged `helper_summary` line: that phase; whether any mailbox state or ciphertext
+category changed between the first and the last snapshot the wait already
+captured (any retirement during the wait, or none); the count of mailboxes
+past expiry that still fail the wait's retirement test, by seconds past expiry
+at the last poll's host clock, bucketed as at most 2, at most 5 or over 5; and
+the host process as running, exited, stopped (no handle) or unknown, from the
+harness's own process handle with no request to the daemon. No identifiers,
+times, paths or raw rows; no new request, probe, action, retry or wait; the
+assertion, the 5 s bound, every call and the verdict stay as they are, and a
+diagnostic failure cannot change the outcome. A passing run classifies nothing;
+the next CI occurrence does.
 
 ## 44. Native existing-computer machine-owner review and initial signing
 

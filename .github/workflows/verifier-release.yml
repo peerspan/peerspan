@@ -1,0 +1,112 @@
+name: Draft verifier release
+
+# Builds Peerspan's release verifier (docs/install-contract.md#release-verifier,
+# INST-10) as static binaries and creates a draft prerelease verifier-vN whose
+# only assets are those binaries. The owner publishes it as a prerelease; a
+# published verifier-vN is never changed, and a new verifier gets a new N. The
+# install scripts pin its digests in a later pull request of their own.
+
+on:
+  workflow_dispatch:
+    inputs:
+      number:
+        description: N of verifier-vN (1, 2, ...)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verifier-release-${{ inputs.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check inputs
+        env:
+          NUMBER: ${{ inputs.number }}
+        run: |
+          set -euo pipefail
+          [[ $GITHUB_REF == refs/heads/main ]] || { echo 'Run from main only' >&2; exit 1; }
+          [[ $NUMBER =~ ^[1-9][0-9]*$ ]] || { echo 'N must be a positive integer' >&2; exit 1; }
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain and musl
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q musl-tools
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+      - name: Build and check the static verifier
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "$TARGET" --manifest-path verifier/Cargo.toml
+          mkdir -p dist
+          cp "verifier/target/$TARGET/release/peerspan-verify" "dist/peerspan-verify-linux-$ARCH"
+          file "dist/peerspan-verify-linux-$ARCH" | tee /dev/stderr | grep -q 'statically linked\|static-pie linked'
+          # A usage error exits 2, so the binary runs without any library.
+          set +e; "dist/peerspan-verify-linux-$ARCH"; status=$?; set -e
+          [[ $status -eq 2 ]]
+          (cd dist && sha256sum "peerspan-verify-linux-$ARCH")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verifier-${{ matrix.arch }}
+          path: dist/peerspan-verify-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: verifier-*
+          path: verifier-assets
+          merge-multiple: true
+      - name: Create the draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ inputs.number }}
+        run: |
+          set -euo pipefail
+          tag="verifier-v$NUMBER"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists" >&2
+            exit 1
+          fi
+          [[ $(ls -A verifier-assets | sort) == $'peerspan-verify-linux-amd64\npeerspan-verify-linux-arm64' ]]
+          amd64=$(sha256sum verifier-assets/peerspan-verify-linux-amd64 | cut -d ' ' -f 1)
+          arm64=$(sha256sum verifier-assets/peerspan-verify-linux-arm64 | cut -d ' ' -f 1)
+          notes=$(printf 'Peerspan release verifier, built from %s.\n\nPin it in scripts/install.sh and scripts/install-release.sh:\n\n```sh\nPEERSPAN_VERIFIER_RELEASE="%s"\nPEERSPAN_VERIFIER_SHA256="amd64:%s arm64:%s"\n```\n' "$GITHUB_SHA" "$tag" "$amd64" "$arm64")
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease \
+            --target "$GITHUB_SHA" --title "Peerspan release verifier v$NUMBER" --notes "$notes" \
+            verifier-assets/peerspan-verify-linux-amd64 verifier-assets/peerspan-verify-linux-arm64
+          echo "PEERSPAN_VERIFIER_SHA256=\"amd64:$amd64 arm64:$arm64\""

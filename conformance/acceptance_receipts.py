@@ -197,7 +197,7 @@ def startup_trace(root, name):
 
 
 HISTORY_SCHEMA = {'original_schema': lambda x: type(x) is int and x in (23, 24, 27),
-    'upgraded_schema': lambda x: type(x) is int and x == 31,
+    'upgraded_schema': lambda x: type(x) is int and x == 33,
     **{key: boolean for key in ('backup_mode_hash_match', 'public_history_retained', 'pending_review_retained',
         'new_review', 'old_binary_refused_without_db_mutation', 'complete_restore_reopened')}, 'backup_manifest_sha256': digest}
 ARTIFACT_SCHEMA = {key: digest for key in ('host_sha256', 'probe_sha256', 'archive_sha256')}

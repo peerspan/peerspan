@@ -19,7 +19,7 @@ scripts/package-release.sh rust VERSION
 scripts/package-helper.sh VERSION
 ```
 
-The host script currently packages native Linux builds, bundles pinned Node integrations, and writes an archive plus checksum under `dist/`. It requires Node.js 22 or later and records the builder's glibc baseline in `RELEASE.json`. The [quick start](quick-start.md) describes installing a bundle; the [installed-bundle check](../conformance/installed_bundle.py) exercises its contents.
+The host script currently packages native Linux builds, bundles pinned Node integrations, and writes an archive plus checksum under `dist/`. It requires Node.js 22 or later on the build machine to install the integrations' dependencies. It adds the pinned Node.js 24 runtime to the bundle (downloaded from nodejs.org and accepted only with its pinned digest, or taken from `PEERSPAN_NODE_TARBALL`), and records the bundled Node.js version and the builder's glibc baseline in `RELEASE.json`. The release verifier in `verifier/` is a separate crate with its own workflow (`Draft verifier release`). The [quick start](quick-start.md) describes installing a bundle; the [installed-bundle check](../conformance/installed_bundle.py) exercises its contents.
 
 ## Verify a change
 

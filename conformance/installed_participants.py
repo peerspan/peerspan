@@ -150,7 +150,7 @@ class InstalledHost:
             connection.close()
 
     def cli(self, *args, input=None, timeout=5):
-        result = subprocess.run([str(self.suite.host_bin), '--state', str(self.state), *map(str, args)],
+        result = subprocess.run([str(self.suite.host_bin), '--state', str(self.state), '--json', *map(str, args)],
             cwd=self.root, env=self.env, input=(input or '').encode(), capture_output=True, timeout=timeout)
         return Result(list(map(str, args)), result.returncode, result.stdout.decode(errors='replace'),
                       result.stderr.decode(errors='replace'))

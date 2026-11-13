@@ -74,7 +74,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -82,7 +82,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -231,7 +231,7 @@ def observe(h, parent, expected):
 def request_fingerprint(h, request_id):
     # Public storage19.4: scheduling acknowledgments may evolve independently;
     # immutable request/device/nonce/packet plus every encrypted frame must not.
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT deadline,record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (request_id,)).fetchone()
         check(row is not None, "ordinary request disappeared")
         record = json.loads(row[1])
@@ -303,7 +303,7 @@ def _():
     check(prepare(h, parent, code, person, status=200) == flow, "identical prepare extended or regenerated review")
     observe(h, parent, flow)
     check(records(h) == before, "prepare retry mutated persisted state")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         values = [value for row in db.execute(f"SELECT * FROM {TABLE}") for value in row]
     public(values, code)
     check(hashlib.sha256(code.encode()).hexdigest() in str(values), "only a digest binds the code in the public flow table")
@@ -346,7 +346,7 @@ def _():
     reuse, p2, original, selected = fixture("reuse")
     helper = {"address": "127.0.0.1:9", "public_key": source()["signer"].public}
     legacy = source()["signer"].invitation(original, change=lambda p: p.update(helpers=[helper]))
-    existing = reuse.cli("join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
+    existing = reuse.cli("--json", "join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
     # Runtime contract: join publishes a flat pending LINK_VIEW and exits
     # nonzero until linking actually completes. Publication is not admission.
     check(not existing.ok and existing.json and existing.json.get("request_id") and existing.json.get("state") == "pending",
@@ -444,17 +444,17 @@ def _():
     body = proposal(parent, code, person); encoded = compact(body)
     # Exact stdin/body bound allows insignificant trailing whitespace.
     maximum = encoded + b" " * (65536 - len(encoded))
-    result = h.cli("onboarding", "join", "prepare", "--stdin", input=maximum.decode(), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "prepare", "--stdin", input=maximum.decode(), timeout=10)
     check(result.ok, "CLI refused exact64KiB private JSON boundary")
     flow = result.json; validate(h, parent, flow, person)
     check(prepare(h, parent, code, person, status=200) == flow, "CLI/API exact proposal parity")
     for verb, payload, expected in [("lookup", {"context": context(parent)}, {"version": 1, "host_id": h.id, "context": context(parent), "flow": flow}),
                                     ("decide", {"flow_id": flow["flow_id"], **decision(flow, code, "decline")}, None)]:
-        result = h.cli("onboarding", "join", verb, "--stdin", input=json.dumps(payload), timeout=10)
+        result = h.cli("--json", "onboarding", "join", verb, "--stdin", input=json.dumps(payload), timeout=10)
         check(result.ok, f"private CLI {verb} failed"); public(result.stdout, code)
         if expected:
             check(result.json == expected, "CLI lookup parity")
-    result = h.cli("onboarding", "join", "inspect", flow["flow_id"], timeout=10)
+    result = h.cli("--json", "onboarding", "join", "inspect", flow["flow_id"], timeout=10)
     check(result.ok and result.json["state"] == "declined", "CLI inspect parity"); public(result.stdout, code)
     invalid = [encoded + b"{}", b"null", b"[]", b"{", maximum + b" ",
                compact({**body, "extra": "private-marker"}), compact({**body, "person_public_key": "-"}),
@@ -558,7 +558,7 @@ def _():
     legacy.stop(); migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
+    check(migrated["$version"] == (33,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
     check(without(migrated, "$schema", "$version", TABLE, *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "additive migration changed prior authority/registry/history")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed table definitions")
     for kind, ddl in [("table", f"CREATE TABLE {TABLE} (marker TEXT)"), ("view", f"CREATE VIEW {TABLE} AS SELECT 'reserved' AS marker"),
@@ -582,7 +582,7 @@ def _():
 
 
 def identity_inventory(h, parent, *, agent=None, data=None, fallback=False):
-    argv = [str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "identities", "--stdin"]
+    argv = [str(suite.host_bin), "--state", str(h.state), "--json", "onboarding", "join", "identities", "--stdin"]
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
     if fallback:
         environment.pop("XDG_CONFIG_HOME", None)
@@ -728,7 +728,7 @@ def create_original(h, parent, *, data=None, agent=None, fallback=False):
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
     if fallback:
         environment.pop("XDG_CONFIG_HOME", None)
-    result = subprocess.run([str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "create-identity", "--stdin"],
+    result = subprocess.run([str(suite.host_bin), "--state", str(h.state), "--json", "onboarding", "join", "create-identity", "--stdin"],
                             input=compact(body) if data is None else data, env=environment, cwd=h.root, capture_output=True, timeout=20)
     for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_CREATION_MARKER", b"token_", b"psi2-",
                    str(Path(environment.get("XDG_CONFIG_HOME", str(h.home / ".config"))) / "peerspan" / "person_ed25519").encode()):
@@ -924,7 +924,7 @@ def _():
           and not observed["request"]["commit_approved"], "fresh progress advanced requester consent")
     body = {"flow_id": requested["flow_id"], **progress_body(requested)}; raw = compact(body)
     before, home = records(h), private_files(h.home)
-    cli = h.cli("onboarding", "join", "progress", "--stdin", input=(raw + b" " * (65536 - len(raw))).decode(), timeout=10)
+    cli = h.cli("--json", "onboarding", "join", "progress", "--stdin", input=(raw + b" " * (65536 - len(raw))).decode(), timeout=10)
     check(cli.ok and without(cli.json, "observed_at") == without(observed, "observed_at"), "exact64KiB progress CLI/API parity")
     public(cli.stdout + cli.stderr, code)
     route = BASE + "/" + requested["flow_id"] + "/progress"

@@ -107,7 +107,7 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     body["run"] = Value::Object(run);
     let record = local.post("/v1/tasks".into(), body).await?;
     if *detach {
-        println!("{}", serde_json::to_string_pretty(&record)?);
+        crate::output::emit(&record)?;
         return Ok(0);
     }
     let id = record["request"]["task_id"]
@@ -277,7 +277,7 @@ async fn save_result(
 }
 
 /// `90`, `90s`, `10m` or `2h`, as whole seconds.
-fn seconds(value: &str) -> anyhow::Result<i64> {
+pub(crate) fn seconds(value: &str) -> anyhow::Result<i64> {
     let (number, unit) = match value.char_indices().last() {
         Some((i, c)) if c.is_ascii_alphabetic() => (&value[..i], c),
         _ => (value, 's'),

@@ -98,47 +98,49 @@ fn prepare(store: &Store, delivery: &Delivery) -> Result<DialTarget> {
 }
 async fn send(store: Arc<Store>, delivery: &Delivery, target: DialTarget) -> Result<Vec<u8>> {
     let path = format!("/peer/v2/networks/{}/catalog", delivery.network);
-    for endpoint in target.quic {
-        let Ok(Ok(addresses)) =
-            tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(endpoint)).await
-        else {
-            continue;
+    // Every signed QUIC address of the target is dialed together.
+    let addresses = super::resolve_quic(&target.quic).await;
+    if let Some(first) = addresses.first() {
+        let peer = crate::peer_store::Peer {
+            id: key_id(&b64(&target.host, 32)?),
+            public_key: target.host.clone(),
+            address: first.to_string(),
         };
-        for address in addresses.take(8) {
-            let peer = crate::peer_store::Peer {
-                id: key_id(&b64(&target.host, 32)?),
-                public_key: target.host.clone(),
-                address: address.to_string(),
-            };
-            match tokio::time::timeout(
-                Duration::from_secs(5),
-                crate::quic::request(store.clone(), &peer, "POST", &path, &delivery.body),
-            )
-            .await
-            {
-                Ok(Ok((200, body))) => return Ok(body),
-                Ok(Ok((status, body))) => {
-                    // Preserve only a known public code, never remote text or
-                    // credentials. The exact delivery remains pending.
-                    if let Ok(value) = parse(&body, 1 << 20)
-                        && let Some(code) = value.get("code").and_then(Value::as_str)
-                    {
-                        let code = match code {
-                            "forbidden" => "forbidden",
-                            "authority_expired" => "authority_expired",
-                            "proof_required" => "proof_required",
-                            "state_conflict" => "state_conflict",
-                            "quota_exceeded" => "quota_exceeded",
-                            "rate_limited" => "rate_limited",
-                            _ => "transport_unavailable",
-                        };
-                        if status != 200 {
-                            return Err(Error::new(code));
-                        }
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            crate::quic::request_any(
+                store.clone(),
+                &peer,
+                &addresses,
+                "POST",
+                &path,
+                &delivery.body,
+            ),
+        )
+        .await
+        {
+            Ok(Ok((200, body))) => return Ok(body),
+            Ok(Ok((status, body))) => {
+                // Preserve only a known public code, never remote text or
+                // credentials. The exact delivery remains pending.
+                if let Ok(value) = parse(&body, 1 << 20)
+                    && let Some(code) = value.get("code").and_then(Value::as_str)
+                {
+                    let code = match code {
+                        "forbidden" => "forbidden",
+                        "authority_expired" => "authority_expired",
+                        "proof_required" => "proof_required",
+                        "state_conflict" => "state_conflict",
+                        "quota_exceeded" => "quota_exceeded",
+                        "rate_limited" => "rate_limited",
+                        _ => "transport_unavailable",
+                    };
+                    if status != 200 {
+                        return Err(Error::new(code));
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
     }
     Err(Error::new("transport_unavailable"))
@@ -249,6 +251,36 @@ async fn deliver(store: Arc<Store>, delivery: Arc<Delivery>) {
         let _ = tokio::task::spawn_blocking(move || failed(&store, &delivery, error)).await;
     }
 }
+/// The background interval between syncs of one network (spec 10).
+const ANTI_ENTROPY: Duration = Duration::from_secs(60);
+/// When each network's next background sync is due. A background sync sets
+/// it a full interval plus jitter later; an explicit sync
+/// (`POST /v2/networks/{id}/sync`) restarts it at a full interval (SYNC-1).
+/// A network not listed yet is due at the next pass.
+static DUE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, tokio::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+fn sync_due()
+-> std::sync::MutexGuard<'static, std::collections::HashMap<String, tokio::time::Instant>> {
+    DUE.lock().unwrap_or_else(|e| e.into_inner())
+}
+pub(crate) fn explicitly_synced(network: &str) {
+    sync_due().insert(
+        network.to_owned(),
+        tokio::time::Instant::now() + ANTI_ENTROPY,
+    );
+}
+/// The next background pass: when the earliest network comes due, and a full
+/// interval plus jitter from now when none is listed.
+fn next_pass() -> tokio::time::Instant {
+    let now = tokio::time::Instant::now();
+    sync_due()
+        .values()
+        .min()
+        .map_or(now + ANTI_ENTROPY + Duration::from_secs(jitter()), |at| {
+            (*at).max(now + Duration::from_secs(1))
+        })
+}
 async fn reconcile(store: Arc<Store>) {
     let owner = store.clone();
     let Ok(Ok(ids)) = tokio::task::spawn_blocking(move || {
@@ -259,8 +291,17 @@ async fn reconcile(store: Arc<Store>) {
     else {
         return;
     };
+    sync_due().retain(|network, _| ids.contains(network));
     for network in ids {
+        let pending = sync_due().get(&network).copied();
+        if pending.is_some_and(|at| at > tokio::time::Instant::now()) {
+            continue;
+        }
         let _ = sync(store.clone(), &network).await;
+        sync_due().insert(
+            network,
+            tokio::time::Instant::now() + ANTI_ENTROPY + Duration::from_secs(jitter()),
+        );
     }
 }
 /// No heartbeat grants authority or renews a lease. Only exact pending public
@@ -268,7 +309,9 @@ async fn reconcile(store: Arc<Store>) {
 pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     let mut pending = tokio::time::interval(Duration::from_secs(2));
     pending.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut anti = Box::pin(tokio::time::sleep(Duration::from_secs(60 + jitter())));
+    let mut anti = Box::pin(tokio::time::sleep(
+        ANTI_ENTROPY + Duration::from_secs(jitter()),
+    ));
     let mut active = tokio::task::JoinSet::new();
     let mut inflight = std::collections::BTreeSet::new();
     let mut syncing = false;
@@ -280,11 +323,11 @@ pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool
             _=&mut anti,if !syncing=>{syncing=true;let owner=store.clone();active.spawn(async move{reconcile(owner).await;None});false},
             Some(result)=active.join_next(),if !active.is_empty()=>{match result {
                 Ok(Some(id))=>{inflight.remove(&id);},
-                Ok(None)=>{syncing=false;anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));},
+                Ok(None)=>{syncing=false;anti.as_mut().reset(next_pass());},
                 Err(_)=>{
                     active.abort_all();while active.join_next().await.is_some(){}
                     inflight.clear();syncing=false;
-                    anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));
+                    anti.as_mut().reset(next_pass());
                 }
             };false},
         };

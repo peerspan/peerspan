@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -115,7 +115,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: linux-*
-          path: assets
+          path: release-assets
           merge-multiple: true
       - name: Verify release assets
         env:
@@ -124,22 +124,56 @@ jobs:
           set -euo pipefail
           for arch in amd64 arm64; do
             name="peerspan-${VERSION}-linux-${arch}-rust"
-            test -s "assets/$name.tar.gz"
-            test -s "assets/$name.tar.gz.sha256"
-            (cd assets && sha256sum -c "$name.tar.gz.sha256")
-            tar -xOzf "assets/$name.tar.gz" "$name/RELEASE.json" |
+            test -s "release-assets/$name.tar.gz"
+            test -s "release-assets/$name.tar.gz.sha256"
+            (cd release-assets && sha256sum -c "$name.tar.gz.sha256")
+            tar -xOzf "release-assets/$name.tar.gz" "$name/RELEASE.json" |
               python3 -c 'import json,sys; r=json.load(sys.stdin); assert (r["version"],r["os"],r["architecture"],r["implementation"],r["source_revision"],r["source_dirty"]) == (sys.argv[1],"linux",sys.argv[2],"rust",sys.argv[3],False)' \
                 "$VERSION" "$arch" "$GITHUB_SHA"
             name="peerspan-helper-${VERSION}-linux-${arch}"
-            test -s "assets/$name.tar.gz"
-            test -s "assets/$name.tar.gz.sha256"
-            (cd assets && sha256sum -c "$name.tar.gz.sha256")
-            tar -xOzf "assets/$name.tar.gz" "$name/RELEASE.json" |
+            test -s "release-assets/$name.tar.gz"
+            test -s "release-assets/$name.tar.gz.sha256"
+            (cd release-assets && sha256sum -c "$name.tar.gz.sha256")
+            tar -xOzf "release-assets/$name.tar.gz" "$name/RELEASE.json" |
               python3 -c 'import json,sys; r=json.load(sys.stdin); assert (r["version"],r["os"],r["architecture"],r["source_revision"],r["source_dirty"]) == (sys.argv[1],"linux",sys.argv[2],sys.argv[3],False)' \
                 "$VERSION" "$arch" "$GITHUB_SHA"
           done
-          cp scripts/install-release.sh assets/install-release.sh
-          (cd assets && sha256sum install-release.sh > install-release.sh.sha256)
+          cp scripts/install-release.sh release-assets/install-release.sh
+          (cd release-assets && sha256sum install-release.sh > install-release.sh.sha256)
+      - name: Write the release manifest
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # release.json lists the two host archives, the two helper archives and
+          # install-release.sh with the digests checked above. The owner signs it
+          # offline before publication (docs/install-contract.md).
+          python3 - "$VERSION" "$GITHUB_SHA" <<'PY'
+          import json, re, sys
+          version, revision = sys.argv[1:]
+          assert re.fullmatch(r'[0-9a-f]{40}', revision), revision
+          names = []
+          for arch in ('amd64', 'arm64'):
+              names.append(f'peerspan-{version}-linux-{arch}-rust.tar.gz')
+              names.append(f'peerspan-helper-{version}-linux-{arch}.tar.gz')
+          names.append('install-release.sh')
+          assets = {}
+          for name in names:
+              with open(f'release-assets/{name}.sha256', encoding='utf-8') as checksum:
+                  match = re.fullmatch(r'([0-9a-f]{64})  (\S+)\n', checksum.read())
+              assert match and match.group(2) == name, name
+              assets[name] = match.group(1)
+          manifest = {
+              'format': 1,
+              'name': 'peerspan',
+              'version': version,
+              'source_revision': revision,
+              'assets': assets,
+          }
+          with open('release-assets/release.json', 'x', encoding='utf-8') as out:
+              out.write(json.dumps(manifest, indent=2) + '\n')
+          PY
+          cat release-assets/release.json
       - name: Create private draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -154,7 +188,19 @@ jobs:
             echo "Tag v$VERSION already exists" >&2
             exit 1
           fi
-          gh release create "v$VERSION" assets/* \
-            --target "$GITHUB_SHA" --draft --prerelease \
+          # Exactly the ten build assets and release.json; nothing else.
+          expected=$(for arch in amd64 arm64; do
+            for name in "peerspan-$VERSION-linux-$arch-rust" "peerspan-helper-$VERSION-linux-$arch"; do
+              echo "$name.tar.gz"; echo "$name.tar.gz.sha256"
+            done
+          done; echo install-release.sh; echo install-release.sh.sha256; echo release.json)
+          actual=$(ls -A release-assets)
+          if [ "$(sort <<<"$expected")" != "$(sort <<<"$actual")" ]; then
+            echo "release-assets holds unexpected files:" >&2
+            diff <(sort <<<"$expected") <(sort <<<"$actual") >&2 || true
+            exit 1
+          fi
+          gh release create "v$VERSION" release-assets/* \
+            --target "$GITHUB_SHA" --draft \
             --title "Peerspan v$VERSION" \
             --notes 'Coordinator-free Linux preview. The host is the Rust implementation; the Go implementation is maintained separately at github.com/peerspan/peerspan-go. The helper is a separate optional transport-only artifact. Verify matching SHA-256 files before installation.'

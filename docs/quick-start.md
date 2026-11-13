@@ -1,32 +1,45 @@
 # Peerspan quick start
 
-Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
+Peerspan lets agent sessions on different machines (Claude Code, Codex or OpenCode) message each other, hand each other tasks and hold conversations, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-**Preview status:** coordinator-free networks are new and still being validated end to end, including installed setup and live agent work. Expect rough edges and breaking changes. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release, not this design.
+**Preview status:** expect rough edges, and breaking changes between releases. Please [report problems](../CONTRIBUTING.md#reporting-a-problem), including steps on this page that were unclear.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm or Rust. The installer also needs Bash, tar, and `flock`. Release downloads use GitHub CLI (`gh`). Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Each release bundle carries its own Node.js runtime for the agent integrations, so neither the installer nor the integrations need Node.js, npm or Rust on the machine. Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
 
 ## Install
 
-From a source checkout, put a matching release archive and its `.sha256` file in `dist/` on each machine (maintainer build instructions are below). Then run:
+On Linux (amd64 or arm64), run:
+
+```sh
+curl -fsSL https://peerspan.dev/install | bash
+```
+
+The first release published with a signed manifest is the first one it can install; v0.1.0 has none.
+
+It needs Bash, `tar`, `flock`, `sha256sum`, and `curl` or `wget`. It needs no Node.js, no GitHub account, no GitHub CLI and no root. It checks these first and names anything missing before downloading. It then downloads Peerspan's release verifier and accepts it only with the digest built into the script. The verifier checks the latest release's signed manifest against the release keys built into the script, and the host archive for this machine and the archive installer against the signed digests. Then the script runs that installer. To install a particular version, or to skip starting the user service:
+
+```sh
+curl -fsSL https://peerspan.dev/install | bash -s -- --version VERSION
+curl -fsSL https://peerspan.dev/install | bash -s -- --no-service
+```
+
+The installer stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing Go host installation to Rust in place. Running the command again upgrades to the latest release. The one-line install trusts what `peerspan.dev` serves; to read the script first, download it with `curl -fsSLO https://peerspan.dev/install`, compare its `PEERSPAN_RELEASE_KEYS` with [the repository's](../scripts/install.sh), and run `bash install`.
+
+To install without the website, download the archive installer from a release and let it fetch and verify the signed release over HTTPS:
+
+```sh
+version=VERSION
+curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/peerspan/peerspan/releases/download/v$version/install-release.sh"
+bash install-release.sh "$version" --from-github peerspan/peerspan
+```
+
+For an offline install, or from a source checkout, put a matching release archive and its `.sha256` file in a directory (maintainer build instructions are below), optionally with the release's `release.json` and `release.json.sig`, and run:
 
 ```sh
 scripts/install-release.sh VERSION --from dist
 ```
 
-The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing Go host installation to Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
-
-Once a release is published, you can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
-
-```sh
-version=VERSION
-gh release download "v$version" --repo peerspan/peerspan \
-  --pattern install-release.sh --pattern install-release.sh.sha256
-sha256sum -c install-release.sh.sha256
-bash install-release.sh "$version" --from-github peerspan/peerspan
-```
-
-The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available for offline installs.
+With both manifest files present it verifies the signature as above; with neither it checks only the `.sha256`, which detects corruption but does not authenticate its publisher, so obtain the files from a trusted source.
 
 If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 
@@ -34,7 +47,7 @@ If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
+The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the one-line install (or the archive installer) again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
 
 ## Connect an existing Claude conversation (feature preview)
 
@@ -214,40 +227,41 @@ own machine, the administrator on an authorized existing machine, and the new
 machine's separate selection and final consent. The inviter cannot sign as the
 new person.
 
-1. On the teammate's machine, run `peerspan link approve REQUEST_ID --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY`. Review and approve
-   the exact host/device and requested powers. The new-person default is 7;
-   this initial possession review grants no membership or administrator power.
+1. On the teammate's machine, `up --join` continues by itself: right after the
+   identity choice it shows the owner review and asks **Approve this exact
+   machine?** (default no). Review and approve the exact host/device and
+   requested powers. The new-person default is 7; this initial possession
+   review grants no membership or administrator power. There is no command to
+   run and no request ID to find.
 2. A single owner offer is selected automatically. If several are present,
    choose the exact reviewed offer with no default. The daemon advances the
    request automatically; `peerspan link resume REQUEST_ID` requests an
    immediate pass.
-3. On the administrator's machine, run `peerspan link admit REQUEST_ID --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY`. If using the manual fallback, omit REQUEST_ID
-   and enter the private request code at the hidden prompt. Check the exact
-   host/device, owner-offer and selection references from `link status` and the
-   review. Supply `--owner-offer OWNER_OFFER_ID --selection SELECTION_ID` and
-   the matching `--expect-host-key` / `--expect-device-key` pins. The default
+3. On the administrator's machine, `peerspan status` shows
+   `peerspan link admit REQUEST_ID --network NETWORK_ID` for the request; run
+   it as shown once the teammate has approved. It reads the request, shows the
+   review and asks before admitting. Run too early, including in the few
+   seconds their approval takes to arrive, it says the request still waits on
+   their machine and changes nothing.
+   The general form adds `--person PERSON_PUBLIC_KEY`, `--owner-offer` and
+   `--selection`, which `link admit REQUEST_ID` otherwise takes from the
+   request.
+   With the manual fallback, omit REQUEST_ID, enter the private request code at
+   the hidden prompt, and take those values from `link status` and the review.
+   The default
    signer is explicitly `network_root`; `--signer auto` selects the existing
    administrator's current signing path instead.
-4. Back on the teammate's machine, finalize its exact owner consent. Use the
-   references shown by `peerspan link status REQUEST_ID`:
+4. Back on the teammate's machine, owner finalization runs automatically: the
+   approval in step 1 covers it (spec 8.3). Only when it doesn't, for example
+   after a deadline change, does `peerspan link status REQUEST_ID` name a
+   `peerspan link finalize …` command to review and rerun with `--approve`. The
+   private key stays on this machine.
+5. `up --join` then asks **Commit this exact machine link?** (default no) for
+   the complete final manifest. After a yes, the teammate is a member and their
+   agent starts. Each command along the way prints whose step comes next and
+   on which machine.
 
-   ```sh
-   peerspan link finalize REQUEST_ID --network NETWORK_ID --context CONTEXT_ID \
-     --expect-person PERSON_PUBLIC_KEY --expect-host-key HOST_PUBLIC_KEY \
-     --expect-device-key DEVICE_PUBLIC_KEY --owner-offer OWNER_OFFER_ID \
-     --selection SELECTION_ID --administrator-offer ADMINISTRATOR_OFFER_ID
-   ```
-
-   Omission of `--approve` previews. After reviewing those same terms, rerun
-   with `--approve`; use `--person-key PATH` if the original SSH signer was
-   selected explicitly. That private key stays on this machine.
-5. Resume the same request and separately accept its complete final manifest
-   at **Commit this exact machine link?**, which also defaults to no. Run `up`
-   again only after the request is `linked` and its signer is usable.
-
-A pending request exits nonzero and retains its identity and next step. Keep
+A command whose own step is done exits 0, even while the request still waits on another machine; it prints whose step comes next and where. A failure, a declined prompt, or a step still due on this machine exits nonzero (ML-3). Either way the request keeps its identity and next step. Keep
 using that request after an interruption; do not create another person or copy
 an original key. The introduction must still be current when starting. The new
 request has a one-hour backstop and a 10-minute inactivity limit for each stage:

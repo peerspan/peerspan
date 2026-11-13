@@ -569,16 +569,19 @@ def _():
     deny(wait=True)
     try:
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
-        # A policy sync does not update alice's directory entry: bob's host refuses the invite.
-        check(status == 201, f"a denied start with the earlier directory entry: {status} {body}, want 201")
-        outcome = body["invites"][0]
-        check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
-        denied = body["conversation"]["conversation_id"]
-        check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
-              f"ana is in the denied conversation: {body['conversation']}")
-        status, listed = ana.call("GET", "/adapter/v1/conversations")
-        check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
-              f"ana lists the denied conversation: {status} {listed}")
+        # Alice's directory drops ana within 10 s of storing bob's policy (CONV-36): bob's host
+        # refuses the invite while her entry is the earlier one, or the start is 404 once refreshed.
+        if status == 201:
+            outcome = body["invites"][0]
+            check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
+            denied = body["conversation"]["conversation_id"]
+            check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
+                  f"ana is in the denied conversation: {body['conversation']}")
+            status, listed = ana.call("GET", "/adapter/v1/conversations")
+            check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
+                  f"ana lists the denied conversation: {status} {listed}")
+        else:
+            api_error(status, body, 404, "unknown")
         # After a refresh the directory no longer lists the agent.
         a.ok("agents", "--refresh", "--json")
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
@@ -966,7 +969,7 @@ def _():
     alice_p = state["alice_p"]
 
     def resolved():
-        result = dave.cli("conversation", "start", "person:alice", timeout=60)
+        result = dave.cli("--json", "conversation", "start", "person:alice", timeout=60)
         if result.ok:
             return result.json
         check("unknown" in result.stderr, f"dave's start: {result.stderr[-300:]!r}")
@@ -1000,7 +1003,7 @@ def _():
     conv = start("person:bob")
     bob_p = person_p(b, "bob")
     with Watch(b, conv) as watch:
-        said = a.cli("conversation", "say", conv, EVIL_CONTENT)
+        said = a.cli("--json", "conversation", "say", conv, EVIL_CONTENT)
         mid = json_output(said)["message"]["message_id"]  # `say` prints JSON: same bytes rule on alice
         check(said.json["message"]["content"] == EVIL_CONTENT, "`say` JSON does not parse back to the content")
         show_targets(a, conv, mid, bob_p, "delivered")
@@ -1120,7 +1123,7 @@ def _():
     limit, local, local_message, refused_subject, closed, _ = need("limit_conv", "local_conv", "local_message",
                                                                    "refused_subject", "closed_conv", "forgotten_conv")
     for host in (a, b):
-        result = host.cli("activity", "--limit", "1000")
+        result = host.cli("--json", "activity", "--limit", "1000")
         check(result.ok, f"{host.name}: activity: exit {result.code}: {result.stderr[-200:]!r}")
         for word in (WORD, TITLE_WORD, "fake line", "fake-name", "ev\\u001b"):
             check(word not in result.stdout, f"{host.name}: activity holds {word!r}")

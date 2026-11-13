@@ -2,6 +2,8 @@
 
 Roadmap milestone 7. The design and its settled decisions are in the [launch proposal](launch-proposal.md). This contract grows one section per slice.
 
+Output objects this and other contracts describe ("prints `{…}`") are each command's `--json` output. By default every command prints a readable summary instead ([CLI output contract](cli-output-contract.md), OUT-1 and OUT-2).
+
 ## Slice 1: CLI shape
 
 ### Name
@@ -104,6 +106,13 @@ No schema change is needed: these are fields of the JSON records.
 5. `credential_expiring`: an unrevoked, non-renewable credential with an attached session, expiring within 24 hours and not yet expired. Subject: the adapter ID; command: `peerspan session setup --agent ID --harness INTEGRATION`.
 6. `tasks_failed`: outbound tasks whose latest `task.updated` activity in the last 24 hours left them `failed`, `rejected`, or `expired`, including submissions the receiver refused. One item; subject: the count as a decimal string; command: `peerspan task list`.
 7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Subject: `artifacts`; command: `peerspan artifact prune`.
+
+**Attention item 19, `peer_delivery_failing`** (STAT-1, STAT-2), sorted after every other kind. One item per peer host with work waiting for it whose last attempt failed and whose oldest piece is at least 2 minutes old (as defined below). Work waiting for a peer host is any of:
+- an outbound message whose `state` is `unknown`, with a non-null `error` and a non-null `next_attempt_at` (the host still retries it);
+- an outbound task or call whose `submit_state` is `unknown`, with a non-null `error` and a non-null `next_attempt_at`;
+- a network update (proof delivery) to that host that has not been delivered and whose last attempt failed (its host key appears in a network's `delivery.peer_errors`).
+
+The item is raised when the oldest such piece of work was created at least 2 minutes ago: for a message, its `message.queued` event; for a task, `task.submitted`; for a call, `call.submitted`; for a network update, when the host queued it. Subject: the peer's host ID. Detail (free text): the count of each waiting kind present, named in words (`messages`, `tasks`, `calls`, `network updates`), the creation time of the oldest, and the distinct errors the waiting work last failed with, at most three. Command: `peerspan agents --refresh`. The item, in `status --json` and in human `status`, goes away once that host has no such work, for example after the work is accepted.
 
 Within one kind, items are sorted by subject. `detail` is free text. `policy_expiring` excludes a policy that has already expired, which is `policy_expired`.
 
@@ -485,7 +494,7 @@ Older receivers return 404 for this route. The caller records the host as `unsup
 
 Each daemon keeps a directory per network, in memory:
 - **Hosts queried:** every current, unrevoked member other than itself.
-- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand.
+- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand. A stored policy includes another person's policy this host received by sync on a network without a coordinator: when bob allows alice, alice's directory lists bob's agents within 10 seconds of her host storing bob's new policy, with no refresh; when bob denies her, they leave it within the same bound. An on-demand refresh of a whole network (`agents --refresh`, `POST /v1/directory/refresh`) counts as the refresh owed for every change made before it started: no refresh follows for those changes, and the 5-minute interval restarts from it. A change made after it started is still refreshed within 10 seconds. A refresh of one host, such as a send's recheck, does not count ([DIR-1](decision-log.md#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10)).
 - **How:** at most 8 queries at once, each with a 5-second timeout, over the usual peer transport, relay included.
 - **Failures:** a host that fails keeps its previous agents, marked with the time of the last success and the error.
 
@@ -545,7 +554,7 @@ A session's credential may be created with **directory access**. Then its adapte
 | --- | --- |
 | `attach HARNESS [--name NAME] [--directory DIR] [--expires-in D \| --expires-at T] [--max-sends-per-hour N] [--option KEY=VALUE ...] [--integrations DIR] [--runner PATH]` | Registers the agent if needed and sets up a directory session for the project at `--directory` (default: the current directory), below. |
 | `agents [--network ID] [--refresh] [--json]` | Shows the directory (below). `--refresh` refreshes first. |
-| `send TARGET TEXT [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `message send` addressed by `TARGET`, an address. Prints the outbound record. |
+| `send TARGET TEXT [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `message send` addressed by `TARGET`, an address. Prints the outbound record, with `message send`'s exit status: 1 when the receiver refused it (`rejected`, MSG-1), 0 otherwise. |
 | `task TARGET TEXT [--file PATH ...] [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `task submit` addressed by `TARGET`. `--file` is `--artifact`, with the default media type. Prints the local task record. |
 | `session start` / `session doctor` | `--directory` becomes optional: without it, they use the `attach` profile whose recorded workspace is the current directory, and fail when there is none. |
 
@@ -600,7 +609,7 @@ The readable layout prints, after each agent, `address` when there is one, follo
 
 ### Verification
 
-`conformance/launch_directory.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, `--node` for the MCP cases, and OpenSSH. It covers:
+These cases were written for `conformance/launch_directory.py`, which was removed with the other pre-slim suites ([DEC-OWN10](decision-log.md#dec-own10-delete-the-old-conformance-suites-2026-10-28)). The slim suites now cover them in part: `work` (the directory, addresses and sends by address), `direct_dial` (the directory's 10-second bound), `naming` (attach names) and `policy` (`allow` and `deny`). A case below with no slim counterpart is not currently covered. The list:
 - **Peer route:**
   - listing through self access, a person rule, a `*` rule, a group rule, `everyone`, an `agent:` principal (`from_agent`), and a grant;
   - unlisted agents with no authorization, and `[]`;
@@ -610,6 +619,7 @@ The readable layout prints, after each agent, `address` when there is one, follo
 - **Discovery:**
   - a new agent appearing after `--refresh`;
   - a policy change reflected within 10 seconds without a refresh;
+  - after a policy change and then a whole-network `POST /v1/directory/refresh`, no further query to the other host within the following 10 seconds (counted on an opaque UDP carrier, DIR-1); a policy change made after that refresh is still reflected within 10 seconds;
   - a stopped host keeping its agents with `state: error`.
 - **Addresses:** both forms; case-folded labels; `unknown`, `ambiguous` (with an injected duplicate), and `local`; a host without a person addressed by host ID.
 - **Sending:**
@@ -782,7 +792,7 @@ Change notifications are checked by `conformance/launch_push.py`, written from t
 - the three fallbacks: `allow` by a label admitted moments earlier, a directory refresh retrying a 403 and a sibling answer without `self`, and a send citing a policy submitted moments earlier;
 - `delegation_depth` on an address delegation, with a forward by the receiver by address, and the 400 cases.
 
-The attach launch is checked by `conformance/launch_directory.py`, which existing cases make pass `--no-start` where they expect the output object, plus cases for the launch with the fixture harness, the reused session, and `--no-start`. Otherwise this slice adds no conformance suite. It is accepted when:
+The attach launch was checked by `conformance/launch_directory.py`, removed with the pre-slim suites (DEC-OWN10); `naming` and `conversations_run_fixes` now run `attach` with fixture bundles. Otherwise this slice adds no conformance suite. It is accepted when:
 - `launch_acceptance.py` passes every run, and its results file shows the counts above;
 - `live_launch_agents.py` completes once with real models, and its results file is committed;
 - the quick start documents exactly the counted path, and the [manual agent testing guide](manual-agent-testing.md) is presented as the advanced path.

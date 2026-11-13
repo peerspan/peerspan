@@ -222,6 +222,10 @@ impl Dispatcher {
             in_flight: Arc::default(),
         }
     }
+    /// Whether a claim on this record is still held.
+    pub(crate) fn in_flight(&self, key: &(String, String)) -> bool {
+        self.in_flight.lock().is_ok_and(|set| set.contains(key))
+    }
     /// Claims due records not already in flight, up to the free permits.
     pub(crate) fn claim(&self, due: Vec<(String, String)>) -> Vec<Claim> {
         let mut claims = Vec::new();

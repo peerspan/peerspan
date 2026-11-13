@@ -8289,7 +8289,7 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 33);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()

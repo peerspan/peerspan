@@ -63,6 +63,23 @@ async fn guide(socket: &Path, mut v: Value) -> Result<Value> {
     }
     Ok(v)
 }
+/// `guide` for a joining person, who signs owner finalization on this machine.
+async fn guide_join(
+    socket: &Path,
+    mut v: Value,
+    person_key: Option<std::path::PathBuf>,
+) -> Result<Value> {
+    let terminal = io::stdin().is_terminal();
+    if !terminal && let Some(o) = v.as_object_mut() {
+        o.remove("display_code");
+    }
+    let mut v =
+        crate::decentralized_link_cli::guide_join(socket, v, terminal, Some(person_key)).await?;
+    if let Some(o) = v.as_object_mut() {
+        o.remove("display_code");
+    }
+    Ok(v)
+}
 pub(crate) async fn network(
     state: &Path,
     args: &mut UpArgs,
@@ -151,7 +168,11 @@ pub(crate) async fn network(
             let v =
                 crate::decentralized_onboarding_cli::create_join(&local, token, &args.person_key)
                     .await?;
-            let v = guide(&socket, v).await?;
+            let v = if crate::decentralized_onboarding_cli::declined_owner_approval(&v) {
+                v
+            } else {
+                guide_join(&socket, v, args.person_key.clone()).await?
+            };
             incomplete(result, &v)?;
         } else {
             let name = args
