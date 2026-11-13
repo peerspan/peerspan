@@ -313,7 +313,8 @@ def _():
     check(got["request"]["content"] == "after the restart", f"bert got {got['request']}")
 
 
-@suite.case("schema_31_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; 20 item 59")
+@suite.case("schema_32_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; peerbox Persistence; "
+                                 "20 item 59")
 def _():
     path, db = database(a)
     try:
@@ -328,8 +329,10 @@ def _():
             "dec_outbox", "dec_contacts", "dec_helpers", "dec_migrations", "onboarding_project_flows", "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows",
             "conversations", "conversation_messages", "conversation_targets", "conversation_invites",
             "conversation_roster_outbound", "conversation_notifications", "conversation_reads", "conversation_events"}
+    # The peerbox contract (Persistence) adds tables for peerbox records, contributions and pending shares but
+    # names none, so only the tables the other contracts name are checked here.
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 31, f"{path.name}: schema version {version}, want 31")
+    check(version == 32, f"{path.name}: schema version {version}, want 32")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 
@@ -346,7 +349,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 32")
+    db.execute("PRAGMA user_version = 33")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -355,10 +358,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 32 database")
+    check(code not in (None, 0), "a daemon opened a schema 33 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 32, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 33, "the refused database was changed")
     finally:
         db.close()
 
