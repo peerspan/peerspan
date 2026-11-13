@@ -7,7 +7,7 @@
 //! `peerbox_share_waiting` until `peerbox share --pending` signs it.
 use crate::{
     api::{blocking, decode},
-    decentralized::peerbox_share::{Signed, sign_peerbox_rules},
+    decentralized::peerbox_share::{Signing, sign_peerbox_rules},
     model::Error,
     policy::{
         MAX_BUNDLE_BYTES, MAX_PENDING, PEERBOX_ACTIONS, PEERBOX_READ, PEERBOX_SUBMIT, PeerboxRule,
@@ -283,8 +283,8 @@ fn pass(store: &Store) -> Result<(), Error> {
             );
         });
         match outcome {
-            Ok(Signed::Signed | Signed::Unchanged) => signed(store, &share.invitation_id)?,
-            Ok(Signed::NeedsOwner) if !share.waiting => {
+            Ok(Signing::Done | Signing::Unchanged) => signed(store, &share.invitation_id)?,
+            Ok(Signing::NeedsOwner) if !share.waiting => {
                 let mut conn = store.connection()?;
                 let tx = conn.transaction()?;
                 if let Some(mut current) = read(&tx, &share.invitation_id)? {
@@ -294,7 +294,7 @@ fn pass(store: &Store) -> Result<(), Error> {
                 tx.commit()?;
             }
             // Waiting already, or a recoverable failure: tried again.
-            Ok(Signed::NeedsOwner) | Err(_) => {}
+            Ok(Signing::NeedsOwner) | Err(_) => {}
         }
     }
     Ok(())

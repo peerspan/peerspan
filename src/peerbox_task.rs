@@ -1153,7 +1153,7 @@ fn owner_policy(
     let Some(key) = store.product_person_key(conn, network, &cited.person_id)? else {
         return Ok(None);
     };
-    Ok(store.product_policy(conn, network, &key)?)
+    store.product_policy(conn, network, &key)
 }
 
 /// Whether a started peerbox run's sender no longer matches `peerbox.run`

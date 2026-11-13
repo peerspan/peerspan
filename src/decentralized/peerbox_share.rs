@@ -8,9 +8,9 @@ use crate::{policy::PeerboxRule, store::Store};
 use serde_json::{Value, json};
 
 /// What signing a peerbox rule change came to.
-pub(crate) enum Signed {
+pub(crate) enum Signing {
     /// A new policy version holds the change.
-    Signed,
+    Done,
     /// The current policy already holds it: nothing was signed.
     Unchanged,
     /// The provider needs the owner's interaction (an SSH person key, for
@@ -29,21 +29,29 @@ pub(crate) fn sign_peerbox_rules(
     store: &Store,
     network: &str,
     change: impl FnOnce(&str, &mut Vec<PeerboxRule>),
-) -> Result<Signed> {
+) -> Result<Signing> {
     let host = store.identity().id;
     let (request, provider) = {
         let mut c = store.connection().map_err(|_| Error::new("internal"))?;
         let tx = c.transaction().map_err(db)?;
         let s = Snapshot::load(&tx, network, &store.identity().public_key)?;
         let p = s.project(&controls::local_decision_time()?)?;
+        // No usable selected provider is the owner's to repair: no
+        // selection, one without policy scope, or no signer here.
         let provider = match Resolved::resolve(&tx, &s, &p, "auto", "auto", "policy") {
             Ok(provider) => provider,
-            Err(e) if e.code == "signer_unavailable" => return Ok(Signed::NeedsOwner),
+            Err(e) if matches!(e.code, "signer_unavailable" | "not_found" | "forbidden") => {
+                return Ok(Signing::NeedsOwner);
+            }
             Err(e) => return Err(e),
         };
-        require(provider.provider.kind != "root", "forbidden")?;
+        if provider.provider.kind == "root" {
+            return Ok(Signing::NeedsOwner);
+        }
         let public = provider.public(&p, &store.identity().public_key, false)?;
-        require(num(object(&public)?, "scopes")? & 1 == 1, "forbidden")?;
+        if num(object(&public)?, "scopes")? & 1 != 1 {
+            return Ok(Signing::NeedsOwner);
+        }
         let person = text(&provider.actor, "person_public_key")?.to_owned();
         require(
             person == s.network.own_identity.person_public_key,
@@ -74,7 +82,7 @@ pub(crate) fn sign_peerbox_rules(
         let before = content.peerbox_rules.clone();
         change(&host, &mut content.peerbox_rules);
         if content.peerbox_rules == before {
-            return Ok(Signed::Unchanged);
+            return Ok(Signing::Unchanged);
         }
         // This host's next local edit number (DEC-S16).
         let largest: i64 = tx
@@ -100,11 +108,11 @@ pub(crate) fn sign_peerbox_rules(
     // The signer may be an agent or a file: never consulted inside a
     // transaction.
     if provider.available(store).is_err() {
-        return Ok(Signed::NeedsOwner);
+        return Ok(Signing::NeedsOwner);
     }
     let outcome = match actions::prepare(store, network, object(&request)?, false) {
         Ok(outcome) => outcome,
-        Err(e) if e.code == "signer_unavailable" => return Ok(Signed::NeedsOwner),
+        Err(e) if e.code == "signer_unavailable" => return Ok(Signing::NeedsOwner),
         Err(e) => return Err(e),
     };
     let value: Value = parse(&outcome, 32 << 20)?;
@@ -112,5 +120,5 @@ pub(crate) fn sign_peerbox_rules(
         value.get("committed").and_then(Value::as_bool) == Some(true),
         "signer_unavailable",
     )?;
-    Ok(Signed::Signed)
+    Ok(Signing::Done)
 }
