@@ -40,9 +40,9 @@ bind(suite)
 clock = suite.use_clock()
 REASON = "peerbox agent proposals not implemented (peerbox contract, Agent proposals)"
 PBP = re.compile(r"^pbp_[0-9a-f]{32}$")
-RECORD_KEYS = {"proposal_id", "op", "args", "review", "proposal_sha256", "origin", "state", "requested_at",
-               "expires_at", "decided_at", "reason", "result", "error"}
-VIEW_KEYS = RECORD_KEYS - {"origin"} | {"note"}
+RECORD_KEYS = {"proposal_id", "op", "args", "review", "request_sha256", "proposal_sha256", "origin", "state",
+               "requested_at", "expires_at", "decided_at", "reason", "result", "error"}
+VIEW_KEYS = RECORD_KEYS - {"origin", "request_sha256"} | {"note"}
 ARGS = {"create": {"repository", "branch", "title", "network_id"},
         "share": {"peerbox_id", "principals", "actions", "max_bundle_bytes", "max_pending", "allow_disconnected"},
         "invite": {"peerbox_id", "label", "actions", "max_bundle_bytes", "max_pending", "expires_in_seconds"}}
@@ -115,6 +115,11 @@ def propose(adapter, op, args, pid=None):
     return status, body, pid
 
 
+def canonical_sha(value):
+    """SHA-256 of VALUE in the call view's result-text encoding (sorted keys, no whitespace, minimal escapes)."""
+    return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
+
+
 def digest(view):
     """proposal_sha256: SHA-256 of {op, args, review} in the call view's result-text encoding (sorted keys, no
     whitespace, minimal string escapes, raw UTF-8)."""
@@ -150,10 +155,11 @@ def invite_args(label, pbx=None, **extra):
     return {"peerbox_id": pbx or need("pbx")[0], "label": label, **extra}
 
 
-def refused_and_absent(adapter, status, body, http, code, pid, field=False):
+def refused_and_absent(adapter, status, body, http, code, pid, field=None):
+    """A refusal HTTP CODE (with `field` FIELD when given) that persisted nothing."""
     check(status == http and isinstance(body, dict) and body.get("code") == code
-          and (not field or isinstance(body.get("field"), str) and body["field"]),
-          f"answer {status} {hide(body)}, want {http} {code}{' naming a field' if field else ''}")
+          and (field is None or body.get("field") == field),
+          f"answer {status} {hide(body)}, want {http} {code}{f' with field {field}' if field else ''}")
     check(adapter.call("GET", f"/adapter/v1/peerbox/proposals/{pid}")[0] == 404, f"refused {pid} was persisted")
     check(state["a"].api("GET", f"/v1/peerbox-proposals/{pid}")[0] == 404, f"refused {pid} is on the owner API")
 
@@ -201,11 +207,23 @@ def deny(pid, reason=None, host=None):
     return (host or state["a"]).cli("--json", "deny", pid, *extra, timeout=60)
 
 
+def listed_route(state_query, host=None):
+    """GET /v1/peerbox-proposals?state=STATE_QUERY: the proposal IDs of its {peerbox_proposals: [RECORD]}."""
+    status, body = (host or state["a"]).api("GET", f"/v1/peerbox-proposals?state={state_query}")
+    check(status == 200 and isinstance(body, dict) and set(body) == {"peerbox_proposals"}
+          and all(set(r) == RECORD_KEYS for r in body["peerbox_proposals"]),
+          f"GET /v1/peerbox-proposals?state={state_query}: {status} {hide(str(body)[:300])}")
+    return [r["proposal_id"] for r in body["peerbox_proposals"]]
+
+
 def pending_ids(host=None):
+    """The pending proposals, as `approvals --json` and the route list them (the same, in the same order)."""
     listed = (host or state["a"]).ok("approvals", "--json")
     check(isinstance(listed, dict) and set(listed) == {"approvals", "peerbox_proposals"},
           f"approvals --json: {str(listed)[:300]}")
-    return [r["proposal_id"] for r in listed["peerbox_proposals"]]
+    ids = [r["proposal_id"] for r in listed["peerbox_proposals"]]
+    check(listed_route("pending", host) == ids, "approvals --json and the route list different proposals")
+    return ids
 
 
 def deny_all(host=None):
@@ -217,8 +235,10 @@ def deny_all(host=None):
 
 
 def quoted(text):
-    """An untrusted value as the approval display writes it: in double quotes, with Showing untrusted text's escapes."""
-    return '"' + terminal_escaped(text) + '"'
+    """An untrusted value as the approval display writes it (What the person sees): `"`, the text with `\\` as `\\\\`,
+    `"` as `\\"` and each character below U+0020, U+007F and U+0080 to U+009F as `\\u` and four lowercase hex digits,
+    then `"`."""
+    return '"' + terminal_escaped(text.replace("\\", "\\\\").replace('"', '\\"')) + '"'
 
 
 def first_line(adapter):
@@ -257,8 +277,10 @@ def updates(adapter):
         if body is None:
             return found
         delivery = body.get("delivery") or {}
-        check(PBP.match(str(delivery.get("proposal_id"))) and body.get("redelivered") is False,
-              f"a proposal-update claim {hide(body)}")
+        check(set(body) == {"delivery", "proposal", "redelivered"} and PBP.match(str(delivery.get("proposal_id")))
+              and body.get("redelivered") is False and isinstance(body["proposal"], dict)
+              and set(body["proposal"]) == VIEW_KEYS and body["proposal"]["proposal_id"] == delivery["proposal_id"],
+              f"a proposal-update claim {hide(body)}, want {{delivery, proposal (the view), redelivered}}")
         status, _ = adapter.post(f"/adapter/v1/peerbox/proposal-updates/{delivery['id']}/forwarded")
         check(status == 200, f"forwarded {delivery['id']}: {status}")
         found.append(delivery)
@@ -279,9 +301,12 @@ def tool_json(answer):
 
 
 @suite.case("fixtures", "peerbox_fixtures.py: the proposal fixtures (hostile identities and path, the held git), "
-                        "built host-free and checked")
+                        "built host-free and checked; the quoting of What the person sees")
 def _():
     print(f"  fixtures built and checked in {proposal_check(suite.work / 'fixture-check'):.1f}s", flush=True)
+    want = '"a\\"b\\\\c\\u001b[2J\\u0007\\u007f\\u0085\\u009b\\u000ad"'
+    got = quoted('a"b\\c\x1b[2J\x07\x7f\x85\x9b\nd')
+    check(got == want, f"quoted() gives {got!r}, want {want!r}")
 
 
 def learn_all():
@@ -395,7 +420,9 @@ def _():
         check(result.ok and isinstance(result.json, dict),
               f"attach ({label}): exit {result.code} {tail(result.stderr)}")
         status, record = a.api("GET", f"/v1/adapters/{result.json['adapter_id']}")
-        check(status == 200, f"adapter record ({label}): {status} {record}")
+        check(status == 200 and result.json.get("peerbox_proposals") is record.get("peerbox_proposals"),
+              f"attach output ({label}) peerbox_proposals {result.json.get('peerbox_proposals')!r}, record "
+              f"{status} {record.get('peerbox_proposals')!r}")
         return record.get("peerbox_proposals")
 
     check(flag(attach("pp-yes", "--peerbox-proposals"), "--peerbox-proposals") is True, "--peerbox-proposals")
@@ -498,8 +525,8 @@ def _():
 
 
 @case("shape_and_target", "peerbox Agent proposals, Proposing 1 and 4: 400 invalid naming the field, 404 unknown, 400 "
-                          "unknown_principal, network and 65 principals refused (PBX-18), not a repository, "
-                          "branch_unknown; nothing persisted")
+                          "unknown_principal; network, repeated and 65 principals 400 invalid naming principals "
+                          "(PBX-18); not a repository, branch_unknown; nothing persisted")
 def _():
     pia, repo, pbx = need("pia", "repo", "pbx")
     bob_p = state["bob_p"]
@@ -508,34 +535,39 @@ def _():
     plain.mkdir(exist_ok=True)
     many = sorted(principal("person_" + os.urandom(16).hex()) for _ in range(65))
     for label, op, args, http, code, field in (
-            ("a malformed proposal ID", "invite", invite_args("x"), 400, "invalid", True),
-            ("an unknown op", "unshare", {"peerbox_id": pbx}, 400, "invalid", True),
-            ("an unknown args key", "invite", invite_args("x", note="trust me"), 400, "invalid", True),
-            ("a missing peerbox_id", "share", {"principals": [bob_p]}, 400, "invalid", True),
-            ("expires_in_seconds 59", "invite", invite_args("x", expires_in_seconds=59), 400, "invalid", True),
-            ("expires_in_seconds 86401", "invite", invite_args("x", expires_in_seconds=86401), 400, "invalid", True),
-            ("the network principal", "share", {"peerbox_id": pbx, "principals": ["network"]}, 400, "invalid", True),
-            ("65 principals", "share", {"peerbox_id": pbx, "principals": many}, 400, "invalid", True),
-            ("no principal", "share", {"peerbox_id": pbx, "principals": []}, 400, "invalid", True),
+            ("a malformed proposal ID", "invite", invite_args("x"), 400, "invalid", "proposal_id"),
+            ("an unknown op", "unshare", {"peerbox_id": pbx}, 400, "invalid", "op"),
+            ("args not an object", "invite", ["x"], 400, "invalid", "args"),
+            ("an unknown args key", "invite", invite_args("x", note="trust me"), 400, "invalid", "note"),
+            ("a missing peerbox_id", "share", {"principals": [bob_p]}, 400, "invalid", "peerbox_id"),
+            ("expires_in_seconds 59", "invite", invite_args("x", expires_in_seconds=59), 400, "invalid",
+             "expires_in_seconds"),
+            ("expires_in_seconds 86401", "invite", invite_args("x", expires_in_seconds=86401), 400, "invalid",
+             "expires_in_seconds"),
+            ("the network principal", "share", {"peerbox_id": pbx, "principals": ["network"]}, 400, "invalid",
+             "principals"),
+            ("a repeated principal", "share", {"peerbox_id": pbx, "principals": [bob_p, bob_p]}, 400, "invalid",
+             "principals"),
+            ("65 principals", "share", {"peerbox_id": pbx, "principals": many}, 400, "invalid", "principals"),
+            ("no principal", "share", {"peerbox_id": pbx, "principals": []}, 400, "invalid", "principals"),
             ("an unknown peerbox", "invite", invite_args("x", pbx="pbx_" + os.urandom(16).hex()), 404, "unknown",
-             False),
+             None),
             ("a person outside the network", "share", {"peerbox_id": pbx, "principals": [state["stranger_p"]]}, 400,
-             "unknown_principal", False),
-            ("not a repository", "create", {"repository": str(plain), "branch": "main"}, 400, "invalid", True),
+             "unknown_principal", None),
+            ("not a repository", "create", {"repository": str(plain), "branch": "main"}, 400, "invalid", "repository"),
             ("a branch with no commit", "create", {"repository": str(empty), "branch": "main"}, 400, "branch_unknown",
-             False)):
+             None)):
         pid = "pbp_1234" if label == "a malformed proposal ID" else new_pid()
         status, body, _ = propose(pia, op, args, pid)
         refused_and_absent(pia, status, body, http, code, pid, field)
         if code == "unknown_principal":
             check(body.get("principal") == state["stranger_p"], f"unknown_principal names {body.get('principal')}")
-        if label == "not a repository":
-            check(body.get("field") == "repository", f"not a repository names {body.get('field')}")
 
 
 @case("repeats_conflicts_duplicate", "peerbox Agent proposals, Proposing 2 and 6; Adapter routes (scope): the same "
-                                     "view for a repeat, 409 conflict, 409 duplicate; another credential of the agent "
-                                     "reads it, another agent gets 404")
+                                     "view for a repeat of the body as sent (request_sha256), 409 conflict, 409 "
+                                     "duplicate; another credential of the agent reads it, another agent gets 404; "
+                                     "principals given out of order stored sorted by UTF-8 bytes")
 def _():
     pia, pia2, oth = need("pia", "pia2", "oth")
     args = invite_args("repeat")
@@ -559,6 +591,24 @@ def _():
     check(pia2.call("GET", f"/adapter/v1/peerbox/proposals/{pid}") == (200, view), "the other credential's view")
     check(oth.call("GET", f"/adapter/v1/peerbox/proposals/{pid}")[0] == 404, "another agent reads the proposal")
     check(oth.post(f"/adapter/v1/peerbox/proposals/{pid}/cancel")[0] == 404, "another agent cancels the proposal")
+    people = sorted([state["bob_p"], state["carol_p"]], key=lambda p: p.encode())
+    given = {"peerbox_id": need("pbx")[0], "principals": people[::-1], "actions": ["submit", "read"]}
+    shared = proposed(pia, "share", given)
+    check(shared["args"]["principals"] == people and shared["args"]["actions"] == ["read", "submit"]
+          and [x["principal"] for x in shared["review"]["people"]] == people,
+          f"principals and actions given out of order are stored sorted: {shared['args']} {shared['review']['people']}")
+    spid = shared["proposal_id"]
+    check(record(spid)["request_sha256"] == canonical_sha({"proposal_id": spid, "op": "share", "args": given}),
+          "request_sha256 is not the digest of the body as sent")
+    status, again, _ = propose(pia, "share", given, spid)
+    check(status == 200 and again == shared, f"a repeat of the body as sent: {status} {hide(again)}")
+    status, again, _ = propose(pia, "share", dict(given, principals=people, actions=["read", "submit"]), spid)
+    check(status == 409 and again.get("code") == "conflict",
+          f"a repeat whose body differs, though equal once normalized: {status} {hide(again)}")
+    repo = init_repo(suite.work / "retry-repo")
+    commit_files(repo, {"r.txt": "r\n"}, "retry")
+    retry = {"repository": str(repo), "branch": "main"}  # no network_id: the host's only network
+    state["retry"] = (proposed(pia, "create", retry), retry)
     check(record(pid)["state"] == "pending", "the proposal after another agent's attempts")
     deny_all()
 
@@ -580,9 +630,8 @@ def _():
     review = view["review"]
     check(set(review) == {"head", "commits", "identities", "identities_total", "bundle_bytes"}
           and review["head"] == head and review["commits"] == 2 and review["identities_total"] == 2
-          and sorted(map(json.dumps, review["identities"])) == sorted(map(json.dumps, [
-              {"name": "Ada Author", "email": "ada@example.test"},
-              {"name": "Cy Committer", "email": "cy@example.test"}]))
+          and review["identities"] == [{"name": "Ada Author", "email": "ada@example.test"},
+                                       {"name": "Cy Committer", "email": "cy@example.test"}]
           and isinstance(review["bundle_bytes"], int) and review["bundle_bytes"] > 0, f"create review {review}")
     readable = a.cli("approvals")
     check(pid in pending_ids() and pid in readable.stdout + readable.stderr, "approvals does not list the proposal")
@@ -610,8 +659,9 @@ def _():
     check(twice.code == 1 and status == 409 and body.get("code") == "conflict"
           and body["proposal"]["state"] == "executed"
           and len(shown()) == len(before) + 1, f"approving twice: exit {twice.code}, {status} {hide(body)}")
-    check(pid in json.dumps(a.ok("approvals", "--all", "--json")["peerbox_proposals"]) and pid not in pending_ids(),
-          "approvals --all lists the decided proposal, approvals does not")
+    check(pid in json.dumps(a.ok("approvals", "--all", "--json")["peerbox_proposals"]) and pid not in pending_ids()
+          and pid in listed_route("all"), "approvals --all lists the decided proposal, approvals does not")
+    check(a.api("GET", "/v1/peerbox-proposals?state=decided")[0] == 400, "an unknown state query")
 
 
 @case("share_executed", "peerbox Agent proposals: share proposed with defaults filled in, the people and before "
@@ -821,7 +871,7 @@ def _():
     view = proposed(pia, "create", {"repository": str(hostile["repo"]), "branch": "main"})
     pid = view["proposal_id"]
     check(view["args"]["title"] == hostile["repo"].name and view["review"]["identities_total"] == 4
-          and sorted(map(json.dumps, view["review"]["identities"])) == sorted(map(json.dumps, hostile["identities"])),
+          and view["review"]["identities"] == hostile["identities"],
           f"the hostile review {view['review']}")
     values = (str(hostile["repo"]), hostile["repo"].name, *HOSTILE_AUTHOR, *HOSTILE_COMMITTER)
     shown_text = a.cli("approvals", "show", pid)
@@ -917,7 +967,8 @@ def _():
 
 
 @case("limits", "peerbox Agent proposals, Proposing 3: 5 pending per credential and 20 per host (429 limit), 20 per "
-                "credential per hour (429 rate_limited, retry_after); repeats never counted; nothing persisted")
+                "credential per hour (429 rate_limited, retry_after); the pending limit answering when both apply; "
+                "repeats never counted; nothing persisted")
 def _():
     a = need("a")[0]
     need("pia")
@@ -937,9 +988,14 @@ def _():
     refused_and_absent(others[3], status, body, 429, "limit", pid)
     check(body == limit_error, f"the 21st pending on the host: {body}")
     deny_all()
-    for i in range(15):
+    for i in range(10):  # lim's 11th to 20th proposals in the hour, none left pending
         view = proposed(lim, "invite", invite_args(f"hour-{i}"))
         check(lim.post(f"/adapter/v1/peerbox/proposals/{view['proposal_id']}/cancel")[0] == 200, "cancel")
+    waiting = [proposed(lim, "invite", invite_args(f"wait-{i}")) for i in range(5)]  # the 16th to 20th, pending
+    status, body, pid = propose(lim, "invite", invite_args("both-21"))
+    refused_and_absent(lim, status, body, 429, "limit", pid)
+    check(body == limit_error, f"both limits apply, the pending limit answers: {body}")
+    check(lim.post(f"/adapter/v1/peerbox/proposals/{waiting[0]['proposal_id']}/cancel")[0] == 200, "cancel")
     status, body, pid = propose(lim, "invite", invite_args("hour-21"))
     refused_and_absent(lim, status, body, 429, "rate_limited", pid)
     check(isinstance(body.get("retry_after"), int) and body["retry_after"] >= 1 and isinstance(body.get("error"), str),
@@ -1021,6 +1077,20 @@ def _():
     check(claimed == [pid], f"after the expiry, notifications for {claimed}, want one for {pid} only")
     check(updates(eva) == [], "a notification was claimed twice")
     check_view(eva.call("GET", f"/adapter/v1/peerbox/proposals/{pid}")[1], pid, "invite", "expired")
+
+
+@case("retry_after_second_network", "peerbox Agent proposals, Proposing 2 (Repeat first, on request_sha256): an "
+                                    "identical retry of a create without network_id still returns the proposal after "
+                                    "the host joins a second network; a new one is 400 invalid naming network_id")
+def _():
+    a, pia = need("a", "pia")
+    view, retry = need("retry")[0]
+    create_network(a, "second", "alice")
+    status, again, _ = propose(pia, "create", retry, view["proposal_id"])
+    check(status == 200 and again["proposal_id"] == view["proposal_id"] and again["args"] == view["args"]
+          and again["proposal_sha256"] == view["proposal_sha256"], f"the identical retry: {status} {hide(again)}")
+    status, body, pid = propose(pia, "create", retry)
+    refused_and_absent(pia, status, body, 400, "invalid", pid, "network_id")
 
 
 suite.finish()

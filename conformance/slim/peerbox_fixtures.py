@@ -461,7 +461,7 @@ def unbundle_fails(data, work, clone):
 
 # peerbox_proposals: a repository whose path and identities hold terminal escapes, and a git that can be held.
 
-HOSTILE_DIR = "box\x1b[2J\x07\u009bname"  # a directory name (so the default title) with ESC, BEL and a C1 CSI
+HOSTILE_DIR = "box\x1b[2J\x07\u009b\"q\\name"  # a directory name (so the default title): ESC, BEL, a C1 CSI, " and \\
 # (name, email) of the hostile commit's author and committer: control characters and escape sequences inside.
 HOSTILE_AUTHOR = ("Eve\x1b[31m Evil", "eve\x07@example.test")
 HOSTILE_COMMITTER = ("Mal\x1b]0;owned\x07lory", "mal\u0085@example.test")
@@ -470,7 +470,7 @@ HOSTILE_COMMITTER = ("Mal\x1b]0;owned\x07lory", "mal\u0085@example.test")
 def hostile_repo(parent):
     """A repository at PARENT/HOSTILE_DIR whose main is a first commit by the suite's identities and a second whose
     author and committer are HOSTILE_AUTHOR and HOSTILE_COMMITTER, written as a raw commit object so Git's own
-    identity checks cannot clean them. Returns {repo, main, identities}, identities sorted by (name, email) bytes."""
+    identity checks cannot clean them. Returns {repo, main, identities}, identities sorted by name, then email, as UTF-8 bytes."""
     repo = init_repo(Path(parent) / HOSTILE_DIR)
     first = commit_files(repo, {"README": "hostile\n"}, "first")
     tree = git(repo, "rev-parse", f"{first}^{{tree}}")
@@ -502,7 +502,8 @@ def proposal_check(work):
     work.mkdir(parents=True, exist_ok=True)
     hostile = hostile_repo(work)
     repo = hostile["repo"]
-    check(repo.name == HOSTILE_DIR and repo.is_dir() and rev(repo, "main") == hostile["main"]
+    check(repo.name == HOSTILE_DIR and '"' in repo.name and "\\" in repo.name and "\x1b" in repo.name
+          and repo.is_dir() and rev(repo, "main") == hostile["main"]
           and git(repo, "rev-list", "--count", "main") == "2", "the hostile repository")
     shown = git(repo, "log", "-1", "--format=%an%x00%ae%x00%cn%x00%ce", "main").split("\0")
     check(shown == [*HOSTILE_AUTHOR, *HOSTILE_COMMITTER], f"the hostile identities as git reads them: {shown!r}")
