@@ -25,8 +25,9 @@ from harness import (Suite, attention, check, create_network, join_new_person, l
                      ssh_key, wait_for)
 from runtime_common import (bind, learn, need, policy_statement, policy_version, refused,
                             run_side_by_side, sign_policy, state)
-from peerbox_fixtures import (SCHEMA_TABLES, base_error_bundles, commit_on, head_mover, hostile_bundles, oversized, owner_repo,
-                              paging_bundles, predecessor, requires, self_check, worktree)
+from peerbox_fixtures import (SCHEMA_TABLES, V3_HEADER, base_error_bundles, commit_on, head_mover, hostile_bundles,
+                              oversized, owner_repo, paging_bundles, predecessor, requires, self_check, sha256_clone,
+                              sha256_repo, worktree)
 from peerbox_common import (DEFAULT_BUNDLE, OUTPUT_LIMIT, PSB1, REASON, RULE_KEYS, Prompted, admit_waiting,
                             b64url_json, bundle, bundle_heads, check_record, commit_files, create, failed_with,
                             fetch_bytes, git, init_repo, join_with_code, op_fails, op_ok, outcome, owner_cli,
@@ -347,6 +348,35 @@ def _():
     check(again.ok and refs(clone) == before and again.json == {"head": main, "bundle_sha256": None, "size": 0},
           f"a repeat CLI fetch: exit {again.code} {again.json}, refs changed "
                                               f"{refs(clone) != before}")
+
+
+@case("fetch_sha256", "peerbox Peerboxes and contributions (commit IDs: 64 hex digits for SHA-256, any other "
+                      "length 400 invalid); Fetch (a version 3 bundle for a SHA-256 repository); CLI fetch")
+def _():
+    a, b, main = need("a", "b", "main")
+    owner = sha256_repo(suite.work / "alice-sha256")
+    head, parent = owner["main"], owner["main_parent"]
+    box = create(owner["repo"], title="sha256")
+    share(box, state["bob_p"])
+    value, last, task_id = op_ok({"op": "fetch", "peerbox_id": box})
+    data = fetch_bytes(task_id, last)
+    check(value["head"] == head and len(head) == 64 and data.startswith(V3_HEADER)
+          and bundle_heads(data, suite.work) == [(head, "refs/heads/main")],
+          f"a SHA-256 fetch: head {value['head']}, header {data[:60]!r}")
+    clone = sha256_clone(owner, suite.work / "bob-sha256", box)
+    value, last, task_id = op_ok({"op": "fetch", "peerbox_id": box, "have": [parent]})
+    status, said = requires(clone, fetch_bytes(task_id, last), suite.work)
+    check(value["head"] == head and status == 0 and parent in said, f"a SHA-256 fetch with have: {said[-200:]!r}")
+    for peerbox_id, wrong in ((box, os.urandom(20).hex()), (pbx(), os.urandom(32).hex())):
+        status, body = raw_op({"op": "fetch", "peerbox_id": peerbox_id, "have": [wrong]})
+        refused(status, body, 400, "invalid", "have")
+    fresh = suite.work / "bob-sha256-fresh"
+    for label, target in (("a fresh directory", fresh), ("an existing SHA-256 clone", clone)):
+        result = b.cli("--json", "peerbox", "fetch", "--peer", a.id, box, "--repository", target, timeout=90)
+        check(result.ok and isinstance(result.json, dict) and result.json.get("head") == head
+              and rev(target, f"refs/peerbox/{box}/main") == head
+              and git(target, "rev-parse", "--show-object-format") == "sha256",
+              f"peerbox fetch into {label}: exit {result.code} {result.json} {tail(result.stderr)}")
 
 
 @case("fetch_too_large", "peerbox Fetch: a bundle over max_bundle_bytes fails too_large with its size (PBX-3)")
