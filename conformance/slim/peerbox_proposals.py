@@ -944,7 +944,8 @@ def _():
     refused_and_absent(lim, status, body, 429, "rate_limited", pid)
     check(isinstance(body.get("retry_after"), int) and body["retry_after"] >= 1 and isinstance(body.get("error"), str),
           f"rate_limited {body}")
-    status, again, _ = propose(lim, "invite", made[0]["args"], made[0]["proposal_id"])
+    # A repeat sends the arguments exactly as first given (Proposing 2), not the stored args with defaults.
+    status, again, _ = propose(lim, "invite", invite_args("lim-0"), made[0]["proposal_id"])
     check(status == 200 and again["proposal_id"] == made[0]["proposal_id"], f"a repeat over the limit: {status}")
 
 
