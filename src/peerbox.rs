@@ -391,6 +391,42 @@ impl Drop for Scratch {
     }
 }
 
+/// A bundle's object format, from its header: a version 2 bundle is
+/// SHA-1; a version 3 bundle names its format with `@object-format=`,
+/// SHA-1 when it does not.
+pub fn bundle_object_format(path: &FsPath) -> Result<&'static str, Failure> {
+    use std::io::BufRead;
+    let invalid = || {
+        Failure::new(
+            "bundle_invalid",
+            "the bundle's header is not a Git bundle's",
+        )
+    };
+    let file = std::fs::File::open(path).map_err(|e| Failure::new("internal", e.to_string()))?;
+    let mut lines = std::io::BufReader::new(file.take(64 * 1024)).split(b'\n');
+    let first = lines.next().ok_or_else(invalid)?.map_err(|_| invalid())?;
+    match first.as_slice() {
+        b"# v2 git bundle" => return Ok("sha1"),
+        b"# v3 git bundle" => {}
+        _ => return Err(invalid()),
+    }
+    let mut format = "sha1";
+    for line in lines {
+        let line = line.map_err(|_| invalid())?;
+        let Some(capability) = line.strip_prefix(b"@") else {
+            break;
+        };
+        if let Some(value) = capability.strip_prefix(b"object-format=") {
+            format = match value {
+                b"sha1" => "sha1",
+                b"sha256" => "sha256",
+                _ => return Err(invalid()),
+            };
+        }
+    }
+    Ok(format)
+}
+
 /// SHA-256 and size of a file.
 pub fn digest_file(path: &FsPath) -> std::io::Result<(String, i64)> {
     use sha2::{Digest, Sha256};
