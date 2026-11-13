@@ -148,3 +148,6 @@ to a network."
 8. Product acceptance on two machines owned by different people, with real agents and a KVM
    home host: create, share, fetch, edit, submit, run, review, restart and withdraw, recording
    commands, revisions, outputs, refusals and manual repairs.
+
+Later, proposed and not accepted: [peerbox gates](peerbox-gate-proposal.md), an optional evaluator that
+promotes contributions by a measured result.
