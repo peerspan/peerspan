@@ -1238,6 +1238,12 @@ These are choices the [conversations proposal](conversations-proposal.md) left o
 - **Options:** (a) apply the DEC-Q25 rule, so expired contacts inside a request code still within its window are used as address hints; (b) let the requester refresh its contacts through the mailbox; (c) no change, so a direct-only `link` must be approved within 5 minutes or use a helper.
 - **Chosen:** (a), the recommendation.
 
+#### DEC-Q34. How many carrier endpoints a request keeps
+
+- **Found (2026-11-12, #207):** `link approve` refused with `quota_exceeded` between two installed hosts listening on `0.0.0.0`, the installer's default. Each host's contact named every local address, as the runtime contract allows: 6 on one machine (loopback, two container bridges, two private, one public), 4 on the other. The implementation capped a request's combined `carrier_endpoints` at 8, a number no contract stated, so the approver adding its own addresses to the requester's went over. The suites bind loopback only and never saw it.
+- **Options:** (a) derive the bound from its inputs: a request starts from this host's contact (8 first-contact addresses) and a code or invite of at most 4 contacts and 4 helpers, so 44 at most, and keeps at most 64; endpoints that frames bring in later, and this host's own addresses added on approval, are kept while they fit and otherwise left out, never refused; (b) advertise fewer addresses: leave loopback and container bridges out of contacts; (c) both.
+- **Chosen:** (a), the recommendation. Endpoints are transport hints, so a hint left out costs one path, while refusing the frame stopped the request. (b) contradicts the runtime contract, which names container-bridge and VPN addresses as valid hints and lets same-machine hosts reach each other over loopback, and a bridge cannot be told from a LAN interface reliably. Reading many endpoints one after another is slower when several are unreachable; that is unchanged in kind from the 8 before.
+
 ### DEC-S: simplifying the coordinator-free design (2026-10-27)
 
 - **Date:** 2026-10-27.

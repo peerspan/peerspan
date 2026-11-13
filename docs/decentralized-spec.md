@@ -595,7 +595,9 @@ prompt. An expired device grant proves the key but signs nothing.
   erases the secret and frames and keeps a public tombstone.
 - **Limits**: 8 active and 4096 total requests per host (invite rows count only
   toward the 4096, DEC-Q32); 64 frames and 32 MiB of
-  ciphertext per request; 4096 outcomes per network.
+  ciphertext per request; 4096 outcomes per network; 64 carrier endpoints per
+  request, where endpoints past 64 that frames or this host's own contact
+  would add are left out, never refused (DEC-Q34).
 
 ## 9. Delivery paths
 
@@ -1067,6 +1069,7 @@ options are in the decision log. No question is open.
 | Q31 | A verifier finds a renewer's own grant as the current head of `device/PERSON/SIGNING_KEY`; no format change. | DEC-Q31 |
 | Q32 | Invite rows do not count toward the 8 active pending requests, only toward the 4096 total. | DEC-Q32 |
 | Q33 | Inside a request code still within its window, expired contacts are used as address hints. | DEC-Q33 |
+| Q34 | A request keeps at most 64 carrier endpoints; more are left out, never refused. | DEC-Q34 |
 
 ## 20. Verification
 
@@ -1194,6 +1197,9 @@ named, with no change to stored state other than the stored decision time.
     300-second expiry, still returns the request over the inviter's address.
     A direct-only `link` request code approved 9 minutes after it was made
     still delivers the owner offer over the requester's address.
+    Two hosts whose contacts each name 8 first-contact addresses (set with
+    `advertise_bootstrap`) link a second machine and join a new person to
+    completion; no step refuses with `quota_exceeded` (DEC-Q34).
 31. `network reinvite` for 20 old members on a host with 8 active join
     requests succeeds and every invite's return path works.
 32. An invite is accepted at `expires_at` − 1 second and refused at
