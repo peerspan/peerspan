@@ -684,7 +684,7 @@ command `peerspan approvals`. No notice event is sent: the proposing session alr
 | `op` | Carried out as | `result` |
 | --- | --- | --- |
 | `create` | `peerbox create --yes` with `args`, after computing the disclosure again: when it differs from `review` in any field (the branch moved, for example), the proposal fails with `review_changed`. | `{peerbox_id}` |
-| `share` | `peerbox share PEERBOX --for ...` with `args` and `person_key`. Each `person_id` must still be a member, with the same principal (`review_changed` otherwise); `before` is not rechecked, since `share` sets the access exactly. A `state_conflict` reloads and tries again, at most 3 times, then fails with `state_conflict`. When every principal already holds exactly this access, nothing is signed. | `{policy_version}`: the version signed, or the current one when nothing was signed |
+| `share` | `peerbox share PEERBOX --for ...` with `args` and `person_key`. The whole share review is computed again from the policy the signature will build on: each `person_id` must still be a member with the same principal, and each principal's `before` access must equal the reviewed `before`; any difference fails with `review_changed`, so an approval never overwrites access that changed after the person saw it. A `state_conflict` reloads, computes the review again from the reloaded policy (failing with `review_changed` on any difference) and tries again, at most 3 times, then fails with `state_conflict`. When every principal already holds exactly this access, nothing is signed. | `{policy_version}`: the version signed, or the current one when nothing was signed |
 | `invite` | `peerbox invite PEERBOX LABEL ...` with `args`, the expiry counted from now. | `{code, invitation_id, expires_at}`: the `psb1-` code |
 
 - **All or nothing.** The operation's own stored change (the peerbox record, the signed policy
@@ -857,8 +857,9 @@ accepted, covers through the adapter socket, MCP and a pseudo-terminal for `appr
 credential flag and `no_peerbox_proposals`; each operation proposed, approved and executed,
 with the invite's `psb1-` code reaching the agent and joining as `peerbox join` does; `deny`,
 expiry (test clock) and cancel, each changing nothing; `approve` without a terminal, with a
-wrong digest, twice, and after expiry; `review_changed` for a branch moved and a person
-removed before approval; `person_key_needed` leaving the proposal pending; repeats, conflicts,
+wrong digest, twice, and after expiry; `review_changed` for a branch moved, a person
+removed, and a recipient's access changed (granted, revoked or altered) before approval, with
+the newer policy left in place; `person_key_needed` leaving the proposal pending; repeats, conflicts,
 `duplicate` and the pending and hourly limits; `unknown_principal` and `network` refused;
 a restart while `approved` giving `interrupted` with nothing stored; one
 `peerbox_proposal_update` event per final state and none for a cancel; `pending_work`; the
