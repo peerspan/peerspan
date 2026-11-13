@@ -151,3 +151,15 @@ to a network."
 
 Later, accepted 2026-11-13 (PBX-9 to PBX-14): [peerbox gates](peerbox-gate-proposal.md), an optional
 evaluator that promotes contributions by a measured result.
+
+Proposed 2026-11-13, not accepted: [agent proposals](peerbox-contract.md#agent-proposals), an
+amendment to the Agents step (6). An agent prepares a `peerbox create`, `share` or `invite`;
+the owner confirms it with one `peerspan approve` at a terminal on the home host, modelled on
+the per-call capability approval; only then does the host carry it out, and the agent receives
+the result, for an invite the `psb1-` code to hand over. Review stays with the owner. Its six
+open choices are PBX-16 to PBX-21, listed with recommendations under the amendment's
+[Open decisions](peerbox-contract.md#open-decisions). Once the owner decides, the plan gains:
+9. The `peerbox_proposals` suite, written from the amendment by the separate author, as strict
+   `XFAIL` cases.
+10. Host and adapter: the credential flag, proposal routes and tools, `approvals`/`approve`/
+    `deny` for `pbp_` IDs, execution and proposal updates.
