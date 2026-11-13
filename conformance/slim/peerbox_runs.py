@@ -21,20 +21,14 @@ from pathlib import Path
 from harness import Suite, check, wait_for
 from runtime_common import (bind, enable, has_kind, need, policy_statement, receiver_events, refused, result_of, run_id,
                             setup_network, state, stream)
-from peerbox_common import (REASON, bundle, check_record, commit_files, create, git, init_repo, op_ok, outcome,
-                            raw_op, refs, rev, settle, share, submit_bundle, submit_op, tree_commit)
+from peerbox_fixtures import commit_on, expected_workspace, runs_repo, self_check, worktree
+from peerbox_common import (REASON, bundle, check_record, create, git, op_ok, outcome, raw_op, refs, rev, settle,
+                            share, submit_bundle, submit_op)
 
 suite = Suite("peerbox_runs", __doc__)
 bind(suite)
 clock = suite.use_clock()
 DAY, HOUR = 86400, 3600
-SUBMODULE = "5" * 40
-ATTRIBUTES = b"ignored.txt export-ignore\nsubst.txt export-subst\n*.txt text eol=crlf\n"
-TREE = {"README.md": ("100644", b"hello\n"), "bin/run.sh": ("100755", b"#!/bin/sh\necho run\n"),
-        "link": ("120000", b"README.md"), "vendor/lib": ("160000", SUBMODULE.encode()),
-        ".gitattributes": ("100644", ATTRIBUTES), "ignored.txt": ("100644", b"kept\n"),
-        "subst.txt": ("100644", b"$Format:%H$\n"), "lines.txt": ("100644", b"a\nb\n"),
-        "sub/dir/deep.txt": ("100644", b"deep\n")}
 
 
 def case(name, spec):
@@ -88,8 +82,7 @@ def bob_share(*actions):
 def contribute(branch, files):
     """bob's commit on BRANCH from main, submitted; returns the contribution record."""
     wt = need("bob_wt")[0]
-    git(wt, "checkout", "-q", "-B", branch, state["main"])
-    tip = commit_files(wt, files, branch)
+    tip = commit_on(wt, branch, files, start=state["main"])
     data = bundle(need("bob_clone")[0], suite.work / f"{branch}-{tip[:8]}.bundle", tip, exclude=[state["main"]],
                   ref=branch)
     kind, value, _ = outcome(submit_bundle(pbx(), data, state["main"], branch))
@@ -119,18 +112,16 @@ def listing(root):
     return out
 
 
+@suite.case("fixtures", "peerbox_fixtures.py: every Git fixture of the peerbox suites, built host-free and checked")
+def _():
+    print(f"  fixtures built and checked in {self_check(suite.work / 'fixture-check'):.1f}s", flush=True)
+
+
 @suite.case("setup", "decentralized-spec 6, 8 (create, join); a Git fixture repository")
 def _():
     setup_network()
-    repo = state["repo"] = init_repo(suite.work / "alice-repo")
-    first = commit_files(repo, {"README.md": "hello\n"}, "first")
-    git(repo, "checkout", "-q", "-b", "secret")
-    state["secret"] = commit_files(repo, {"secret.txt": "s\n"}, "secret")
-    git(repo, "checkout", "-q", "main")
-    main = tree_commit(repo, TREE, parent=first, message="the workspace fixture")
-    git(repo, "update-ref", "refs/heads/main", main)
-    git(repo, "reset", "-q", "--hard", "main")
-    state["main"] = main
+    made = runs_repo(suite.work / "alice-repo")
+    state.update(repo=made["repo"], main=made["main"], secret=made["secret"])
     state["learners"] = [state["b"]]
 
 
@@ -144,7 +135,7 @@ def _():
     check(result.ok and rev(clone, f"refs/peerbox/{pbx()}/main") == state["main"] and isinstance(result.json, dict)
           and result.json.get("head") == state["main"],
           f"peerbox fetch: exit {result.code} {result.stderr.strip()[-300:]}")
-    git(clone, "worktree", "add", "-q", wt, "-b", "work", f"refs/peerbox/{pbx()}/main")
+    worktree(clone, wt, pbx(), branch="work")
     state.update(bob_clone=clone, bob_wt=wt)
     state["work"] = contribute("work", {"change.txt": "bob\n"})
     state["work_runs"] = 0
@@ -218,17 +209,7 @@ def _():
     check(stream(events, "stdout") == b"kept\n$Format:%H$\na\nb\ndeep\n",
           f"files read in the run {stream(events, 'stdout')!r}: export-ignore, export-subst or eol applied")
     check(result_of(events[-1])["exit_code"] == 0, "the run result")
-    want = {}
-    for path, (mode, data) in TREE.items():
-        parts = path.split("/")
-        for i in range(1, len(parts)):
-            want.setdefault("/".join(parts[:i]), ("dir", None, None))
-        if mode == "120000":
-            want[path] = ("link", None, data)
-        elif mode == "160000":
-            want[path] = ("dir", None, [])
-        else:
-            want[path] = ("file", 0o755 if mode == "100755" else 0o644, data)
+    want = expected_workspace()
     got_cmp = {k: (v if v[0] != "dir" or k == "vendor/lib" else ("dir", None, None)) for k, v in got.items()}
     check(not any(p.split("/")[-1] == ".git" for p in got), f"a .git entry in the workspace: {sorted(got)}")
     check(got_cmp == want, f"the workspace differs from the tree: extra {sorted(set(got) - set(want))}, missing "

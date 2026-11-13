@@ -25,33 +25,20 @@ from harness import (Suite, attention, check, create_network, join_new_person, l
                      ssh_key, wait_for)
 from runtime_common import (bind, learn, need, policy_statement, policy_version, refused,
                             run_side_by_side, sign_policy, state)
-from peerbox_common import (DEFAULT_BUNDLE, OUTPUT_LIMIT, PSB1, REASON, RULE_KEYS, Prompted,
-                            admit_waiting, b64url_json, bundle, bundle_heads, check_record, commit_files, create, failed_with,
+from peerbox_fixtures import (SCHEMA_TABLES, base_error_bundles, commit_on, head_mover, hostile_bundles, oversized, owner_repo,
+                              paging_bundles, predecessor, requires, self_check, worktree)
+from peerbox_common import (DEFAULT_BUNDLE, OUTPUT_LIMIT, PSB1, REASON, RULE_KEYS, Prompted, admit_waiting,
+                            b64url_json, bundle, bundle_heads, check_record, commit_files, create, failed_with,
                             fetch_bytes, git, init_repo, join_with_code, op_fails, op_ok, outcome, owner_cli,
-                            pbx_rules, principal, raw_op, refs, rename_ref, rev, rule, rules_for, settle, sha256,
-                            share, status_all, shown, submit_bundle, submit_op, tail, tree_commit, unbundle, unshare,
-                            upload_bundle, with_peerbox_rules)
+                            pbx_rules, principal, raw_op, refs, rev, rule, rules_for, settle, sha256, share,
+                            status_all, shown, submit_bundle, submit_op, tail, unbundle, unshare, upload_bundle,
+                            with_peerbox_rules)
 
 suite = Suite("peerbox", __doc__)
 bind(suite)
 clock = suite.use_clock()
 MAIN_SCHEMA = 31  # the schema version on main when this suite was written; the contract adds the next one
-# The tables of a schema-31 host.db, read from a fresh host built from main at 13128db.
-SCHEMA_TABLES = frozenset("""
-access_blocks adapter_calls adapter_connections adapter_credentials adapter_outbound adapter_routes agent_descriptions
-agents approval_notices artifact_files builtin_sources call_approvals call_update_notifications capabilities
-conversation_events conversation_invites conversation_messages conversation_notifications conversation_reads
-conversation_roster_outbound conversation_targets conversations dec_activations dec_admissions dec_clock dec_contacts
-dec_contexts dec_frames dec_heads dec_helpers dec_highwater dec_intents dec_migrations dec_objects dec_operations
-dec_outbox dec_pending dec_restrictions dec_signers deliveries directory_sends events grants identity link_device_keys
-link_features link_frames link_highwater link_objects link_operations link_pending link_signers network_members
-network_statements networks oauth_clients oauth_credentials onboarding_adapter_flows onboarding_invitation_flows
-onboarding_join_flows onboarding_project_flows outbound_calls outbound_messages outbound_replies outbound_task_events
-outbound_tasks peers policy_deliveries policy_edits received_calls received_messages received_replies received_tasks
-sessions source_access task_artifacts task_children task_deliveries task_events task_update_notifications tool_servers
-tool_values""".split())
 DAY, HOUR = 86400, 3600
-HOOK = "#!/bin/sh\n[ -n \"$PBX_FIXTURE\" ] || touch \"$(dirname \"$0\")/../../HOOK_RAN\"\n"
 
 
 def case(name, spec):
@@ -72,9 +59,7 @@ def person_id(host, key):
 
 def new_commit(branch, files, start=None, wt=None):
     """A commit on BRANCH in bob's worktree (reset to START when given); returns its ID."""
-    wt = wt or need("bob_wt")[0]
-    git(wt, "checkout", "-q", *(["-B", branch, start] if start else [branch]))
-    return commit_files(wt, files, f"{branch}: {sorted(files)}")
+    return commit_on(wt or need("bob_wt")[0], branch, files, start)
 
 
 def send(branch, tip, base=None, sender=None, clone=None):
@@ -124,6 +109,11 @@ def pending_shares(host=None):
     return owner_cli("invite", "--list", host=host).stdout
 
 
+@suite.case("fixtures", "peerbox_fixtures.py: every Git fixture of the peerbox suites, built host-free and checked")
+def _():
+    print(f"  fixtures built and checked in {self_check(suite.work / 'fixture-check'):.1f}s", flush=True)
+
+
 @suite.case("setup", "decentralized-spec 6, 8 (create, join, link); a Git fixture repository")
 def _():
     a, a2, b, c = (suite.host(n) for n in ("alice", "alice2", "bob", "carol"))
@@ -144,18 +134,8 @@ def _():
     state["learners"] = [a2, b, c]
     for host in state["learners"]:
         learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
-    repo = state["repo"] = init_repo(suite.work / "alice-repo")
-    # 1,000 incompressible bytes keep every bundle of main over carol's 400-byte read bound (fetch_too_large).
-    commit_files(repo, {"README": "project\n", "data.bin": os.urandom(1000)}, "first")
-    state["main_parent"] = commit_files(repo, {"lib.txt": "one\n"}, "second")
-    git(repo, "checkout", "-q", "-b", "secret")
-    git(repo, "commit", "-q", "--allow-empty", "--author", "Sly Secret <sly@example.test>", "-m", "secret")
-    state["secret"] = rev(repo, "secret")
-    git(repo, "checkout", "-q", "main")
-    state["main"] = commit_files(repo, {"lib.txt": "two\n"}, "third")
-    hook = repo / ".git/hooks/reference-transaction"
-    hook.write_text(HOOK)
-    hook.chmod(0o755)
+    owner = owner_repo(suite.work / "alice-repo")
+    state.update(repo=owner["repo"], main=owner["main"], main_parent=owner["main_parent"], secret=owner["secret"])
 
 
 # Create (peerbox CLI and local API: peerbox create).
@@ -341,7 +321,7 @@ def _():
           and set(fetched.json) == {"head", "bundle_sha256", "size"} and fetched.json["head"] == main,
           f"peerbox fetch --json prints the fetch result: exit {fetched.code} {tail(fetched.stderr)}")
     wt = state["bob_wt"] = suite.work / "bob-wt"
-    git(clone, "worktree", "add", "-q", wt, "-b", "feature", f"refs/peerbox/{pbx()}/main")
+    worktree(clone, wt, pbx())
     state["bob_clone"] = clone
 
 
@@ -351,11 +331,8 @@ def _():
     a, b, main, clone = need("a", "b", "main", "bob_clone")
     value, last, task_id = op_ok({"op": "fetch", "peerbox_id": pbx(), "have": [state["main_parent"]]})
     data = fetch_bytes(task_id, last)
-    path = suite.work / "short.bundle"
-    path.write_bytes(data)
-    verify = git(clone, "bundle", "verify", path, ok=False)
-    said = (verify.stdout + verify.stderr).decode()
-    check(value["size"] < need("full_size")[0] and verify.returncode == 0 and state["main_parent"] in said,
+    status, said = requires(clone, data, suite.work)
+    check(value["size"] < need("full_size")[0] and status == 0 and state["main_parent"] in said,
           f"a have bundle of {value['size']} bytes (full {state['full_size']}) requiring {said[-200:]!r}")
     value, last, task_id = op_ok({"op": "fetch", "peerbox_id": pbx(), "have": [state["secret"], os.urandom(20).hex()]})
     data = fetch_bytes(task_id, last)
@@ -411,9 +388,8 @@ def _():
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "c1",
                            "bundle": small["sha256"]}, sender=c, artifacts=[small])
     check(status == 403, f"carol, read only, submitting: {status} {body}")
-    big = new_commit("big", {"big.bin": os.urandom(96000)}, start=main)  # incompressible: the pack keeps it whole
-    data = bundle(need("bob_clone")[0], suite.work / "big.bundle", big, exclude=[main], ref="big")
-    check(len(data) > 65536, f"fixture: the big bundle has {len(data)} bytes, not over bob's bound of 65536")
+    _, data = oversized(need("bob_clone")[0], need("bob_wt")[0], suite.work / "big.bundle", "big", main, 65536, 96000,
+                        start=main)
     entry = upload_bundle(b, data)
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "big",
                            "bundle": entry["sha256"]}, artifacts=[entry])
@@ -424,13 +400,10 @@ def _():
 def _():
     main = need("main")[0]
     before = refs(state["repo"])
-    tip = new_commit("based", {"b.txt": "b\n"}, start=main)
+    based, old = base_error_bundles(need("bob_clone")[0], need("bob_wt")[0], suite.work, main, state["main_parent"])
     for base in (state["secret"], os.urandom(20).hex()):
-        data = bundle(need("bob_clone")[0], suite.work / f"based-{base[:6]}.bundle", tip, exclude=[main], ref="based")
-        failed_with("base_unknown", submit_bundle(pbx(), data, base, "based"))
-    old = new_commit("old-base", {"o.txt": "o\n"}, start=state["main_parent"])
-    data = bundle(need("bob_clone")[0], suite.work / "old.bundle", old, exclude=[state["main_parent"]], ref="old-base")
-    failed_with("base_not_ancestor", submit_bundle(pbx(), data, main, "old-base"))
+        failed_with("base_unknown", submit_bundle(pbx(), based, base, "based"))
+    failed_with("base_not_ancestor", submit_bundle(pbx(), old, main, "old-base"))
     check(refs(state["repo"]) == before, "a refused submission changed a ref of the repository")
 
 
@@ -439,37 +412,9 @@ def _():
 def _():
     main = need("main")[0]
     before = refs(state["repo"])
-    tip = new_commit("hostile", {"h.txt": "h\n"}, start=main)
-    good = bundle(need("bob_clone")[0], suite.work / "hostile.bundle", tip, exclude=[main], ref="hostile")
-    header = good.index(b"\n\n") + 2
-    middle = header + (len(good) - header) // 2
-    mutated = good[:middle] + bytes([good[middle] ^ 0xFF]) + good[middle + 1:]
+    mutated, variants, dotgit = hostile_bundles(need("bob_clone")[0], need("bob_wt")[0], suite.work, main,
+                                                f"refs/peerbox/{pbx()}/members/{state['bob_pid']}/hostile")
     failed_with("bundle_invalid", submit_bundle(pbx(), mutated, main, "hostile"))
-    variants = {"a tag ref": rename_ref(good, "refs/heads/hostile", "refs/tags/hostile"),
-                "a peerbox ref": rename_ref(good, "refs/heads/hostile",
-                                            f"refs/peerbox/{pbx()}/members/{state['bob_pid']}/hostile"),
-                "the protected branch": rename_ref(good, "refs/heads/hostile", "refs/heads/main"),
-                "an option-like ref": rename_ref(good, "refs/heads/hostile", "--upload-pack=touch"),
-                "an option-like branch": rename_ref(good, "refs/heads/hostile", "refs/heads/-hostile")}
-    git(need("bob_clone")[0], "branch", "-f", "second", tip)
-    git(need("bob_clone")[0], "bundle", "create", "-q", suite.work / "two.bundle", "refs/heads/hostile",
-        "refs/heads/second", f"^{main}")
-    variants["two refs"] = (suite.work / "two.bundle").read_bytes()
-    # Submit step 2: a tree entry named `.git` as Git's hasDotgit defines it, at any depth, in any case and in its
-    # HFS+ (ignorable code points) and NTFS (8.3 short name, trailing dot) spellings, whatever its type.
-    hook = b"#!/bin/sh\ntouch /tmp/peerbox-hostile-hook\n"
-    config = b"[core]\n\thooksPath = .\n"
-    dotgit = {}
-    for label, entries in ((".git/hooks", {".git/hooks/post-checkout": ("100755", hook)}),
-                           (".GIT/config", {".GIT/config": ("100644", config)}),
-                           ("a deep .Git file", {"a/b/.Git": ("100644", b"gitdir: /etc\n")}),
-                           ("a .git symlink", {"sub/.git": ("120000", b"/etc")}),
-                           ("HFS+ .g\\u200cit", {".g\u200cit/config": ("100644", config)}),
-                           ("NTFS git~1", {"GIT~1/config": ("100644", config)}),
-                           ("NTFS .git.", {"deep/.git./config": ("100644", config)})):
-        crafted = tree_commit(need("bob_clone")[0], {"README": ("100644", b"project\n"), **entries}, parent=main)
-        dotgit[label] = bundle(need("bob_clone")[0], suite.work / f"crafted-{crafted[:8]}.bundle", crafted,
-                               exclude=[main], ref="hostile")
     stored = []
     for label, data in variants.items():  # the bundle's single ref must be refs/heads/BRANCH; no code is named
         kind, value, _ = outcome(submit_bundle(pbx(), data, main, "hostile"))
@@ -539,15 +484,7 @@ def _():
     # main moves between the read and the update: a git wrapper on the daemon's PATH moves it on the first
     # ref-changing command (the owner's own push, as it were), with main not checked out.
     git(state["repo"], "switch", "-q", "--detach")
-    moved = git(state["repo"], "commit-tree", f"{main}^{{tree}}", "-p", main, "-m", "the owner's own commit")
-    wrapper, flag = suite.work / "gitwrap", suite.work / "gitwrap.flag"
-    wrapper.mkdir(exist_ok=True)
-    real = shutil.which("git")
-    (wrapper / "git").write_text(
-        f"#!/bin/sh\nif [ -f {flag} ]; then case \" $* \" in *\" update-ref \"*|*\" merge \"*|*\" fetch \"*|"
-        f"*\" push \"*|*\" read-tree \"*|*\" reset \"*) rm -f {flag}; PBX_FIXTURE=1 {real} -C {state['repo']} "
-        f"update-ref refs/heads/main {moved};; esac; fi\nexec {real} \"$@\"\n")
-    (wrapper / "git").chmod(0o755)
+    wrapper, flag, moved = head_mover(suite.work, state["repo"], main)
     a.extra_env = {"PATH": f"{wrapper}:{os.environ.get('PATH', '/usr/bin:/bin')}"}
     a.restart()
     try:
@@ -592,8 +529,7 @@ def _():
     a, b, main = need("a", "b", "main")
     share(pbx(), state["bob_p"], actions=("read", "submit"), extra=("--max-pending", "20", "--max-bundle-bytes",
                                                                     "65536"))
-    tips = [(f"p{i:02d}", new_commit(f"p{i:02d}", {f"p{i}.txt": f"{i}\n"}, start=main)) for i in range(16)]
-    datas = [(n, bundle(need("bob_clone")[0], suite.work / f"{n}.bundle", t, exclude=[main], ref=n)) for n, t in tips]
+    datas = paging_bundles(need("bob_clone")[0], need("bob_wt")[0], suite.work, main)
     frozen, stop = clock.now().replace(microsecond=0), threading.Event()
 
     def freeze():  # hold the hosts' now within one second while the submissions are stored
@@ -658,9 +594,8 @@ def _():
     clone, wt = suite.work / "carol-clone", suite.work / "carol-wt"
     check(c.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90).ok,
           "carol's CLI fetch")
-    git(clone, "worktree", "add", "-q", wt, "-b", "feature", f"refs/peerbox/{pbx()}/main")
-    big = new_commit("feature", {"big.bin": os.urandom(6000)}, wt=wt)  # incompressible random bytes
-    data = bundle(clone, suite.work / "carol-big.bundle", big, exclude=[main], ref="feature")
+    worktree(clone, wt, pbx())
+    _, data = oversized(clone, wt, suite.work / "carol-big.bundle", "feature", main, 2000, 6000)
     check(len(data) > 2000, f"fixture: carol's big bundle has {len(data)} bytes, not over her bound of 2000")
     entry = upload_bundle(c, data)
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "feature",
@@ -858,14 +793,9 @@ def _():
     current = db.execute("PRAGMA user_version").fetchone()[0]
     check(current == MAIN_SCHEMA + 1, f"schema version {current}; this contract adds {MAIN_SCHEMA + 1} (update "
                                       f"MAIN_SCHEMA and SCHEMA_TABLES if main moved)")
-    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")}
-    check(SCHEMA_TABLES <= tables, f"schema-31 tables missing from the current state: {sorted(SCHEMA_TABLES - tables)}")
-    for table in sorted(tables - SCHEMA_TABLES):
-        db.execute(f'DROP TABLE "{table}"')
-    db.execute(f"PRAGMA user_version = {MAIN_SCHEMA}")
-    db.commit()
     counts = {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("networks", "network_statements")}
     db.close()
+    predecessor(path, SCHEMA_TABLES, MAIN_SCHEMA)
     copy.start()
     try:
         db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
