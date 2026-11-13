@@ -374,7 +374,7 @@ above; a gated peerbox can still be reviewed by hand.
 | `min_gain` | 0 to 1,000: the percentage by which a candidate must beat the frontier, with at most two decimals. |
 | `repeats` | 1 to 5. |
 | `cpus`, `memory_mib`, `timeout_seconds` | Each run's bounds, as a runtime task's `resources`, at most what the runtime reports. |
-| `max_output_bytes` | 1 to 104,857,600: bounds the candidate run's outputs. |
+| `max_changes_bytes` | 1 to 104,857,600: bounds everything the candidate run changes in its workspace, not only its outputs, because the run's changes come back as one `changes.tar` and the runtime drops it whole above its limit. Builds should write outside the workspace (a runner script in the inputs can arrange that). |
 | `frontier` | Null, or `{commit, scores, measured_at}` from the latest evaluation. |
 
 **Snapshots.** `peerbox gate set` copies `--inputs-dir` and `--checker-dir` into the home host's
@@ -411,7 +411,7 @@ rule (PBX-15):
    The run executes `command` with `results: changes`. Its **outputs** are the regular files
    and directories its changes hold under `.peerbox-gate/out/`; everything else it wrote,
    printed or returned is ignored. Its time is the run result's `duration_ms` (at least 1).
-   A run that fails, times out or is cancelled, or whose outputs exceed `max_output_bytes` or
+   A run that fails, times out or is cancelled, or whose changes exceed `max_changes_bytes` or
    were dropped, is a **failed measurement** with the code `run_failed` or
    `outputs_too_large`.
 2. **Check run.** The workspace is the checker snapshot plus the outputs under
@@ -464,7 +464,7 @@ starts again from its first measurement; runs it had started are cancelled.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--repeats N] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-output-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories and sets the gate, active, with the next version and `frontier` null. `--command` and `--checker` take one argument each, a JSON array of strings. Defaults: 1 repeat, 2 vCPUs, 2,048 MiB, 15 minutes, 104,857,600 output bytes. Refused while an evaluation runs (409 `gate_busy`). |
+| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--repeats N] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-changes-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories and sets the gate, active, with the next version and `frontier` null. `--command` and `--checker` take one argument each, a JSON array of strings. Defaults: 1 repeat, 2 vCPUs, 2,048 MiB, 15 minutes, 104,857,600 bytes of changes. Refused while an evaluation runs (409 `gate_busy`). |
 | `peerbox gate pause PEERBOX`, `peerbox gate resume PEERBOX` | `POST /v1/peerboxes/{id}/gate/pause`, `.../resume` | Pause with `owner`, or resume; resume clears any paused reason. |
 | `peerbox gate clear PEERBOX` | `DELETE /v1/peerboxes/{id}/gate` | Removes the gate, cancelling a running evaluation; queued contributions stay pending for review by hand. |
 | `peerbox gate show PEERBOX [--json]` | `GET /v1/peerboxes/{id}/gate` | The gate record, the queue, and recent evaluations with their runs. |
@@ -573,10 +573,11 @@ missing or malformed line, `pass` false and a failed check run, and `run_failed`
 writing outside `.peerbox-gate/out/` changing nothing; a candidate's own `.peerbox-gate/`
 entries removed; the expected outputs never in a candidate run's workspace; `frontier_failed`
 pausing the gate; `not_fast_forward` rejecting before any run; the owner accepting a
-contribution during an evaluation, so the promotion swaps nothing; the owner rejecting the
-candidate itself during its evaluation, which cancels the evaluation and keeps the owner's
-rejection and the candidate is
-evaluated again against the new head; `dirty_worktree` pausing; a gate command over 4,096
+different contribution during an evaluation, so the promotion swaps nothing and the
+candidate is evaluated again against the new head; the owner rejecting the candidate itself
+during its evaluation, which cancels the evaluation, keeps the owner's rejection and
+evaluates it no more; a candidate whose changes exceed `max_changes_bytes` failing with
+`outputs_too_large`; `dirty_worktree` pausing; a gate command over 4,096
 bytes refused;
 evaluation order and one at a time; superseding while queued; pause, resume, clear and
 review by hand while paused; `runtime_disabled`; the public result in `status` and the
