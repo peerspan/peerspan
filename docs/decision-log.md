@@ -80,7 +80,7 @@ Contents:
 - **Source:** issue [#210](https://github.com/peerspan/peerspan/issues/210) and the owner's answer to one question on 2026-11-13, after the real-repository run (docs-internal `docs/runtime.md`, "A real repository"): each task building peerspan left about 11 GB of build output in its workspace, and four tasks left 45 GB on the server until the workspaces were discarded by hand. The options and reason below are quoted from that question.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), Running (the branch and the workspace) and The runtime's local API (`peerfs_discard`).
-- **Implementing PRs:** none yet.
+- **Implementing PRs:** [#223](https://github.com/peerspan/peerspan/pull/223) (host and contract) and [peerspan/runtime#23](https://github.com/peerspan/runtime/pull/23) (runtime).
 - **Question:** "For #210, a runtime agent's finished task leaves its peerfs workspace on the server, holding the build output (about 11 GB per task for peerspan). How should it be removed? Each task forks a fresh workspace named after the task, so no later task can reuse it; a build cache shared between tasks is #15."
 - **Options:**
   - (a) Runtime discards: "A new optional run field, peerfs_discard, which the host sets for runtime agents. Once the commit succeeds, or nothing changed, the runtime runs `ws discard`, so only derived files go. If the commit fails, the workspace stays for the owner, as the contract already says. One atomic step; changes the runtime and both contracts."
