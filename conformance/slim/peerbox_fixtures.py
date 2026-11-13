@@ -1,6 +1,6 @@
 """Git fixture builders of the peerbox suites, and a host-free self-check of all of them.
 
-Every case of peerbox.py and peerbox_runs.py stops at the first peerbox command until the contract is implemented,
+Every case of peerbox.py, peerbox_runs.py and peerbox_agents.py stops at the first peerbox command until the contract is implemented,
 so fixture code after that point would otherwise never run before review. The cases build their repositories,
 commits and bundles only through the functions here, and each suite runs `self_check` as its first case (no
 expected-failure marker): a fixture that does not produce what a case expects is a FAIL, never an XFAIL.
@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 from harness import check
-from peerbox_common import (bundle, bundle_heads, commit_files, git, init_repo, rename_ref, rev, tree_commit, unbundle)
+from peerbox_common import (bundle, bundle_heads, commit_files, git, init_repo, refs, rename_ref, rev, tree_commit,
+                            unbundle)
 
 HOOK = "#!/bin/sh\n[ -n \"$PBX_FIXTURE\" ] || touch \"$(dirname \"$0\")/../../HOOK_RAN\"\n"
 CONFIG = b"[core]\n\thooksPath = .\n"
@@ -163,6 +164,99 @@ def head_mover(work, repo, main):
     return wrapper, flag, moved
 
 
+# peerbox_agents: the agent's own repository, and commits made beside its checkout.
+
+def agent_space(path):
+    """peerbox_agents' agent repository PATH/repo, with history unrelated to the peerbox on the checked-out branch
+    `mine`, a modified tracked file, a staged new file and an untracked one; and PATH/sibling, a directory beside it
+    that the adapter must not write (peerbox Agents). Returns {space, repo, sibling, mine}."""
+    space = Path(path)
+    repo = init_repo(space / "repo", branch="mine")
+    mine = commit_files(repo, {"notes.txt": "agent notes\n", "plan.txt": "plan\n"}, "the agent's own work")
+    (repo / "notes.txt").write_text("edited, not committed\n")
+    (repo / "staged.txt").write_text("staged\n")
+    git(repo, "add", "staged.txt")
+    (repo / "scratch.txt").write_text("untracked\n")
+    sibling = space / "sibling"
+    sibling.mkdir(parents=True, exist_ok=True)
+    (sibling / "keep.txt").write_text("keep\n")
+    return {"space": space, "repo": repo, "sibling": sibling, "mine": mine}
+
+
+def files_under(root, skip_git=True):
+    """{relative path: bytes} of every regular file under ROOT (outside `.git` with SKIP_GIT)."""
+    root = Path(root)
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*"))
+            if p.is_file() and not p.is_symlink() and not (skip_git and ".git" in p.relative_to(root).parts)}
+
+
+def checkout_state(repo):
+    """What the adapter never changes in an agent's repository (peerbox Agents): HEAD's symbolic ref and commit, every
+    branch, the index entries, `git status` and the worktree's files. Read without refreshing the index."""
+    return {"head": git(repo, "symbolic-ref", "-q", "HEAD"), "commit": rev(repo, "HEAD"),
+            "branches": {k: v for k, v in refs(repo).items() if k.startswith("refs/heads/")},
+            "index": git(repo, "ls-files", "-s"),
+            "status": git(repo, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"),
+            "files": files_under(repo)}
+
+
+def branch_commit(repo, branch, start, files):
+    """A commit on BRANCH whose tree is START's with top-level FILES {name: text} added, made with plumbing and set
+    with update-ref, so HEAD, the index and the worktree stay as they are; START None makes a root commit."""
+    entries = []
+    if start:
+        for line in git(repo, "ls-tree", "-z", start).split("\0"):
+            if line and line.split("\t", 1)[1] not in files:
+                entries.append(line)
+    for name, text in files.items():
+        blob = git(repo, "hash-object", "-w", "--stdin", input=text.encode())
+        entries.append(f"100644 blob {blob}\t{name}")
+    tree = git(repo, "mktree", "-z", input=("\0".join(entries) + "\0").encode())
+    commit = git(repo, "commit-tree", tree, "-m", f"{branch}: {sorted(files)}", *(["-p", start] if start else []))
+    git(repo, "update-ref", f"refs/heads/{branch}", commit)
+    return commit
+
+
+def suite_clone(owner, path):
+    """A clone of the owner's repository the suite itself contributes from (bundles sent through the adapter API)."""
+    git(Path(path).parent, "clone", "-q", owner, path)
+    return Path(path)
+
+
+def agent_check(work, owner, main):
+    """The peerbox_agents fixtures, built in WORK against OWNER's MAIN, each checked to be what its case expects."""
+    work = Path(work)
+    space = agent_space(work / "agent")
+    repo = space["repo"]
+    sibling = files_under(space["sibling"])
+    before = checkout_state(repo)
+    check(before["head"] == "refs/heads/mine" and before["commit"] == space["mine"]
+          and before["status"] == "M notes.txt\nA  staged.txt\n?? scratch.txt",
+          f"the agent repository: {before['head']} {before['status']!r}")
+    check(checkout_state(repo) == before, "reading the checkout state changed it")
+    git(repo, "fetch", "-q", owner, "main:refs/peerbox/pbx_fixture/main")  # what peerbox_fetch sets
+    check(checkout_state(repo) == before and rev(repo, "refs/peerbox/pbx_fixture/main") == main,
+          "a fetch into a peerbox ref changed the checkout")
+    tip = branch_commit(repo, "agent-work", main, {"agent.txt": "from the agent\n"})
+    after = checkout_state(repo)
+    after["branches"].pop("refs/heads/agent-work")
+    check(after == before and git(repo, "rev-parse", f"{tip}^") == main
+          and git(repo, "merge-base", "agent-work", "refs/peerbox/pbx_fixture/main") == main
+          and {"README", "lib.txt", "data.bin", "agent.txt"} <= set(git(repo, "ls-tree", "--name-only", tip).split()),
+          "a branch commit beside the checkout")
+    orphan = branch_commit(repo, "orphan", None, {"o.txt": "o\n"})
+    check(git(repo, "merge-base", "--is-ancestor", orphan, tip, ok=False).returncode == 1
+          and git(repo, "rev-list", "--count", orphan) == "1", "the orphan commit for base_unknown")
+    data = bundle(repo, work / "agent-work.bundle", tip, exclude=[main], ref="agent-work")
+    check(bundle_heads(data, work) == [(tip, "refs/heads/agent-work")]
+          and rev(unbundle(data, work, have_repo=owner), "refs/fetched/agent-work") == tip, "the agent's bundle")
+    clone = suite_clone(owner, work / "api-clone")
+    api = branch_commit(clone, "api-one", main, {"api.txt": "1\n"})
+    data = bundle(clone, work / "api-one.bundle", api, exclude=[main], ref="api-one")
+    check(bundle_heads(data, work) == [(api, "refs/heads/api-one")] and rev(owner, "main") == main
+          and files_under(space["sibling"]) == sibling, "the API contribution bundle")
+
+
 def requires(repo, data, work):
     """`git bundle verify` of DATA in REPO: (exit status, its output naming the prerequisites)."""
     path = Path(work) / "verify.bundle"
@@ -297,6 +391,7 @@ def self_check(work, schema_tables=SCHEMA_TABLES):
     db.close()
     check(left == set(schema_tables) and version == 31, f"the predecessor: version {version}, extra "
                                                         f"{sorted(left - set(schema_tables))}")
+    agent_check(work / "agents", repo, main)
     return time.monotonic() - began
 
 
