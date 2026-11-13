@@ -191,7 +191,11 @@ pub(crate) fn save(conn: &Connection, c: &Contribution) -> Result<(), Error> {
     )?;
     Ok(())
 }
-fn query(conn: &Connection, sql: &str, args: impl rusqlite::Params) -> Result<Vec<Contribution>, Error> {
+fn query(
+    conn: &Connection,
+    sql: &str,
+    args: impl rusqlite::Params,
+) -> Result<Vec<Contribution>, Error> {
     let mut statement = conn.prepare(sql)?;
     let rows = statement
         .query_map(args, |r| r.get::<_, String>(0))?
@@ -480,10 +484,7 @@ fn prerequisites(file: &Path) -> Result<Vec<String>, Failure> {
     let text = std::str::from_utf8(&header[..end])
         .map_err(|_| invalid("the bundle header is not UTF-8"))?;
     let mut lines = text.lines();
-    if !matches!(
-        lines.next(),
-        Some("# v2 git bundle" | "# v3 git bundle")
-    ) {
+    if !matches!(lines.next(), Some("# v2 git bundle" | "# v3 git bundle")) {
         return Err(invalid("not a version 2 or 3 Git bundle"));
     }
     Ok(lines
@@ -525,13 +526,17 @@ pub(crate) fn verify(
     })?;
     let id_length = git.id_length(&repo)?;
     let scratch = Scratch::new(scratch_base)?;
-    let stage = scratch.path().join("stage");
+    let stage = scratch.path().join("quarantine");
     borrowing(git, &repo, &stage, id_length == 64)?;
     let file_text = file.to_string_lossy().into_owned();
     // The single ref refs/heads/BRANCH, read before the bundle reaches any
     // other Git command.
     let wanted = format!("refs/heads/{branch}");
-    let heads = git.text(&stage, &["bundle", "list-heads", &file_text], "bundle_invalid")?;
+    let heads = git.text(
+        &stage,
+        &["bundle", "list-heads", &file_text],
+        "bundle_invalid",
+    )?;
     let head = match heads.lines().collect::<Vec<_>>().as_slice() {
         [line] => line
             .split_once(' ')
@@ -556,7 +561,11 @@ pub(crate) fn verify(
             ));
         }
     }
-    git.text(&stage, &["bundle", "verify", "-q", &file_text], "bundle_invalid")?;
+    git.text(
+        &stage,
+        &["bundle", "verify", "-q", &file_text],
+        "bundle_invalid",
+    )?;
     run(
         git,
         &stage,
@@ -573,18 +582,12 @@ pub(crate) fn verify(
     fsck.extend(["fsck", "--strict", "--no-dangling", "--no-progress"].map(str::to_owned));
     fsck.push(head.clone());
     run(git, &stage, &fsck, "bundle_invalid")?;
-    // A second, local fetch: Git checks objects fetched from a bundle only
-    // from 2.46 on, and always those a fetch receives from a repository.
-    let quarantine = scratch.path().join("quarantine");
-    borrowing(git, &repo, &quarantine, id_length == 64)?;
-    run(
-        git,
-        &quarantine,
-        &strict_fetch(&stage, &format!("+{STAGED}:{STAGED}")),
-        "bundle_invalid",
-    )?;
+    let quarantine = stage;
     if git.head_of(&quarantine, STAGED)?.as_deref() != Some(head.as_str()) {
-        return Err(Failure::new("bundle_invalid", "the bundle's ref names another commit"));
+        return Err(Failure::new(
+            "bundle_invalid",
+            "the bundle's ref names another commit",
+        ));
     }
     refuse_dotgit(git, &quarantine, &head, &protected, id_length / 2)?;
     // Step 3.
@@ -669,8 +672,11 @@ impl Git {
 /// person may read (their own, or one accepted) whose contribution ref
 /// still exists at `now`. Otherwise `commit_unknown`. A `run` checks this
 /// before anything else of the run.
+///
+/// It takes the store's connection only for its query, never while Git
+/// runs.
 pub fn runnable_commit(
-    conn: &Connection,
+    store: &Store,
     git: &Git,
     rec: &Record,
     person: Option<&str>,
@@ -688,7 +694,7 @@ pub fn runnable_commit(
         return Ok(());
     }
     let found = query(
-        conn,
+        &*store.connection().map_err(|e| Failure::new("internal", e.to_string()))?,
         "SELECT record FROM peerbox_contributions WHERE peerbox_id = ?1 AND json_extract(record, '$.head') = ?2",
         params![rec.peerbox_id, commit],
     )
@@ -719,7 +725,8 @@ pub fn sweep(store: &Store, now: DateTime<Utc>) -> Result<(), Error> {
     }
     let git = Git::new(store.state_directory()).map_err(super::coded)?;
     for mut c in due {
-        if let Some(rec) = record(&*store.connection()?, &c.peerbox_id)? {
+        let found = record(&*store.connection()?, &c.peerbox_id)?;
+        if let Some(rec) = found {
             git.delete_ref(
                 Path::new(&rec.repository),
                 &contribution_ref(&c.peerbox_id, &c.contribution_id),

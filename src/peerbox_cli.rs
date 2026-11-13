@@ -219,7 +219,12 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
                     op["before"] = json!(b);
                 }
                 let (value, _, _) = operation(&local, peer, op).await?;
-                all.extend(value["contributions"].as_array().cloned().unwrap_or_default());
+                all.extend(
+                    value["contributions"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default(),
+                );
                 next = value["next"].clone();
                 match next.as_str() {
                     Some(n) if before.as_deref() != Some(n) => before = Some(n.to_owned()),
@@ -245,7 +250,8 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             peerbox,
             contribution,
         } => {
-            let op = json!({"op": "withdraw", "peerbox_id": peerbox, "contribution_id": contribution});
+            let op =
+                json!({"op": "withdraw", "peerbox_id": peerbox, "contribution_id": contribution});
             let (value, _, _) = operation(&local, peer, op).await?;
             Ok(Some(value))
         }
@@ -255,9 +261,16 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             reject,
             reason,
             ..
-        } => review(&local, directory, target.as_deref(), *accept, *reject, reason)
-            .await
-            .map(Some),
+        } => review(
+            &local,
+            directory,
+            target.as_deref(),
+            *accept,
+            *reject,
+            reason,
+        )
+        .await
+        .map(Some),
     }
 }
 
@@ -309,7 +322,9 @@ async fn review(
     let git = Git::new(directory).map_err(failure)?;
     let mut out = Vec::new();
     for record in records {
-        let id = record["peerbox_id"].as_str().context("invalid daemon response")?;
+        let id = record["peerbox_id"]
+            .as_str()
+            .context("invalid daemon response")?;
         let repo = PathBuf::from(record["repository"].as_str().unwrap_or_default());
         let listed = local
             .get(format!("/v1/peerboxes/{}/contributions", encoded(id)))
@@ -323,8 +338,12 @@ async fn review(
                 c["head"].as_str().unwrap_or_default().to_owned(),
             );
             c["diff_stat"] = json!(
-                git.text(&repo, &["diff", "--stat", &base, &head, "--"], "unavailable")
-                    .unwrap_or_default()
+                git.text(
+                    &repo,
+                    &["diff", "--stat", &base, &head, "--"],
+                    "unavailable"
+                )
+                .unwrap_or_default()
             );
             out.push(c);
         }
@@ -359,7 +378,13 @@ async fn submit(
         Some(b) => git
             .text(
                 &dir,
-                &["rev-parse", "--verify", "-q", "--end-of-options", &format!("{b}^{{commit}}")],
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "-q",
+                    "--end-of-options",
+                    &format!("{b}^{{commit}}"),
+                ],
                 "invalid",
             )
             .map_err(|_| anyhow::anyhow!("--base {b:?} names no commit in {}", dir.display()))?,
@@ -380,10 +405,15 @@ async fn submit(
                 .filter(|r| r.matches('/').count() == 3)
                 .collect();
             let [fetched] = fetched.as_slice() else {
-                bail!("fetch the peerbox into {} first, or give --base", dir.display());
+                bail!(
+                    "fetch the peerbox into {} first, or give --base",
+                    dir.display()
+                );
             };
             git.text(&dir, &["merge-base", &tip, fetched], "invalid")
-                .map_err(|_| anyhow::anyhow!("{branch} has no merge base with {fetched}; give --base"))?
+                .map_err(|_| {
+                    anyhow::anyhow!("{branch} has no merge base with {fetched}; give --base")
+                })?
         }
     };
     let scratch = Scratch::new(&directory.join("peerbox-tmp")).map_err(failure)?;

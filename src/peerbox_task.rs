@@ -1034,18 +1034,26 @@ fn submit_inner(
     sender: &str,
 ) -> Result<Outcome, Failure> {
     let (rec, person) = subject(checked)?;
-    let person = person.ok_or_else(|| Failure::new("unknown", "the sender has no person in this network"))?;
+    let person = person
+        .ok_or_else(|| Failure::new("unknown", "the sender has no person in this network"))?;
     let p = request
         .peerbox
         .as_ref()
         .ok_or_else(|| Failure::new("invalid", "peerbox"))?;
     let (Some(branch), Some(base), Some(bundle)) = (&p.branch, &p.base, &p.bundle) else {
-        return Err(Failure::new("invalid", "submit needs branch, base and bundle"));
+        return Err(Failure::new(
+            "invalid",
+            "submit needs branch, base and bundle",
+        ));
     };
     // Step 1: pending contributions after this one, not counting the one it
     // replaces at the same member ref.
-    let pending = contribution::of_person(&*store.connection().map_err(internal)?, &rec.peerbox_id, person)
-        .map_err(internal)?;
+    let pending = contribution::of_person(
+        &*store.connection().map_err(internal)?,
+        &rec.peerbox_id,
+        person,
+    )
+    .map_err(internal)?;
     let others = pending
         .iter()
         .filter(|c| c.state == PENDING && c.branch != *branch)
@@ -1126,7 +1134,12 @@ fn submit_inner(
 }
 
 /// The sender's own contribution `id` on the peerbox, or `unknown`.
-fn own(conn: &Connection, rec: &Record, person: Option<&str>, id: &str) -> Result<Contribution, Failure> {
+fn own(
+    conn: &Connection,
+    rec: &Record,
+    person: Option<&str>,
+    id: &str,
+) -> Result<Contribution, Failure> {
     contribution::load(conn, id)
         .map_err(internal)?
         .filter(|c| {
@@ -1165,7 +1178,9 @@ fn status_inner(store: &Store, checked: &Checked, p: &PeerboxOp) -> Result<Outco
         ));
     }
     let mut mine = match person {
-        Some(person) => contribution::of_person(&conn, &rec.peerbox_id, person).map_err(internal)?,
+        Some(person) => {
+            contribution::of_person(&conn, &rec.peerbox_id, person).map_err(internal)?
+        }
         None => Vec::new(),
     };
     if let Some(before) = &p.before {
