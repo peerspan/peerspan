@@ -75,6 +75,9 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   runtime agents' tasks on peerfs forks (runtime agent contract, RUN-8 to RUN-11); second tier only.
 - `peerbox`, `peerbox_runs`: peerboxes (peerbox contract, PBX-1 to PBX-8), with `peerbox_common.py`; runs
   against `conformance/slim/fake_runtime.py`; second tier only, strict `XFAIL` until implemented.
+- `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
+  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until
+  implemented.
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

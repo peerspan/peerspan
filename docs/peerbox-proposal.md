@@ -17,10 +17,9 @@ This is the first slice: one repository and one protected branch per peerbox, on
 for people already in the network and for newcomers invited with one peerbox link, who join
 the network as ordinary members. It extends the [task contract](task-contract.md),
 the [artifact contract](artifact-contract.md) and the [runtime task contract](runtime-task-contract.md).
-The [Playbox](https://github.com/Epistetechnician/playbox) project's rooms are the reference
-for the experience: member-only refs, bundle verification, fast-forward-only review with a
-rebase request, and its hostile-input cases. Its transport, grant and wire formats are not
-used.
+The experience follows existing host-owned collaboration rooms: member-only refs, bundle
+verification, fast-forward-only review with a rebase request, and refusal of hostile input.
+Peerspan's own identities, policies, transport and work records carry it.
 
 ## Story
 
@@ -53,8 +52,8 @@ recovery across restarts on both sides; withdrawal that stops new work.
 
 Not in this slice: a membership class other than full member for invited people (PBX-7); several protected branches or path
 filtering in one peerbox; merging (accept only fast-forwards); replicas or failover of the
-home host; PeerFS-backed peerboxes; signed run receipts or attestation; agent tools (a later
-amendment, after the CLI); the Go host (DEC-OWN5).
+home host; PeerFS-backed peerboxes; signed run receipts or attestation; agent tools for review or
+invitations, which stay with people; the Go host (DEC-OWN5).
 
 ## Decisions
 
@@ -87,7 +86,7 @@ the case to measure.
 ### 4. A started run when access is withdrawn
 
 **Recommendation.** (a) "The home host cancels it." The run is the owner's own machine
-executing someone else's code, and Playbox stops it too.
+executing someone else's code, and comparable systems stop it too.
 
 **Not chosen.** (b) "It runs to completion, as runtime tasks do today."
 
@@ -143,8 +142,12 @@ to a network."
 3. Slice A: peerbox records, the rule, `list` and `fetch`, with the CLI.
 4. Slice B: `submit`, member refs, `status`, review, withdrawal, peerbox invites and restarts.
 5. Slice C: `run` from a commit's tree.
-6. Agent tools for Claude Code, Codex and OpenCode, as a contract amendment.
+6. Agent tools for Claude Code, Codex and OpenCode: the contract's Agents section and the
+   `peerbox_agents` suite.
 7. A first `peerspan/runtime` release (PBX-6).
 8. Product acceptance on two machines owned by different people, with real agents and a KVM
    home host: create, share, fetch, edit, submit, run, review, restart and withdraw, recording
    commands, revisions, outputs, refusals and manual repairs.
+
+Later, accepted 2026-11-13 (PBX-9 to PBX-14): [peerbox gates](peerbox-gate-proposal.md), an optional
+evaluator that promotes contributions by a measured result.

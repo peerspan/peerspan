@@ -13,7 +13,7 @@ networks. The Rust host at the repository root is the only host (DEC-OWN5).
 
 Not in this contract: a membership class other than full member for invited people, several branches or path filtering in one
 peerbox, merging, replicas of the home host, PeerFS-backed peerboxes, signed run receipts,
-agent tools, and grants for peerbox operations.
+agent tools for review or invitations, and grants for peerbox operations.
 
 Both hosts need `git` 2.34 or later on `PATH` for peerbox commands; without it they fail
 with `git_missing`. Every Git command a host runs for a peerbox runs with
@@ -350,13 +350,47 @@ instead. With `--json`, a peer-side command prints the operation's result object
 `POST /v1/peerboxes/contributions/{id}/decision`; peer-side operations use `POST /v1/tasks`
 with `executor: "peerbox"`.
 
+## Agents
+
+Agents use peerboxes through the adapter, as they use runtime tasks: an owner-defined route
+names the home host, and the adapter does the local Git work under the agent's own
+permissions. Review and invitations stay with people: no agent tool accepts or rejects a
+contribution, shares a peerbox or creates an invite.
+
+**Routes.** Routes accept the actions `peerbox.read`, `peerbox.submit` and `peerbox.run`,
+set with `adapter route add --action` or in session setup, and shown in route records and
+destinations. A peerbox route names a host, not an agent, and cites the host owner's policy,
+as a `runtime.run` route does. Through a route, `list`, `fetch` and `status` need any of the
+three; `submit` and `withdraw` need `peerbox.submit`; `run` needs `peerbox.run`. Any other
+use is 403. A route's `max_messages` budget counts each peerbox task. The home host still
+checks its own rules; a route only limits what the agent may ask.
+
+| Adapter API | Behavior |
+| --- | --- |
+| `POST /adapter/v1/peerbox` with `{destination, task_id, peerbox, input?, bundle?}` | Submits a peerbox task through the named route; `bundle` is a digest the adapter uploaded, required for `submit`. Ownership, repeats and the deadline follow `POST /adapter/v1/delegations`. Returns the local record. |
+
+MCP tools, each taking `destination`, a peerbox route's name:
+
+| Tool | Arguments | Behavior |
+| --- | --- | --- |
+| `peerbox_list` | none | Submits `list`, following `next`, and returns the merged `peerboxes`. |
+| `peerbox_fetch` | `peerbox_id`, `repository_path` | As `peerbox fetch` with `--repository`: sends `have` from that repository's refs for the peerbox, verifies the bundle as Fetch says, and sets `refs/peerbox/PEERBOX/BRANCH` there. Returns `{head, ref}`; a repeat with nothing new returns the same head. |
+| `peerbox_submit` | `peerbox_id`, `repository_path`, `branch`, `base?` | As `peerbox submit`: bundles the branch under the agent's permissions, uploads it and submits. Returns the contribution record when the task ends, or `{error, message}`. |
+| `peerbox_status` | `peerbox_id`, `contribution_id?`, `before?` | Submits `status` and returns its result. |
+| `peerbox_withdraw` | `peerbox_id`, `contribution_id` | Submits `withdraw` and returns its result. |
+| `peerbox_run` | `peerbox_id`, `commit`, `argv`, `cwd?`, `env?`, `resources?`, `results?`, `input?` | Submits `run` and returns the task ID. Output notifications, `task_status` and `artifact_save` work as for `run_task`. |
+
+The tools wait for a task's final event up to its deadline, except `peerbox_run`, and return
+`{error, message}` for a failed one. `repository_path` is a local path the agent can write;
+the adapter never writes outside it and never changes its checked-out branch or worktree.
+
 ## Persistence
 
 The host schema version increments by one: the next free version on `main` when the
 implementing PR merges. New tables hold peerbox records and contributions with their
 decisions; received and outbound task records of peerbox tasks gain `executor` and `peerbox`
 as runtime tasks gain `run`; a peerbox run's received record also has the runtime fields.
-Older binaries reject the new version. New tables also hold pending shares. New activity kinds are `peerbox.created`,
+Older binaries reject the new version. New tables also hold pending shares. Route records accept the three peerbox actions. New activity kinds are `peerbox.created`,
 `peerbox.shared`, `peerbox.invited`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
 `peerbox.deleted`.
 
@@ -401,6 +435,13 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
 across a restart and completed by `peerbox share --pending`; the pending share kept across a restart of the home host;
 - restarts of both hosts during a fetch and a submit, and records kept;
 - opening a database of the previous schema version.
+
+`peerbox_agents` (second tier) covers, through the adapter socket and MCP as the runtime
+suites do: routes with each peerbox action, a `peerbox.read` route refused for `submit` and
+`run` (403), the route budget; `peerbox_list`, `peerbox_fetch` into a repository (the ref set,
+the checked-out branch untouched, a repeat with nothing new), `peerbox_submit` and
+`peerbox_status`, `peerbox_withdraw`, and `peerbox_run` with output notifications; no tool
+that reviews, shares or invites.
 
 `peerbox_runs` covers: a run needing both rules and the switch; bounds from the runtime rule;
 the workspace equal to the commit's tree with no `.git`, including a commit whose
