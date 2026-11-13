@@ -257,6 +257,13 @@ def agent_check(work, owner, main):
           and files_under(space["sibling"]) == sibling, "the API contribution bundle")
 
 
+def run_workspaces(runtime_dir, run_id):
+    """The workspaces the fake runtime started with `--dir RUNTIME_DIR` unpacked for RUN_ID: each start of the fake
+    makes a root `fake-runtime-*` there, and each run a directory `<run_id[:16]>-*` in it holding `workspace`
+    (fake_runtime.py, Runtime and Run). Every root is searched, since a restarted fake makes a new one."""
+    return sorted(Path(runtime_dir).glob(f"fake-runtime-*/{run_id[:16]}-*/workspace"))
+
+
 def requires(repo, data, work):
     """`git bundle verify` of DATA in REPO: (exit status, its output naming the prerequisites)."""
     path = Path(work) / "verify.bundle"
@@ -392,6 +399,18 @@ def self_check(work, schema_tables=SCHEMA_TABLES):
     check(left == set(schema_tables) and version == 31, f"the predecessor: version {version}, extra "
                                                         f"{sorted(left - set(schema_tables))}")
     agent_check(work / "agents", repo, main)
+    # peerbox_runs: the workspace path, against a layout made as the fake runtime makes it.
+    import tempfile
+    rt_dir = work / "rt"
+    rt_dir.mkdir()
+    run = "run_" + "ab" * 32
+    for _ in range(2):  # two starts of the fake: two roots
+        root = tempfile.mkdtemp(prefix="fake-runtime-", dir=rt_dir)
+        tempfile.mkdtemp(prefix="run_" + "cd" * 6 + "-", dir=root)  # another run, no workspace
+    other = Path(tempfile.mkdtemp(prefix=run[:16] + "-", dir=root))
+    (other / "workspace").mkdir()
+    (Path(tempfile.mkdtemp(prefix="run_" + "ef" * 6 + "-", dir=root)) / "workspace").mkdir()
+    check(run_workspaces(rt_dir, run) == [other / "workspace"], f"run_workspaces: {run_workspaces(rt_dir, run)}")
     return time.monotonic() - began
 
 

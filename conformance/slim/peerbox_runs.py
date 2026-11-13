@@ -21,7 +21,7 @@ from pathlib import Path
 from harness import Suite, check, wait_for
 from runtime_common import (bind, enable, has_kind, need, policy_statement, receiver_events, refused, result_of, run_id,
                             setup_network, state, stream)
-from peerbox_fixtures import commit_on, expected_workspace, runs_repo, self_check, worktree
+from peerbox_fixtures import commit_on, expected_workspace, run_workspaces, runs_repo, self_check, worktree
 from peerbox_common import (REASON, bundle, check_record, create, git, op_ok, outcome, raw_op, refs, rev, settle,
                             share, submit_bundle, submit_op)
 
@@ -92,7 +92,7 @@ def contribute(branch, files):
 
 def workspace(task_id):
     """The directory the fake runtime unpacked the run's archive into (kept until the daemon deletes the run)."""
-    found = sorted(state["rt"].dir.glob(run_id(state["b"], task_id)[:16] + "-*/workspace"))
+    found = run_workspaces(state["rt"].dir, run_id(state["b"], task_id))
     check(len(found) == 1, f"the fake runtime holds {len(found)} workspaces for {task_id}")
     return found[0]
 
