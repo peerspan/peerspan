@@ -505,7 +505,12 @@ async fn join(
     );
     let until = std::time::Instant::now() + Duration::from_secs(600);
     let entry = loop {
-        match list_all(local, &code.home_host_id).await {
+        // One `list` never outlasts the 10 minutes.
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        match tokio::time::timeout(left, list_all(local, &code.home_host_id))
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("timed out")))
+        {
             Ok(all) => {
                 if let Some(entry) = all.into_iter().find(|e| e["peerbox_id"] == code.peerbox_id) {
                     break entry;
