@@ -330,8 +330,8 @@ pub fn disclosure(
     }
     let head = git.head(repo, branch)?.ok_or_else(|| {
         Failure::new(
-            "invalid",
-            format!("the repository has no branch {branch:?}"),
+            "branch_unknown",
+            format!("the repository has no commit on branch {branch:?}"),
         )
     })?;
     let commits = git
@@ -520,9 +520,9 @@ impl Store {
             )));
         }
         if git.head(&repository, &c.branch).map_err(coded)?.is_none() {
-            return Err(Error::Invalid(format!(
-                "branch: the repository has no branch {:?}",
-                c.branch
+            return Err(coded(Failure::new(
+                "branch_unknown",
+                format!("the repository has no commit on branch {:?}", c.branch),
             )));
         }
         let mut conn = self.connection()?;
@@ -602,7 +602,7 @@ impl Store {
 fn coded(f: Failure) -> Error {
     let status = match f.code {
         "git_missing" | "unavailable" => 503,
-        "invalid" => 400,
+        "invalid" | "branch_unknown" => 400,
         _ => 500,
     };
     Error::Coded {
