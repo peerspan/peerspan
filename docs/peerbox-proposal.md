@@ -99,6 +99,9 @@ executing someone else's code, and Playbox stops it too.
 **Not chosen.** (b) "A separate invitation the peer accepts first." It belongs with stranger
 admission, which is out of this slice.
 
+People outside the network are decision 7: a peerbox invite makes them members first, and the
+signed rule of this decision then gives them access.
+
 ### 6. Runtime release
 
 Product acceptance needs the runtime installed on the home host, and `peerspan/runtime` has
