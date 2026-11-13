@@ -234,6 +234,14 @@ pub(crate) fn validate(r: &TaskRequest) -> Result<(), Error> {
         crate::artifact::validate_manifest(manifest).map_err(|_| invalid("artifacts"))?;
     }
     let run = r.run.as_ref().ok_or_else(|| invalid("run"))?;
+    validate_run(run, &r.artifacts)
+}
+
+/// A runtime task's `run` (Requests); a peerbox run's too.
+pub(crate) fn validate_run(
+    run: &RunSpec,
+    artifacts: &Option<Vec<ArtifactEntry>>,
+) -> Result<(), Error> {
     if run.argv.is_empty()
         || run.argv.len() > 256
         || run.argv.iter().any(|a| !utf8_text(a, 4096))
@@ -280,7 +288,7 @@ pub(crate) fn validate(r: &TaskRequest) -> Result<(), Error> {
     }
     match &run.workspace {
         Some(Workspace::Archive(archive)) => {
-            let listed = r.artifacts.iter().flatten().any(|e| {
+            let listed = artifacts.iter().flatten().any(|e| {
                 e.sha256 == *archive
                     && matches!(
                         e.media_type.as_str(),

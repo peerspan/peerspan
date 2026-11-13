@@ -59,6 +59,8 @@ pub mod onboarding_reachability;
 pub(crate) mod onboarding_readiness;
 pub mod peer;
 pub mod peer_store;
+pub mod peerbox;
+pub mod peerbox_task;
 pub mod persons;
 pub mod policy;
 pub mod policy_edit;

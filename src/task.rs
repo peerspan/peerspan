@@ -118,6 +118,13 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub run: Option<crate::runtime_task::RunSpec>,
+    /// A peerbox task's operation (peerbox contract).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub peerbox: Option<crate::peerbox_task::PeerboxOp>,
     pub deadline: String,
     pub input: String,
     #[serde(
@@ -292,6 +299,7 @@ pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
         || r.origin.as_ref().is_some_and(|o| !o.valid())
         || !valid_id(&r.target_agent_id, "agent", 16)
         || r.run.is_some()
+        || r.peerbox.is_some()
         || r.input.is_empty()
         || r.input.len() > MAX_TEXT
     {
@@ -581,6 +589,9 @@ impl Store {
             Some(crate::runtime_task::EXECUTOR) => {
                 return crate::runtime_task::accept(self, sender, r);
             }
+            Some(crate::peerbox_task::EXECUTOR) => {
+                return crate::peerbox_task::accept(self, sender, r);
+            }
             Some(_) => return Err(Error::Invalid("executor".into())),
         }
         validate_task(&r)?;
@@ -729,6 +740,9 @@ impl Store {
             children = crate::task_outbound::cancel_children(&tx, sender, id)?;
             if run {
                 crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
+            }
+            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR) {
+                crate::peerbox_task::cancel_requested(&tx, sender, &mut status)?;
             }
         }
         tx.commit()?;
@@ -1253,6 +1267,11 @@ async fn submit(
     {
         crate::runtime_task::check_fields(&value)?;
     }
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body)
+        && value.get("executor").and_then(|e| e.as_str()) == Some(crate::peerbox_task::EXECUTOR)
+    {
+        crate::peerbox_task::check_fields(&value)?;
+    }
     let request = decode(Ok(body))?;
     Ok(Json(
         blocking(store, move |s| s.accept_task(&sender, request)).await?,
@@ -1447,6 +1466,7 @@ pub(crate) mod tests {
         TaskRequest {
             executor: None,
             run: None,
+            peerbox: None,
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,

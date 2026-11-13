@@ -128,6 +128,17 @@ fn addition_keys(
             add(format!("runtime rule {}", rule.host), None);
         }
     }
+    for unit in crate::policy::peerbox_units(&after.peerbox_rules) {
+        let old = crate::policy::peerbox_unit(
+            &before.peerbox_rules,
+            &unit.host,
+            &unit.peerbox,
+            &unit.principals[0],
+        );
+        if old.as_ref() != Some(&unit) {
+            add(crate::policy::peerbox_addition_key(&unit), None);
+        }
+    }
     for rule in &after.capability_rules {
         let old = before
             .capability_rules
@@ -250,6 +261,30 @@ pub(super) fn merge_delta(
             && !filtered.runtime_rules.iter().any(|r| r.host == old.host)
         {
             filtered.runtime_rules.push(old.clone());
+        }
+    }
+    // A skipped peerbox unit leaves the principal's earlier unit, or none.
+    for unit in crate::policy::peerbox_units(&after.peerbox_rules) {
+        let principal = &unit.principals[0];
+        let old = crate::policy::peerbox_unit(
+            &before.peerbox_rules,
+            &unit.host,
+            &unit.peerbox,
+            principal,
+        );
+        if old.as_ref() == Some(&unit)
+            || !skip.contains(&crate::policy::peerbox_addition_key(&unit))
+        {
+            continue;
+        }
+        match old {
+            Some(old) => crate::policy::peerbox_put(&mut filtered.peerbox_rules, &old),
+            None => crate::policy::peerbox_remove(
+                &mut filtered.peerbox_rules,
+                &unit.host,
+                &unit.peerbox,
+                principal,
+            ),
         }
     }
     let (content, dropped) = crate::policy_edit::merge(current, before, &filtered, &[], true);
@@ -576,6 +611,7 @@ pub(crate) fn reapply_preview(
             rules: Vec::new(),
             capability_rules: Some(Vec::new()),
             runtime_rules: None,
+            peerbox_rules: None,
             trusted_hosts: Some(Vec::new()),
             edits: Some(Vec::new()),
         });

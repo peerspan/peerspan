@@ -482,6 +482,7 @@ impl Editor {
                 rules: Vec::new(),
                 capability_rules: None,
                 runtime_rules: None,
+                peerbox_rules: None,
                 trusted_hosts: None,
                 edits: Some(edits),
             };

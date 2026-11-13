@@ -179,10 +179,191 @@ impl RuntimeRule {
 
 const MAX_PEERFS_WORKSPACES: usize = 64;
 
+/// The actions a peerbox rule grants (peerbox contract), in rule order.
+/// Only peerbox rules hold them.
+pub const PEERBOX_ACTIONS: [&str; 3] = ["peerbox.read", "peerbox.submit", "peerbox.run"];
+pub const PEERBOX_READ: &str = "peerbox.read";
+pub const PEERBOX_SUBMIT: &str = "peerbox.submit";
+pub const PEERBOX_RUN: &str = "peerbox.run";
+/// The largest `max_bundle_bytes`: the artifact contract's file limit.
+pub const MAX_BUNDLE_BYTES: i64 = 104_857_600;
+pub const MAX_PENDING: i64 = 64;
+const MAX_PEERBOX_RULES: usize = 256;
+/// A peerbox rule's keys, in the order the policy body holds them.
+pub const PEERBOX_RULE_KEYS: [&str; 7] = [
+    "host",
+    "peerbox",
+    "principals",
+    "actions",
+    "max_bundle_bytes",
+    "max_pending",
+    "allow_disconnected",
+];
+
+/// Whether `id` is a peerbox ID: `pbx_` and 32 lowercase hex digits.
+pub fn peerbox_id(id: &str) -> bool {
+    id.strip_prefix("pbx_").is_some_and(|hex| {
+        hex.len() == 32
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+/// A peerbox rule (peerbox contract): who may read, submit to and run on
+/// one peerbox of the host it names, and the bounds.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PeerboxRule {
+    pub host: String,
+    pub peerbox: String,
+    pub principals: Vec<String>,
+    pub actions: Vec<String>,
+    pub max_bundle_bytes: i64,
+    pub max_pending: i64,
+    pub allow_disconnected: bool,
+}
+impl PeerboxRule {
+    fn check(&self) -> Result<(), Error> {
+        if !crate::peer_store::valid_id(&self.host, "host", 32) {
+            return Err(invalid("a peerbox rule's host is a host ID"));
+        }
+        if !peerbox_id(&self.peerbox) {
+            return Err(invalid("a peerbox rule's peerbox is a peerbox ID"));
+        }
+        if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
+            return Err(invalid("a peerbox rule has 1-64 principals"));
+        }
+        for p in &self.principals {
+            principal(p)?;
+        }
+        // 1 to 3 distinct actions, in rule order.
+        let positions: Vec<Option<usize>> = self
+            .actions
+            .iter()
+            .map(|a| PEERBOX_ACTIONS.iter().position(|k| k == a))
+            .collect();
+        if self.actions.is_empty()
+            || positions.iter().any(Option::is_none)
+            || !positions.windows(2).all(|w| w[0] < w[1])
+        {
+            return Err(invalid(
+                "a peerbox rule's actions are 1-3 of peerbox.read, peerbox.submit and peerbox.run, distinct, in that order",
+            ));
+        }
+        if !self.has(PEERBOX_READ) {
+            return Err(invalid(
+                "peerbox.submit and peerbox.run need peerbox.read in the same rule",
+            ));
+        }
+        if !(1..=MAX_BUNDLE_BYTES).contains(&self.max_bundle_bytes) {
+            return Err(invalid(
+                "a peerbox rule's max_bundle_bytes must be 1-104857600",
+            ));
+        }
+        let pending = if self.has(PEERBOX_SUBMIT) {
+            1..=MAX_PENDING
+        } else {
+            0..=0
+        };
+        if !pending.contains(&self.max_pending) {
+            return Err(invalid(
+                "a peerbox rule's max_pending is 1-64 with peerbox.submit and 0 without it",
+            ));
+        }
+        Ok(())
+    }
+    /// Whether the rule grants `action`.
+    pub fn has(&self, action: &str) -> bool {
+        self.actions.iter().any(|a| a == action)
+    }
+}
+
 /// Whether `name` is a peerfs workspace's name (runtime task contract):
 /// 1 to 255 bytes, not `.` or `..`, without `/` or NUL.
 pub fn peerfs_workspace(name: &str) -> bool {
     (1..=255).contains(&name.len()) && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// One peerbox rule unit (peerbox contract, Renewal and edits): a
+/// `(host, peerbox, principal)` with its actions and bounds, as a rule with
+/// that one principal.
+pub fn peerbox_units(rules: &[PeerboxRule]) -> Vec<PeerboxRule> {
+    rules
+        .iter()
+        .flat_map(|r| {
+            r.principals.iter().map(|p| PeerboxRule {
+                principals: vec![p.clone()],
+                ..r.clone()
+            })
+        })
+        .collect()
+}
+/// The unit of `principal` on `(host, peerbox)` in `rules`.
+pub fn peerbox_unit(
+    rules: &[PeerboxRule],
+    host: &str,
+    peerbox: &str,
+    principal: &str,
+) -> Option<PeerboxRule> {
+    rules
+        .iter()
+        .find(|r| {
+            r.host == host && r.peerbox == peerbox && r.principals.iter().any(|p| p == principal)
+        })
+        .map(|r| PeerboxRule {
+            principals: vec![principal.to_owned()],
+            ..r.clone()
+        })
+}
+/// Removes `principal` from the rules of `(host, peerbox)`, dropping rules
+/// left with no principal.
+pub fn peerbox_remove(rules: &mut Vec<PeerboxRule>, host: &str, peerbox: &str, principal: &str) {
+    for r in rules.iter_mut() {
+        if r.host == host && r.peerbox == peerbox {
+            r.principals.retain(|p| p != principal);
+        }
+    }
+    rules.retain(|r| !r.principals.is_empty());
+}
+/// Gives a unit's principal exactly its actions and bounds: removes it from
+/// any other rule of that peerbox, then adds it to a rule with the same
+/// actions and bounds, or to a new rule. Other principals are unchanged.
+pub fn peerbox_put(rules: &mut Vec<PeerboxRule>, unit: &PeerboxRule) {
+    let Some(principal) = unit.principals.first() else {
+        return;
+    };
+    let same = |r: &PeerboxRule| {
+        r.host == unit.host
+            && r.peerbox == unit.peerbox
+            && r.actions == unit.actions
+            && r.max_bundle_bytes == unit.max_bundle_bytes
+            && r.max_pending == unit.max_pending
+            && r.allow_disconnected == unit.allow_disconnected
+    };
+    if rules
+        .iter()
+        .any(|r| same(r) && r.principals.contains(principal))
+    {
+        return;
+    }
+    peerbox_remove(rules, &unit.host, &unit.peerbox, principal);
+    match rules.iter_mut().find(|r| same(r)) {
+        Some(r) => r.principals.push(principal.clone()),
+        None => rules.push(unit.clone()),
+    }
+}
+/// The dropped-addition key of a peerbox rule unit (wire appendix).
+pub fn peerbox_addition_key(unit: &PeerboxRule) -> String {
+    format!(
+        "peerbox {} on {} for {}",
+        unit.peerbox,
+        unit.host,
+        unit.principals
+            .first()
+            .map(String::as_str)
+            .unwrap_or_default()
+    )
 }
 
 /// One `edits` entry (coordination contract, concurrent edits): the
@@ -265,6 +446,13 @@ pub struct PolicyBody {
         deserialize_with = "present"
     )]
     pub runtime_rules: Option<Vec<RuntimeRule>>,
+    /// Peerbox rules (peerbox contract); absent when there are none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub peerbox_rules: Option<Vec<PeerboxRule>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -309,19 +497,25 @@ impl PolicyBody {
     pub fn runtime_rules(&self) -> &[RuntimeRule] {
         self.runtime_rules.as_deref().unwrap_or_default()
     }
+    pub fn peerbox_rules(&self) -> &[PeerboxRule] {
+        self.peerbox_rules.as_deref().unwrap_or_default()
+    }
     pub fn content(&self) -> Content {
         Content {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
             runtime_rules: self.runtime_rules().to_vec(),
+            peerbox_rules: self.peerbox_rules().to_vec(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
-    /// Sets its rules, capability rules, runtime rules and trusted hosts.
+    /// Sets its rules, capability rules, runtime rules, peerbox rules and
+    /// trusted hosts.
     pub fn set_content(&mut self, content: Content) {
         self.rules = content.rules;
         self.capability_rules = Some(content.capability_rules);
         self.runtime_rules = Some(content.runtime_rules).filter(|r| !r.is_empty());
+        self.peerbox_rules = Some(content.peerbox_rules).filter(|r| !r.is_empty());
         self.trusted_hosts = Some(content.trusted_hosts);
     }
     fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
@@ -348,7 +542,8 @@ impl PolicyBody {
             &self.trusted_hosts,
             &self.edits,
         ) {
-            (None, None, None, None) if self.runtime_rules.is_none() => {}
+            (None, None, None, None)
+                if self.runtime_rules.is_none() && self.peerbox_rules.is_none() => {}
             (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
                 if self
                     .rules
@@ -405,6 +600,30 @@ impl PolicyBody {
                         return Err(invalid("a policy has at most one runtime rule per host"));
                     }
                 }
+                if let Some(peerbox_rules) = &self.peerbox_rules {
+                    if peerbox_rules.is_empty() || peerbox_rules.len() > MAX_PEERBOX_RULES {
+                        return Err(invalid("a policy's peerbox_rules has 1-256 rules"));
+                    }
+                    for r in peerbox_rules {
+                        r.check()?;
+                    }
+                    // A principal appears in at most one rule per
+                    // (host, peerbox), and once in it.
+                    let mut units: Vec<(&str, &str, &str)> = peerbox_rules
+                        .iter()
+                        .flat_map(|r| {
+                            r.principals
+                                .iter()
+                                .map(|p| (r.host.as_str(), r.peerbox.as_str(), p.as_str()))
+                        })
+                        .collect();
+                    units.sort_unstable();
+                    if units.windows(2).any(|w| w[0] == w[1]) {
+                        return Err(invalid(
+                            "a principal appears in at most one peerbox rule per host and peerbox",
+                        ));
+                    }
+                }
                 if trusted.len() > MAX_TRUSTED {
                     return Err(invalid("a policy has at most 64 trusted hosts"));
                 }
@@ -439,6 +658,8 @@ pub struct Content {
     /// Only coordinator-free policies hold runtime rules; a legacy policy
     /// has none.
     pub runtime_rules: Vec<RuntimeRule>,
+    /// Only coordinator-free policies hold peerbox rules.
+    pub peerbox_rules: Vec<PeerboxRule>,
     pub trusted_hosts: Vec<String>,
 }
 impl Content {
@@ -689,6 +910,7 @@ impl Policy {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules.clone(),
             runtime_rules: None,
+            peerbox_rules: None,
             trusted_hosts: self.trusted_hosts.clone(),
             edits: self.edits.clone(),
         }
@@ -799,6 +1021,7 @@ impl Policy {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
             runtime_rules: Vec::new(),
+            peerbox_rules: Vec::new(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
@@ -2060,6 +2283,7 @@ mod tests {
                 rules: rules(),
                 capability_rules,
                 runtime_rules: Vec::new(),
+                peerbox_rules: Vec::new(),
                 trusted_hosts: vec![
                     format!("host_{}", "b".repeat(64)),
                     format!("host_{}", "a".repeat(64)),

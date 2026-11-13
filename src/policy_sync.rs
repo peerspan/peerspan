@@ -1238,7 +1238,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 32);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1254,7 +1254,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 32;")
+            .execute_batch("PRAGMA user_version = 33;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }
