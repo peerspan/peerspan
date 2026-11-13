@@ -616,7 +616,7 @@ def _():
 # Invitations (peerbox Invitations for new participants).
 
 @case("invite_code_and_refusals", "peerbox Invitations 1, 2: the psb1- code; a code as an argument refused; a "
-                                  "member refused; the pending share kept across a home restart")
+                                  "member refused; the pending share kept across a home restart", known=None)
 def _():
     a, b = need("a", "b")
     code, inner, invitation = invite_code(pbx(), "dan", "--action", "read", "--action", "submit", "--max-pending",
