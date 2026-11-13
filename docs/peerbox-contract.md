@@ -3,7 +3,8 @@
 A **peerbox** is a Git repository that its **home host** serves to people in a network it
 belongs to, for fetching, contributing, and running checks on exact commits. The design is
 in the [peerbox proposal](peerbox-proposal.md), and its decisions are PBX-1 to PBX-8 in the
-[decision log](decision-log.md#pbx-1-to-pbx-8-peerboxes-2026-11-13). This contract extends
+[decision log](decision-log.md#pbx-1-to-pbx-8-peerboxes-2026-11-13); gates are in the
+[gate proposal](peerbox-gate-proposal.md), PBX-9 to PBX-15. This contract extends
 the [task contract](task-contract.md), the [artifact contract](artifact-contract.md) and the
 [runtime task contract](runtime-task-contract.md); what it does not change is as specified
 there. Membership, policies and their signing are those of the
@@ -49,7 +50,7 @@ A **contribution** is a commit a peer submitted, with this record:
 | `bundle_sha256` | The submitted bundle's digest. |
 | `submitted_at` | RFC3339. |
 | `state` | `pending`, `accepted`, `rejected` or `superseded`. |
-| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person's `person_id`, and the protected head before and after (equal for a rejection). |
+| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head, gate}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person's `person_id` or `"gate"`, the protected head before and after (equal for a rejection), and for a gate's decision its public result (Gates), else null. |
 | `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. Every result that returns a record (`submit`, `status`, `withdraw`) keeps the latest 8 and adds `runs_total`, so one record always fits the task output. |
 
 The home host stores each contribution's head under
@@ -96,7 +97,8 @@ result as their final `output`, a JSON object written as text, or `failed` with
 HTTP statuses (400, 403, 404, 503) come only from the checks at submission (Checks); every
 error code named in Operations is such a final `failed` outcome. A `run` follows the runtime task contract from its
 checks on (Runs, below). An entry of `peerboxes` is `{peerbox_id, title, branch, head,
-actions}`, where `actions` are the caller's. Entries are in ascending `peerbox_id` order,
+actions, gate}`, where `actions` are the caller's and `gate` is the gate's public summary or
+null (Gates). Entries are in ascending `peerbox_id` order,
 after `after` when given; the home host returns as many whole entries as fit the task
 contract's 65,536-byte output, and `next` is the last returned ID when more remain, else
 null.
@@ -350,6 +352,118 @@ instead. With `--json`, a peer-side command prints the operation's result object
 `POST /v1/peerboxes/contributions/{id}/decision`; peer-side operations use `POST /v1/tasks`
 with `executor: "peerbox"`.
 
+## Gates
+
+A **gate** is an optional evaluator on one peerbox that promotes contributions by a measured
+result (PBX-9 to PBX-15). It is local configuration on the home host, like review: no policy
+field and no peer route changes. A peerbox without a gate is reviewed only by its owner, as
+above; a gated peerbox can still be reviewed by hand.
+
+### The gate record
+
+| Field | Rules |
+| --- | --- |
+| `version` | 1 for the first gate on the peerbox, plus one each time it is set again. |
+| `state` | `active`, or `paused` with `paused_reason` (`owner`, `frontier_failed`, `runtime_disabled` or `dirty_worktree`). |
+| `command` | The candidate command: `argv` as for a runtime task's `run`. |
+| `inputs_sha256` | The digest of the inputs snapshot (below). |
+| `checker` | The checker command: `argv` as above. |
+| `checker_sha256` | The digest of the checker snapshot. |
+| `score` | `time` (the candidate run's `duration_ms`) or `checker` (the checker's `score`). |
+| `direction` | `lower` or `higher`: which scores are better. |
+| `min_gain` | 0 to 1,000: the percentage by which a candidate must beat the frontier, with at most two decimals. |
+| `repeats` | 1 to 5. |
+| `cpus`, `memory_mib`, `timeout_seconds` | Each run's bounds, as a runtime task's `resources`, at most what the runtime reports. |
+| `max_output_bytes` | 1 to 104,857,600: bounds the candidate run's outputs. |
+| `frontier` | Null, or `{commit, scores, measured_at}` from the latest evaluation. |
+
+**Snapshots.** `peerbox gate set` copies `--inputs-dir` and `--checker-dir` into the home host's
+state, packed as for a runtime workspace (regular files with their mode, directories and
+symbolic links, sorted paths, no `..`), and stores their SHA-256. Later changes to those
+directories change nothing until the gate is set again. The checker directory holds the
+checker's files and the held-out expected outputs; the inputs directory holds the held-out
+inputs only. Neither is ever sent to a peer.
+
+**What readers see.** `list` and `status` carry the gate's public summary, `{version, state,
+command, score, direction, min_gain, frontier}` with `frontier` as `{commit, score}` (its best
+score), to every caller who may read the peerbox: never the snapshots, their digests, the
+checker command or any run's output.
+
+### Evaluation
+
+A contribution is **queued** for the gate when it becomes `pending` on a gated peerbox. The
+home host evaluates queued contributions one at a time, oldest first by `(submitted_at,
+contribution_id)` (PBX-14), each against the protected head when its evaluation starts. A
+contribution superseded or withdrawn while queued or under evaluation leaves the queue, and
+its runs are cancelled. While the gate is paused, evaluations wait; review by hand works.
+
+An evaluation measures the **frontier** (the protected head) and the **candidate** (the
+contribution head), `repeats` times each, in the order frontier, candidate, frontier,
+candidate, and so on (PBX-12). Each measurement is two runs on the home host's own runtime,
+under the gate's bounds, submitted by the home host to itself; neither needs a peer's runtime
+rule (PBX-15):
+
+1. **Candidate run.** The workspace is the commit's tree, read as for a peerbox run, without
+   any entry under `.peerbox-gate/`, plus the inputs snapshot under `.peerbox-gate/inputs/`.
+   The run executes `command` with `results: changes`. Its **outputs** are the regular files
+   and directories its changes hold under `.peerbox-gate/out/`; everything else it wrote,
+   printed or returned is ignored. Its time is the run result's `duration_ms` (at least 1).
+   A run that fails, times out or is cancelled, or whose outputs exceed `max_output_bytes` or
+   were dropped, is a **failed measurement** with the code `run_failed` or
+   `outputs_too_large`.
+2. **Check run.** The workspace is the checker snapshot plus the outputs under
+   `.peerbox-gate/out/`; the run executes `checker` with `results: output`. No candidate
+   code runs in it. Its result is its last non-empty stdout line, which must be
+   `PEERBOX-GATE ` followed by a JSON object with exactly `pass` (boolean), `score` (a
+   positive finite number, or null when the gate's `score` is `time`) and `reason` (UTF-8, at
+   most 200 bytes). A missing or malformed line, a failed or timed-out run, or `pass` false
+   is a failed measurement with the code `check_failed` and the checker's `reason` when it
+   gave one.
+
+A measurement's **score** is the candidate run's `duration_ms` for `score: time`, or the
+checker's `score` for `score: checker`.
+
+**Verdict.**
+- If any frontier measurement failed, the evaluation stops, the gate pauses with
+  `frontier_failed`, and the contribution stays queued: a broken frontier is the owner's to
+  fix, not the contributor's fault.
+- If any candidate measurement failed, the contribution is **rejected** with that
+  measurement's code and reason.
+- Otherwise the candidate's worst score is compared with the frontier's best: for `lower`,
+  the largest candidate score must be at most the smallest frontier score times
+  `(1 - min_gain / 100)`; for `higher`, the smallest candidate score must be at least the
+  largest frontier score times `(1 + min_gain / 100)`. Failing that is **rejected** with
+  `below_margin`.
+- A candidate that passes is **promoted** as an accept (Review, steps 1 to 4) by the gate.
+  `not_fast_forward` and `head_moved` reject the contribution with that code (its contributor
+  rebases and submits again, PBX-11); `dirty_worktree` pauses the gate with `dirty_worktree`
+  and leaves the contribution queued.
+
+The gate's `frontier` becomes the evaluation's frontier measurements, or the candidate's on a
+promotion. A decision by the gate has `decided_by` `"gate"`, `reason` the code (and the
+checker's reason after a colon, when there is one), and `gate` set to its **public result**:
+`{gate_version, verdict, code, checker_reason, score, direction, min_gain, frontier_scores,
+candidate_scores}`, with `verdict` `promoted` or `rejected`. The home host also keeps, for
+its owner only, each run's task ID and outcome and the snapshot digests, through
+`peerbox gate show` and the local API. A contributor sees only the public result through
+`status`, never a run's output, logs or artifacts.
+
+When the runtime's local switch is off, evaluations wait and the gate shows `paused` with
+`runtime_disabled` until it is on again. After a restart, an evaluation that had not decided
+starts again from its first measurement; runs it had started are cancelled.
+
+### Gate CLI and local API
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--repeats N] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-output-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories and sets the gate, active, with the next version and `frontier` null. `--command` and `--checker` take one argument each, a JSON array of strings. Defaults: 1 repeat, 2 vCPUs, 2,048 MiB, 15 minutes, 104,857,600 output bytes. Refused while an evaluation runs (409 `gate_busy`). |
+| `peerbox gate pause PEERBOX`, `peerbox gate resume PEERBOX` | `POST /v1/peerboxes/{id}/gate/pause`, `.../resume` | Pause with `owner`, or resume; resume clears any paused reason. |
+| `peerbox gate clear PEERBOX` | `DELETE /v1/peerboxes/{id}/gate` | Removes the gate, cancelling a running evaluation; queued contributions stay pending for review by hand. |
+| `peerbox gate show PEERBOX [--json]` | `GET /v1/peerboxes/{id}/gate` | The gate record, the queue, and recent evaluations with their runs. |
+
+`peerbox review` shows each contribution's gate state (queued, under evaluation, or its
+public result).
+
 ## Agents
 
 Agents use peerboxes through the adapter, as they use runtime tasks: an owner-defined route
@@ -390,7 +504,7 @@ The host schema version increments by one: the next free version on `main` when 
 implementing PR merges. New tables hold peerbox records and contributions with their
 decisions; received and outbound task records of peerbox tasks gain `executor` and `peerbox`
 as runtime tasks gain `run`; a peerbox run's received record also has the runtime fields.
-Older binaries reject the new version. New tables also hold pending shares. Route records accept the three peerbox actions. New activity kinds are `peerbox.created`,
+Older binaries reject the new version. New tables also hold pending shares. Route records accept the three peerbox actions. New tables hold gates, their snapshots' metadata and evaluations; the snapshots are files in the host's state directory. New activity kinds are `peerbox.gate_set`, `peerbox.gate_paused`, `peerbox.gate_evaluated`, `peerbox.created`,
 `peerbox.shared`, `peerbox.invited`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
 `peerbox.deleted`.
 
@@ -442,6 +556,19 @@ suites do: routes with each peerbox action, a `peerbox.read` route refused for `
 the checked-out branch untouched, a repeat with nothing new), `peerbox_submit` and
 `peerbox_status`, `peerbox_withdraw`, and `peerbox_run` with output notifications; no tool
 that reviews, shares or invites.
+
+`peerbox_gate` (second tier) covers, with the fake runtime: a candidate writing outputs and a
+checker echoing a `PEERBOX-GATE` line; promotion with enough gain and the frontier moved,
+`below_margin` for less, in both directions and for both score sources; `check_failed` for a
+missing or malformed line, `pass` false and a failed check run, and `run_failed` and
+`outputs_too_large` for the candidate; a candidate printing its own `PEERBOX-GATE` line and
+writing outside `.peerbox-gate/out/` changing nothing; a candidate's own `.peerbox-gate/`
+entries removed; the expected outputs never in a candidate run's workspace; `frontier_failed`
+pausing the gate; `not_fast_forward` and `head_moved` rejecting, `dirty_worktree` pausing;
+evaluation order and one at a time; superseding while queued; pause, resume, clear and
+review by hand while paused; `runtime_disabled`; the public result in `status` and the
+summary in `list`, with no run output, checker command or digest; restart during an
+evaluation; `gate set` refused while busy.
 
 `peerbox_runs` covers: a run needing both rules and the switch; bounds from the runtime rule;
 the workspace equal to the commit's tree with no `.git`, including a commit whose

@@ -79,7 +79,7 @@ Contents:
 - **Source:** [peerbox-gate-proposal.md, decision 7](peerbox-gate-proposal.md#7-separating-the-checker-from-the-candidate), raised in review of PBX-10: "when the evaluator imports or runs the candidate's code in the same VM, that code can print its own final `PEERBOX-GATE` line with a winning score, and can put held-out contents into `reason`. Nothing inside one VM protects the evaluator from code running there as the same user."
 - **Supersedes:** PBX-10.
 - **Recorded in:** this log and the proposal (this PR).
-- **Contract section:** none yet; a peerbox contract amendment follows.
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
 - **Implementing PRs:** none yet.
 
 #### PBX-15. Separating the checker from the candidate
@@ -94,7 +94,7 @@ Contents:
 - **Area:** peerboxes: an optional owner-configured evaluator that promotes contributions by a measured result.
 - **Source:** [peerbox-gate-proposal.md, Decisions](peerbox-gate-proposal.md#decisions), decisions 1 to 6.
 - **Recorded in:** this log and the proposal (this PR).
-- **Contract section:** none yet; a peerbox contract amendment follows.
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
 - **Implementing PRs:** none yet.
 
 The owner chose the recommendation of each: "go with the recommendations on all six". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
