@@ -179,6 +179,9 @@ def _():
     db = sqlite3.connect(str(path))
     current = db.execute("PRAGMA user_version").fetchone()[0]
     check(current >= 25, f"schema version {current}; this contract needs the next version after 24")
+    # A real database of the previous version has no PeerFS bindings (schema 33); keep the copy one, so the
+    # host's refusal of that namespace below its version still holds.
+    db.execute("DROP TABLE IF EXISTS peerfs_bindings")
     db.execute(f"PRAGMA user_version = {current - 1}")
     db.commit()
     db.close()
