@@ -605,7 +605,7 @@ fn queued(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
 /// Serves queued peerbox tasks until shutdown, and deletes contribution
 /// refs past their retention.
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
-    if let Err(e) = crate::api::blocking(store.clone(), |s| contribution::sweep_orphans(s)).await {
+    if let Err(e) = crate::api::blocking(store.clone(), contribution::sweep_orphans).await {
         eprintln!("peerbox contribution refs: {e:?}");
     }
     loop {
@@ -655,13 +655,20 @@ enum Outcome {
 /// Rechecks one queued task and runs its operation (Checks: again before
 /// a bundle is served).
 fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
-    let conn = store.connection()?;
-    let Some((request, status)) = received(&conn, sender, id)? else {
+    let mut conn = store.connection()?;
+    let Some((request, mut status)) = received(&conn, sender, id)? else {
         return Ok(());
     };
     if status.state != "queued" || status.cancel_requested {
         return Ok(());
     }
+    // A task past its deadline ends `expired` before its operation runs.
+    let tx = conn.transaction()?;
+    if crate::task::expire(&tx, sender, &request, &mut status)? {
+        tx.commit()?;
+        return Ok(());
+    }
+    drop(tx);
     let checked = match check(store, &conn, sender, &request) {
         Ok(c) => c,
         // Recoverable: left queued.
@@ -1006,7 +1013,7 @@ fn internal(e: impl std::fmt::Display) -> Failure {
 }
 
 /// The peerbox and the sender's person in its network.
-fn subject<'a>(checked: &'a Checked) -> Result<(&'a Record, Option<&'a str>), Failure> {
+fn subject(checked: &Checked) -> Result<(&Record, Option<&str>), Failure> {
     let rec = checked
         .record
         .as_ref()
@@ -1086,6 +1093,10 @@ fn submit_inner(
             Err(Error::Unavailable(_)) => return Ok(Outcome::Queued),
             Err(e) => return Ok(Outcome::Rejected(refusal(&e))),
         }
+    }
+    // Past the deadline nothing is stored: the next pass expires the task.
+    if crate::task::time(&request.deadline).map_err(internal)? <= crate::clock::now() {
+        return Ok(Outcome::Queued);
     }
     // Step 4.
     let contribution_id = crate::store::new_id("pbc").map_err(internal)?;
