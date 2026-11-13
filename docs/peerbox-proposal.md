@@ -52,8 +52,8 @@ recovery across restarts on both sides; withdrawal that stops new work.
 
 Not in this slice: a membership class other than full member for invited people (PBX-7); several protected branches or path
 filtering in one peerbox; merging (accept only fast-forwards); replicas or failover of the
-home host; PeerFS-backed peerboxes; signed run receipts or attestation; agent tools (a later
-amendment, after the CLI); the Go host (DEC-OWN5).
+home host; PeerFS-backed peerboxes; signed run receipts or attestation; agent tools for review or
+invitations, which stay with people; the Go host (DEC-OWN5).
 
 ## Decisions
 
@@ -142,7 +142,8 @@ to a network."
 3. Slice A: peerbox records, the rule, `list` and `fetch`, with the CLI.
 4. Slice B: `submit`, member refs, `status`, review, withdrawal, peerbox invites and restarts.
 5. Slice C: `run` from a commit's tree.
-6. Agent tools for Claude Code, Codex and OpenCode, as a contract amendment.
+6. Agent tools for Claude Code, Codex and OpenCode: the contract's Agents section and the
+   `peerbox_agents` suite.
 7. A first `peerspan/runtime` release (PBX-6).
 8. Product acceptance on two machines owned by different people, with real agents and a KVM
    home host: create, share, fetch, edit, submit, run, review, restart and withdraw, recording
