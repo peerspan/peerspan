@@ -111,7 +111,11 @@ allow_disconnected}`. A host honours only rules naming itself.
 | `max_pending` | 0 to 64: pending contributions per contributing person. 0 when `peerbox.submit` is absent, at least 1 when present. |
 | `allow_disconnected` | As for runtime rules. |
 
-At most 64 peerbox rules per policy, and at most one per `(host, peerbox)`; two are 400.
+At most 256 peerbox rules per policy. One peerbox may have several rules, so different people
+can hold different actions and bounds, but a principal appears in at most one rule per
+`(host, peerbox)`; a repeat is 400. A sender matching several rules of one peerbox (for
+example `person:` and `network`) holds the union of their actions, and for an action each
+bound is the largest among the matching rules that grant it.
 
 **Policy body.** The `peerspan-policy-v2` body gains `peerbox_rules`, after `runtime_rules`,
 omitted when empty, so a policy without peerbox rules has the same body as before. Each rule
@@ -124,10 +128,10 @@ is an object with exactly the keys above, in that order. For example:
 - **Reading.** As for `runtime_rules`: a host refuses the statement as `invalid` when
   `peerbox_rules` is present but empty, a rule has a missing, unknown or duplicate key, or a
   value is out of range or breaks a rule above.
-- **Renewal and edits.** As for `runtime_rules`, with each `(host, peerbox)` rule one unit:
-  renewal and edits that do not touch it copy it, and when unsettled edits are re-applied a
-  withdrawal wins. The wire appendix's dropped-addition keys gain `peerbox rule PEERBOX on
-  HOST` and `principal PRINCIPAL in peerbox rule PEERBOX on HOST`.
+- **Renewal and edits.** As for `runtime_rules`, with each `(host, peerbox, principal)` one
+  unit, its actions and bounds included: renewal and edits that do not touch it copy it, and
+  when unsettled edits are re-applied a withdrawal wins. The wire appendix's dropped-addition
+  keys gain `peerbox PEERBOX on HOST for PRINCIPAL`.
 - **Compatibility.** Hosts built before this contract, every Go host included, refuse a
   policy whose body has `peerbox_rules`, as for `runtime_rules` (RUN-5). An owner adds one only
   once every host in the network runs software that implements this contract; `peerbox share`
@@ -141,8 +145,12 @@ At submission the home host checks, in order:
    policy, deadline within its `valid_until`, membership unless `allow_disconnected`).
    Failure, or an unknown ID, is 404 `unknown`, so a caller cannot learn which peerboxes
    exist. `list` needs no `peerbox_id` and returns only the peerboxes the sender may read.
+   The one exception is `status`: a sender with no current rule who submitted contributions
+   to that peerbox passes this check for `status` only, and sees only those contributions
+   (Withdrawal); a sender with neither is 404 `unknown`.
 2. The operation's action: `submit` and `withdraw` need `peerbox.submit`, `run` needs
-   `peerbox.run`; `fetch` and `status` need only `peerbox.read`. Failure is 403.
+   `peerbox.run`; `fetch` needs `peerbox.read`, and `status` needs `peerbox.read` or the
+   exception in 1. Failure is 403.
 3. For `submit`, the manifest's bundle size at most `max_bundle_bytes`: 403 otherwise.
 4. For `run`, everything the runtime task contract checks (the local switch, a runtime rule
    matching the sender, its bounds), with the request's `run` in place of a runtime task's.
@@ -191,9 +199,9 @@ person already in the network gets access through `peerbox share` instead.
    administrator admits the request (the owner, when they are one), and the joiner commits.
    An owner who is not an administrator sends the admin the request as today.
 4. **Share.** When the home host admits the admission of the person whose request came
-   through that invitation ID, it adds a peerbox rule for `person:` that person with the
-   pending share's actions and bounds, and signs the next policy version as `peerbox share`
-   does. When the network's provider for the owner needs the owner's interaction (an SSH
+   through that invitation ID, it grants `person:` that person the pending share's actions and
+   bounds exactly as `peerbox share --for` would (CLI, below), leaving every other
+   principal's rule as it is, and signs the next policy version as `peerbox share` does. When the network's provider for the owner needs the owner's interaction (an SSH
    person key, for example), status shows `peerbox_share_waiting` with the command
    `peerbox share --pending INVITATION_ID` instead. The pending share is then deleted.
 5. **Fetch.** The joiner's `peerbox join` keeps running after the commit: it submits `list`
@@ -250,9 +258,14 @@ sender's pending contribution `superseded` and deletes its member ref; a decided
 
 `commit` must be the protected head or the head of a contribution the sender may read
 (their own, or one accepted): otherwise the task fails with `commit_unknown`. The home host
-builds the workspace archive itself from that commit's tree with `git archive`, never from
-bytes a peer sent; the archive has no `.git`, is subject to the runtime rule's
-`max_artifact_bytes`, and is not an input artifact. The run then follows the runtime task
+builds the workspace archive itself from that commit's tree, never from bytes a peer sent,
+and never with `git archive`, whose `export-ignore` and `export-subst` attributes would let
+a commit's own `.gitattributes` drop or rewrite tracked files. It reads the tree's entries
+(`git ls-tree -r -z`) and their blobs (`git cat-file`): each blob as a regular file, mode
+0755 when executable and 0644 otherwise, each symbolic link as a link, and each submodule
+entry as an empty directory. No attribute, filter or configuration from the commit applies.
+The archive is the commit's tree byte for byte, has no `.git`, is subject to the runtime
+rule's `max_artifact_bytes`, and is not an input artifact. The run then follows the runtime task
 contract: queueing, the recheck at start, output events, the run result, `results`, result
 artifacts, cancellation and restarts. A run never changes a ref. Its outcome is recorded in
 the contribution's `runs`.
@@ -277,12 +290,12 @@ decision durably; the contributor reads it with `status`.
 | CLI after `--state DIR` | Behavior |
 | --- | --- |
 | `peerbox create --repository PATH --branch NAME [--title TEXT] [--network ID] [--yes]` | Shows what a read discloses (the branch and head, the commits reachable from it, their distinct author and committer names and addresses, and the bundle size) and asks to confirm, defaulting to no; `--yes` skips the question. Creates the record and prints its ID. |
-| `peerbox share PEERBOX --for PRINCIPAL ... [--action read\|submit\|run ...] [--max-bundle-bytes N] [--max-pending N] [--allow-disconnected] [--person-key PATH]` | Adds or replaces the peerbox's rule and signs the next policy version as `runtime enable` does, saying first that hosts on software without peerbox rules will stop accepting this person's policy. `--action` defaults to `read`; defaults are 104,857,600 bytes and 4 pending. |
-| `peerbox unshare PEERBOX [--person-key PATH]` | Removes the rule, signing as above. |
+| `peerbox share PEERBOX --for PRINCIPAL ... [--action read\|submit\|run ...] [--max-bundle-bytes N] [--max-pending N] [--allow-disconnected] [--person-key PATH]` | Gives each `--for` principal exactly these actions and bounds on the peerbox: it removes the principal from any other rule of that peerbox, then adds it to a rule with the same actions and bounds or to a new rule, leaving other principals unchanged; then it signs the next policy version as `runtime enable` does, saying first that hosts on software without peerbox rules will stop accepting this person's policy. `--action` defaults to `read`; `--max-bundle-bytes` defaults to 104,857,600; `--max-pending` defaults to 4 with `submit` and is 0 without it, where any other value is refused. |
+| `peerbox unshare PEERBOX [--for PRINCIPAL ...] [--person-key PATH]` | Removes those principals from the peerbox's rules, or every rule of the peerbox without `--for`, dropping rules left with no principal; signs as above. |
 | `peerbox invite PEERBOX LABEL [--action ...] [--max-bundle-bytes N] [--max-pending N] [--expires-in D \| --expires-at T]` | Creates a network invite and a pending share and prints the `psb1-` code (Invitations for new participants). |
 | `peerbox invite --list`, `peerbox invite --cancel INVITATION_ID` | Shows or deletes pending shares. |
 | `peerbox share --pending INVITATION_ID [--person-key PATH]` | Signs the rule of a pending share whose person was admitted, when automatic signing needed the owner. |
-| `peerbox delete PEERBOX [--person-key PATH]` | Removes the rule, the record and its member refs; contribution records stay. |
+| `peerbox delete PEERBOX [--person-key PATH]` | Removes its rules, the record and its member refs; contribution records stay. |
 | `peerbox show [PEERBOX] [--json]` | Records, rules and pending counts. |
 | `peerbox review [PEERBOX] [--json]` | Pending contributions with contributor, base, head, `git diff --stat` and runs. |
 | `peerbox review CONTRIBUTION (--accept \| --reject) [--reason TEXT]` | Records the decision (Review); exits 1 with the code on a 409. |
@@ -335,13 +348,21 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   nothing; superseding; a peer unable to write the protected branch or another member's ref;
 - review: accept fast-forwarding, `not_fast_forward`, `head_moved`, `dirty_worktree`, reject
   with a reason, and the decision visible through `status`;
-- withdrawal: new fetches and submissions refused, stored contributions and `status` kept;
+- withdrawal: new fetches and submissions refused; `status` still answering the former
+  contributor with only their own contributions, and 404 `unknown` for a former reader who
+  never submitted;
+- several rules on one peerbox: two people with different actions and bounds; `share` for one
+  leaving the other unchanged; a principal in two rules of one peerbox refused; a sender
+  matching `person:` and `network` rules getting the union; an invitation completing while
+  another person's rule exists, leaving it unchanged; `share` read-only defaulting
+  `max_pending` to 0;
 - invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; the pending share kept across a restart of the home host;
 - restarts of both hosts during a fetch and a submit, and records kept;
 - opening a database of the previous schema version.
 
 `peerbox_runs` covers: a run needing both rules and the switch; bounds from the runtime rule;
-the workspace equal to the commit's tree with no `.git`; `commit_unknown`; a run changing no
+the workspace equal to the commit's tree with no `.git`, including a commit whose
+`.gitattributes` marks files `export-ignore` or `export-subst`; `commit_unknown`; a run changing no
 ref; withdrawal cancelling a started run with `access withdrawn`, while a runtime rule's
 withdrawal does not; the run recorded in the contribution's `runs`.
 
