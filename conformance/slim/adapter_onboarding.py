@@ -784,7 +784,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
+    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not add empty schema25/26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"),
           "schema24 migration changed project/DEC/registry/history records")

@@ -29,6 +29,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/sessions/{id}/detach", post(detach))
         .route("/v1/activity", get(activity))
         .merge(crate::peer::local_routes())
+        .merge(crate::peerfs::local_routes())
         .merge(crate::network::local_routes())
         .merge(crate::link_runtime::local_routes())
         .merge(crate::decentralized::runtime::local_routes())

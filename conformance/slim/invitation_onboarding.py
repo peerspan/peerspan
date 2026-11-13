@@ -647,7 +647,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),

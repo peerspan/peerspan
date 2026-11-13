@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [sync, completion_rate_limit, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, admission_retained_prefix, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_return_prepare, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion, runtime, runtime_policy, runtime_renewal, runtime_runs, runtime_results, runtime_peerfs, runtime_agents, wide_contacts, peerbox, peerbox_runs, peerbox_agents]
+        suite: [sync, completion_rate_limit, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, admission_retained_prefix, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_return_prepare, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion, runtime, runtime_policy, runtime_renewal, runtime_runs, runtime_results, runtime_peerfs, runtime_agents, wide_contacts, peerbox, peerbox_runs, peerbox_agents, peerfs_local]
     steps:
       - uses: actions/checkout@v4
         with:

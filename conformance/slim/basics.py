@@ -329,7 +329,7 @@ def _():
             "conversations", "conversation_messages", "conversation_targets", "conversation_invites",
             "conversation_roster_outbound", "conversation_notifications", "conversation_reads", "conversation_events"}
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 31, f"{path.name}: schema version {version}, want 31")
+    check(version == 33, f"{path.name}: schema version {version}, want 33")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 

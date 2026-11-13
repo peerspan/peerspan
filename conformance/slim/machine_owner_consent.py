@@ -857,7 +857,7 @@ def _():
     ed25519(f['b'].public_key, packet['host_signature'], packet_message(packet), 'consent-request-host')
     ed25519(signed['device_public_key'], packet['device_signature'], packet_message(packet), 'consent-request-device')
     before, counters = whole(f), traffic(f)
-    check(all(db['$version'] == (31,) for side in before for db in side[0].values()
+    check(all(db['$version'] == (33,) for side in before for db in side[0].values()
               if 'dec_intents' in db), 'machine consent changed required existing schema31')
     owners, receipts = kind_ids(h, 'owner'), kind_ids(h, 'machine_owner_review')
     value = op(f, 'prepare', inspected=initial['inspection']); f['prepared'] = value
