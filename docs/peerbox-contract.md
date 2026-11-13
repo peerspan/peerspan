@@ -49,7 +49,7 @@ A **contribution** is a commit a peer submitted, with this record:
 | `bundle_sha256` | The submitted bundle's digest. |
 | `submitted_at` | RFC3339. |
 | `state` | `pending`, `accepted`, `rejected` or `superseded`. |
-| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person, and the protected head before and after (equal for a rejection). |
+| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person's `person_id`, and the protected head before and after (equal for a rejection). |
 | `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. Every result that returns a record (`submit`, `status`, `withdraw`) keeps the latest 8 and adds `runs_total`, so one record always fits the task output. |
 
 The home host stores each contribution's head under
@@ -92,7 +92,9 @@ is a runtime task's `run` without `workspace`, which is 400.
 
 **Results.** `list`, `fetch`, `submit`, `status` and `withdraw` end `succeeded` with the
 result as their final `output`, a JSON object written as text, or `failed` with
-`{"error": CODE, "message": TEXT}`. A `run` follows the runtime task contract from its
+`{"error": CODE, "message": TEXT}`; a `run` that fails before it starts ends the same way.
+HTTP statuses (400, 403, 404, 503) come only from the checks at submission (Checks); every
+error code named in Operations is such a final `failed` outcome. A `run` follows the runtime task contract from its
 checks on (Runs, below). An entry of `peerboxes` is `{peerbox_id, title, branch, head,
 actions}`, where `actions` are the caller's. Entries are in ascending `peerbox_id` order,
 after `after` when given; the home host returns as many whole entries as fit the task
@@ -126,8 +128,9 @@ can hold different actions and bounds, but a principal appears in at most one ru
 example `person:` and `network`) holds the union of their actions, and for an action each
 bound is the largest among the matching rules that grant it.
 
-**Policy body.** The `peerspan-policy-v2` body gains `peerbox_rules`, after `runtime_rules`,
-omitted when empty, so a policy without peerbox rules has the same body as before. Each rule
+**Policy body.** The `peerspan-policy-v2` body gains `peerbox_rules`, immediately after
+`runtime_rules`, or where `runtime_rules` would be when that is omitted; it is omitted when
+empty, so a policy without peerbox rules has the same body as before. Each rule
 is an object with exactly the keys above, in that order. For example:
 
 ```json
@@ -195,10 +198,12 @@ person already in the network gets access through `peerbox share` instead.
    same expiry rules, in the peerbox's network, and stores a **pending share** keyed by that
    invite's invitation ID: the peerbox, the actions and the bounds, which the owner reviews
    before it prints. It prints a `psb1-` code: `psb1-` followed by unpadded Base64URL of the
-   JSON object `{"invite": PSI2_CODE, "peerbox_id", "title", "home_host_id", "actions"}`.
+   JSON object `{"invite": PSI2_CODE, "peerbox_id", "title", "home_host_id", "actions"}`, with
+   `actions` the full action names (`peerbox.read`, ...) in rule order.
    Everything outside `invite` is a hint for the joiner's display; only the signed rule
    grants access.
-2. **Join.** On the new machine, `peerbox join [--repository DIR]` reads the code from a
+2. **Join.** On the new machine, `peerbox join [--repository DIR] [--as LABEL]
+   [--person-key-file PATH]` reads the code from a
    hidden prompt or `--invite-stdin`, never from a command argument, shows the peerbox's
    title, home host and offered actions beside the network invite's review, and runs `join`
    with the inner `psi2-` code. `peerspan join` and `up --join` also accept a `psb1-` code
@@ -256,7 +261,10 @@ protected head. Before storing, in order, the home host:
    pending one it replaces at the same member ref, number at most `max_pending`
    (`pending_limit`);
 2. verifies the bundle and fetches it into a quarantine repository with
-   `transfer.fsckObjects=true` (`bundle_invalid`, with Git's message);
+   `transfer.fsckObjects=true` and Git's `hasDotgit` and `gitmodules*` checks raised from
+   warnings to errors, and refuses any tree entry, at any depth, named `.git` as Git's
+   `hasDotgit` check defines it (any letter case, and the HFS+ and NTFS spellings), whatever
+   its type (`bundle_invalid`, with Git's message);
 3. checks that `base` is reachable from the protected head (`base_unknown`) and an ancestor of
    the bundle's head (`base_not_ancestor`);
 4. moves the objects into the repository and sets the member ref.
@@ -267,7 +275,7 @@ contribution replaces it and marks the earlier one `superseded`.
 ### Status and withdraw
 
 `status` returns the sender's own contributions to that peerbox, or the one named, ordered
-newest first by `(submitted_at, contribution_id)`, both descending, a total order; another person's contribution is 404 `unknown`. The final `output` must fit the task
+newest first by `(submitted_at, contribution_id)`, both descending, a total order; another person's contribution, or an unknown one, ends the task `failed` with `unknown`. The final `output` must fit the task
 contract's 65,536 bytes, so the home host returns as many whole records as fit, at most 100,
 with each record's `runs` cut to its latest 8 and `runs_total` added; `next` is the ID of the
 last record returned when older ones remain, else null, and a request with `before` returns
@@ -275,22 +283,22 @@ the contributions after that one in the same order, so contributions sharing a
 `submitted_at` are neither skipped nor repeated. One record always fits: its variable fields
 are bounded (a 4,096-byte reason, 8 runs). `withdraw` marks the
 sender's pending contribution `superseded` and deletes its member ref, keeping its
-contribution ref as above; a decided one is 409
-`decided`.
+contribution ref as above; a decided one ends the task `failed` with `decided`.
 
 ### Runs
 
 `commit` must be the protected head or the head of a contribution the sender may read
-(their own, or one accepted) whose contribution ref still exists: otherwise the task fails
-with `commit_unknown`. The home host
+(their own, or one accepted) whose contribution ref still exists: otherwise the task ends
+`failed` with `commit_unknown` before any run, with no run result. The home host
 builds the workspace archive itself from that commit's tree, never from bytes a peer sent,
 and never with `git archive`, whose `export-ignore` and `export-subst` attributes would let
 a commit's own `.gitattributes` drop or rewrite tracked files. It reads the tree's entries
 (`git ls-tree -r -z`) and their blobs (`git cat-file`): each blob as a regular file, mode
 0755 when executable and 0644 otherwise, each symbolic link as a link, and each submodule
 entry as an empty directory. No attribute, filter or configuration from the commit applies.
-The archive is the commit's tree byte for byte, has no `.git`, is subject to the runtime
-rule's `max_artifact_bytes`, and is not an input artifact. The run then follows the runtime task
+The archive is the commit's tree byte for byte, has no `.git`, and is not an input artifact;
+when it is larger than the runtime rule's `max_artifact_bytes`, the task ends `failed` with
+`too_large` before any run, with no run result. The run then follows the runtime task
 contract: queueing, the recheck at start, output events, the run result, `results`, result
 artifacts, cancellation and restarts. A run never changes a ref. Its outcome is recorded in
 the contribution's `runs`.
@@ -334,7 +342,10 @@ decision durably; the contributor reads it with `status`.
 
 Peer-side commands that submit a task wait for its final event and exit 0 when it succeeded,
 1 when it failed or was rejected, printing the code; `--detach` prints the local record
-instead. The local API is `GET|POST /v1/peerboxes`, `GET|DELETE /v1/peerboxes/{id}`,
+instead. With `--json`, a peer-side command prints the operation's result object (for
+`list` and `status`, the pages merged into one `peerboxes` or `contributions` array);
+`create` prints the peerbox record; `invite` prints `{code, invitation_id, expires_at}`;
+`show` and `review` print the records they list. The local API is `GET|POST /v1/peerboxes`, `GET|DELETE /v1/peerboxes/{id}`,
 `PUT|DELETE /v1/peerboxes/{id}/rule`, `GET /v1/peerboxes/{id}/contributions` and
 `POST /v1/peerboxes/contributions/{id}/decision`; peer-side operations use `POST /v1/tasks`
 with `executor: "peerbox"`.
