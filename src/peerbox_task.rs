@@ -1027,6 +1027,19 @@ fn prepare_run(
         .as_ref()
         .and_then(|p| p.commit.clone())
         .ok_or_else(|| Prepared::Error(invalid("commit")))?;
+    // A run still queued at its deadline ends `expired` before any
+    // workspace is built or start sent, as a runtime task does.
+    {
+        let mut conn = store.connection()?;
+        let tx = conn.transaction()?;
+        let Some((stored, mut status)) = received(&tx, sender, &request.task_id)? else {
+            return Ok(());
+        };
+        if crate::task::expire(&tx, sender, &stored, &mut status)? {
+            tx.commit()?;
+            return Ok(());
+        }
+    }
     let rule = {
         let conn = store.connection()?;
         match recheck_run(store, &conn, sender, request) {
