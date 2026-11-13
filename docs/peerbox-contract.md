@@ -50,7 +50,7 @@ A **contribution** is a commit a peer submitted, with this record:
 | `submitted_at` | RFC3339. |
 | `state` | `pending`, `accepted`, `rejected` or `superseded`. |
 | `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person, and the protected head before and after (equal for a rejection). |
-| `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. |
+| `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. A `status` result keeps the latest 8 and adds `runs_total` (Status and withdraw). |
 
 The home host stores each contribution's head under
 `refs/peerbox/PEERBOX_ID/members/PERSON_ID/BRANCH`, its **member ref**. Peer requests never
@@ -74,7 +74,7 @@ write the protected branch or another person's member ref.
 | `list` | none | none | `{"peerboxes": [...]}` |
 | `fetch` | `peerbox_id`; optional `have`, 0 to 32 distinct commit IDs | none | `{"head", "bundle_sha256", "size"}` and the result artifact `peerbox.bundle`, or no artifact when the caller has the head |
 | `submit` | `peerbox_id`, `base`, `branch`, `bundle` (a digest) | the bundle | the contribution record |
-| `status` | `peerbox_id`; optional `contribution_id` | none | `{"contributions": [...]}` |
+| `status` | `peerbox_id`; optional `contribution_id` or `before` (a contribution ID) | none | `{"contributions": [...], "next"}` |
 | `run` | `peerbox_id`, `commit`, `run` | none | the run result (runtime task contract) |
 | `withdraw` | `peerbox_id`, `contribution_id` | none | the contribution record |
 
@@ -203,13 +203,16 @@ person already in the network gets access through `peerbox share` instead.
    bounds exactly as `peerbox share --for` would (CLI, below), leaving every other
    principal's rule as it is, and signs the next policy version as `peerbox share` does. When the network's provider for the owner needs the owner's interaction (an SSH
    person key, for example), status shows `peerbox_share_waiting` with the command
-   `peerbox share --pending INVITATION_ID` instead. The pending share is then deleted.
+   `peerbox share --pending INVITATION_ID` instead, and the pending share is kept, across
+   restarts, until that command signs it. The pending share is deleted only once a policy
+   version granting it is signed.
 5. **Fetch.** The joiner's `peerbox join` keeps running after the commit: it submits `list`
    to the home host until the peerbox appears or 10 minutes pass, then prints it, and with
    `--repository` fetches it there.
 
-A pending share ends with its invite's expiry when no request came through it, or when the
-request is refused or abandoned; at most 7 days in all. `peerbox invite --list` and `peerbox
+A pending share also ends with its invite's expiry when no request came through it, or when
+the request is refused or abandoned, and at most 7 days after the invite was created, even
+while it waits for the owner. `peerbox invite --list` and `peerbox
 invite --cancel INVITATION_ID` show and delete pending shares; cancelling one leaves the
 network invite itself in place, since invite codes cannot be revoked (spec section 5), so
 the person can still join the network but receives no peerbox access. Removing the person
@@ -254,8 +257,13 @@ contribution replaces it and marks the earlier one `superseded`.
 
 ### Status and withdraw
 
-`status` returns the sender's own contributions to that peerbox, newest first, at most 100,
-or the one named; another person's contribution is 404 `unknown`. `withdraw` marks the
+`status` returns the sender's own contributions to that peerbox, newest first, or the one
+named; another person's contribution is 404 `unknown`. The final `output` must fit the task
+contract's 65,536 bytes, so the home host returns as many whole records as fit, at most 100,
+with each record's `runs` cut to its latest 8 and `runs_total` added; `next` is the ID of the
+last record returned when older ones remain, else null, and a request with `before` returns
+the contributions submitted before that one. One record always fits: its variable fields
+are bounded (a 4,096-byte reason, 8 runs). `withdraw` marks the
 sender's pending contribution `superseded` and deletes its member ref; a decided one is 409
 `decided`.
 
@@ -354,6 +362,8 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   nothing; superseding; a peer unable to write the protected branch or another member's ref;
 - review: accept fast-forwarding, `not_fast_forward`, `head_moved`, `dirty_worktree`, reject
   with a reason, and the decision visible through `status`;
+- `status` paging: more contributions than fit in one output, read completely with `before`
+  and `next`, each record's `runs` cut to 8 with `runs_total`;
 - withdrawal: new fetches and submissions refused; `status` still answering the former
   contributor with only their own contributions, and 404 `unknown` for a former reader who
   never submitted;
@@ -362,7 +372,8 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   matching `person:` and `network` rules getting the union; an invitation completing while
   another person's rule exists, leaving it unchanged; `share` read-only defaulting
   `max_pending` to 0;
-- invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; the pending share kept across a restart of the home host;
+- invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; a share waiting for the owner's signature kept
+across a restart and completed by `peerbox share --pending`; the pending share kept across a restart of the home host;
 - restarts of both hosts during a fetch and a submit, and records kept;
 - opening a database of the previous schema version.
 
