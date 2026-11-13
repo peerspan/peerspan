@@ -1,5 +1,30 @@
 # Implementation instructions
 
+## Managed product tracking
+
+Managed product work has one standing [upstream PR #186](https://github.com/peerspan/peerspan/pull/186).
+The working repository is `maschad96/peerspan-managed` (`origin/main`); its review
+branch is `maschad96/peerspan:managed` (`review/managed`). When publishing managed
+changes, keep those branches aligned: `git push origin main` and
+`git push review main:managed`. The `review` remote is
+`https://github.com/maschad96/peerspan.git`. Keep the PR summary current at meaningful
+milestones, with comments only for notable decisions, blockers and answers to
+review findings; no per-commit progress ledger is needed. An upstream maintainer
+opened the PR for review on 2026-11-11. It stays the single long-running PR for
+this work: do not open a replacement and do not merge it.
+
+The managed operator follows the rules below for contracts and tests. Its
+contract is [docs/managed-contract.md](docs/managed-contract.md), its decisions
+are in [docs/managed-decisions.md](docs/managed-decisions.md), and its suites are
+`managed/conformance/acceptance.mjs`, `operations.mjs`, `visibility.mjs`, `remote.mjs`,
+`schedules.mjs`, `reviewers.mjs`, `runtime-agents.mjs`, `capacity.mjs`, `checks.mjs`, `handoffs.mjs`, `alerts.mjs` and `approvals.mjs`,
+written from the contract by an author who does not read `managed/lib/` or
+`managed/public/`. Run `npm --prefix managed run check` and the twelve suites on
+Linux with Node 24 before publishing; `real-peerspan-smoke.py` is the separate
+check against built binaries.
+
+## Host implementation
+
 The Rust host service (the crate at the repository root: `src/` and `tests/`) is the only host implementation in this repository ([DEC-OWN5](docs/decision-log.md)). The Go implementation is maintained separately at https://github.com/peerspan/peerspan-go and is not built, tested or packaged here. Shared specifications are in `docs/`; binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository.
 
 Coordination remains outside the collaboration data path. Hosts enforce permissions and own execution and local state. Agent identities are distinct from sessions. Membership, ownership, and access are separate.

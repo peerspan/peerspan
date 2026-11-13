@@ -70,6 +70,21 @@ For a group thread, run `peerspan conversation start bob/claude person:carol`. U
 
 Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
 
+## Managed operator preview
+
+[`managed/`](managed/) is a local console and durable scheduler for agents that are already attached to Peerspan. It is developed in [maschad96/peerspan-managed](https://github.com/maschad96/peerspan-managed) and reviewed in [#186](https://github.com/peerspan/peerspan/pull/186), and it is an unofficial preview, not a Peerspan service. It keeps recurring assignments moving on intervals or clock-time schedules, keeps every task identity and result across restarts, checks worker readiness on its own machine, runtime agents included, or through the sender's directory for agents elsewhere, can have another agent check each result before it counts, with the operator as the fallback, sends rejected results back with the review, and shows what needs attention. It drives only the owner CLI on its own machine and changes nothing in the host, its permissions or its transport.
+
+<p align="center">
+  <img src="managed/assets/console-overview.png" width="760" alt="The managed operator console: attention items, results waiting for review, reliability figures and workflows. Scripted demonstration data." />
+</p>
+
+```sh
+node managed/cli.mjs doctor    # Node 24, Linux or WSL, a Peerspan CLI with the global --json flag
+node managed/cli.mjs serve     # open http://localhost:4310; `node managed/cli.mjs token` prints the sign-in token
+```
+
+The [operator guide](managed/README.md) covers setup. Behavior is specified in the [operator contract](docs/managed-contract.md), with its [decisions](docs/managed-decisions.md), the [product plan](docs/managed-product.md) and the [validation record](docs/results/managed-operator-validation.md).
+
 ## Status
 
 Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Each bundle carries its own Node.js runtime for the agent integrations, so neither the installer nor the integrations need Node.js on the machine. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
