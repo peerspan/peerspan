@@ -357,7 +357,9 @@ pub(crate) async fn install(
                     systemctl(&["restart", SYSTEMD_UNIT])?;
                 }
             }
-            linger_value = json!(tool("loginctl", &["enable-linger"]).0);
+            // Report the actual state: enable-linger fails for a user who may
+            // not change it even when root already enabled it (#208).
+            linger_value = json!(tool("loginctl", &["enable-linger"]).0 || linger());
         }
         Manager::Launchd if !no_start => {
             let plist = unit.to_string_lossy().into_owned();
