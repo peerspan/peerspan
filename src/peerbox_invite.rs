@@ -221,21 +221,10 @@ fn granted(store: &Store, conn: &Connection, share: &PendingShare) -> Result<boo
     Ok(false)
 }
 
-/// The share is signed: it is deleted and `peerbox.shared` recorded.
+/// The share is signed: it is deleted. The share itself shows as the
+/// policy edit it is (Persistence).
 fn signed(store: &Store, id: &str) -> Result<(), Error> {
-    let mut conn = store.connection()?;
-    let tx = conn.transaction()?;
-    if let Some(share) = read(&tx, id)? {
-        remove(&tx, id)?;
-        append_event(
-            &tx,
-            "peerbox.shared",
-            &format!("{}/{}", share.peerbox_id, id),
-            &now(),
-        )?;
-    }
-    tx.commit()?;
-    Ok(())
+    remove(&*store.connection()?, id)
 }
 
 /// One pass over the pending shares: ended ones are deleted, a request's
