@@ -351,7 +351,7 @@ def _():
 
 
 @case("fetch_sha256", "peerbox Peerboxes and contributions (commit IDs: 64 hex digits for SHA-256, any other "
-                      "length 400 invalid); Fetch (a version 3 bundle for a SHA-256 repository); CLI fetch")
+                      "length 400 invalid); Fetch (a version 3 bundle for a SHA-256 repository); CLI fetch", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     owner = sha256_repo(suite.work / "alice-sha256")
