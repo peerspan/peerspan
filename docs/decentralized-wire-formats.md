@@ -954,6 +954,8 @@ Dropped-addition keys:
 | New capability rule with principals | `capability rule CAPABILITY` |
 | New principal in a capability rule | `principal PRINCIPAL in capability rule CAPABILITY` |
 | New empty-principal capability claim | `claim CAPABILITY` |
+| New peerbox rule ([peerbox contract](peerbox-contract.md)) | `peerbox rule PEERBOX on HOST` |
+| New principal in a peerbox rule | `principal PRINCIPAL in peerbox rule PEERBOX on HOST` |
 
 Older rows may spell a principal key with `of` instead of `in`; both mean the
 same addition, and one row may not hold both.
