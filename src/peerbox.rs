@@ -23,6 +23,11 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+pub mod contribution;
+#[cfg(test)]
+mod tests;
+pub use contribution::runnable_commit;
+
 /// Database version 32: peerbox records, contributions with their
 /// decisions, and pending shares.
 pub(crate) const SCHEMA: &str = "
@@ -250,7 +255,7 @@ impl Git {
         }
     }
 }
-fn stderr_of(out: &Output) -> String {
+pub(crate) fn stderr_of(out: &Output) -> String {
     let text = String::from_utf8_lossy(&out.stderr);
     let text = text.trim();
     let mut cut: String = text.chars().take(1000).collect();
@@ -432,17 +437,13 @@ pub(crate) fn records(conn: &Connection) -> Result<Vec<Record>, Error> {
         .map(|r| Ok(serde_json::from_str(&r)?))
         .collect()
 }
-/// The contribution records of a peerbox, newest first.
+/// The contribution records of a peerbox as results return them, newest
+/// first.
 fn contributions(conn: &Connection, id: &str) -> Result<Vec<Value>, Error> {
-    let mut statement = conn.prepare(
-        "SELECT record FROM peerbox_contributions WHERE peerbox_id = ?1 ORDER BY json_extract(record, '$.submitted_at') DESC, contribution_id DESC",
-    )?;
-    let rows = statement
-        .query_map([id], |r| r.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    rows.into_iter()
-        .map(|r| Ok(serde_json::from_str(&r)?))
-        .collect()
+    Ok(contribution::of_peerbox(conn, id)?
+        .iter()
+        .map(contribution::Contribution::view)
+        .collect())
 }
 
 /// A record as `show` lists it: the record, its rules in this host's
@@ -599,7 +600,7 @@ impl Store {
 
 /// A Git failure on a local route: `git_missing` and the others as coded
 /// refusals.
-fn coded(f: Failure) -> Error {
+pub(crate) fn coded(f: Failure) -> Error {
     let status = match f.code {
         "git_missing" | "unavailable" => 503,
         "invalid" => 400,
@@ -618,6 +619,10 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/peerboxes", get(list).post(create))
         .route("/v1/peerboxes/{id}", get(show).delete(delete))
         .route("/v1/peerboxes/{id}/contributions", get(list_contributions))
+        .route(
+            "/v1/peerboxes/contributions/{id}/decision",
+            axum::routing::post(decide),
+        )
 }
 async fn list(State(store): State<Arc<Store>>) -> Result<Json<Vec<Value>>, Error> {
     Ok(Json(
@@ -667,5 +672,15 @@ async fn list_contributions(
             contributions(&conn, &id)
         })
         .await?,
+    ))
+}
+async fn decide(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let request: contribution::DecisionRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.decide(&id, request)).await?,
     ))
 }
