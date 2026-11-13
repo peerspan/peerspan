@@ -4,8 +4,10 @@ Status: **accepted on 2026-11-13.** The owner chose the recommendation of each o
 [decisions](#decisions) it was proposed with, recorded as
 [PBX-9 to PBX-14](decision-log.md#pbx-9-to-pbx-14-peerbox-gates-2026-11-13); review then
 showed that decision 2 lets a candidate forge the verdict, and the owner chose
-[decision 7](#7-separating-the-checker-from-the-candidate), PBX-15, which supersedes it. Nothing is
-specified or implemented yet: a contract amendment follows. It extends the
+[decision 7](#7-separating-the-checker-from-the-candidate), PBX-15, which supersedes it. The
+[peerbox contract's Gates section](peerbox-contract.md#gates) specifies the result, and
+refines one point: when the protected head moves during an evaluation, the contribution is
+evaluated again against the new head instead of being rejected. Nothing is implemented yet. It extends the
 [peerbox contract](peerbox-contract.md) (PBX-1 to PBX-8), whose slices A to C come first.
 
 A **gate** is an optional, owner-configured evaluator on a peerbox. Every contribution to a
