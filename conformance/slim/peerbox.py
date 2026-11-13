@@ -408,7 +408,7 @@ def _():
 
 
 @case("submit_hostile_bundles", "peerbox Submit: a mutated byte (bundle_invalid), a ref outside refs/heads/, an "
-                                "option-like ref, two refs, .git paths and hooks; nothing stored, no hook run")
+                                "option-like ref, two refs, .git paths and hooks; nothing stored, no hook run", known=None)
 def _():
     main = need("main")[0]
     before = refs(state["repo"])
@@ -430,7 +430,7 @@ def _():
 
 
 @case("submit_pending_limit_and_supersede", "peerbox Submit step 1 (pending_limit; a replacement at the same member "
-                                            "ref accepted at the limit); superseding keeps the contribution ref")
+                                            "ref accepted at the limit); superseding keeps the contribution ref", known=None)
 def _():
     main, first = need("main", "first")
     second = contribute("feature2", {"f2.txt": "2\n"}, start=main)
@@ -448,7 +448,7 @@ def _():
 
 # Review (peerbox Review; CLI review).
 
-@case("review_accept", "peerbox Review: accept fast-forwards main and the clean worktree; the decision in status")
+@case("review_accept", "peerbox Review: accept fast-forwards main and the clean worktree; the decision in status", known=None)
 def _():
     a, main, feature = need("a", "main", "feature")
     listed = owner_cli("review", pbx()).json
@@ -469,7 +469,7 @@ def _():
     state["main"] = feature["head"]
 
 
-@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept")
+@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept", known=None)
 def _():
     a, main = need("a", "main")
     result = review(need("feature2")[0]["contribution_id"], "accept")
@@ -503,7 +503,7 @@ def _():
 
 
 @case("review_reject_and_withdraw", "peerbox Review (reject with a reason, no ref changed); Status and withdraw "
-                                    "(409 decided; withdraw supersedes and deletes the member ref)")
+                                    "(409 decided; withdraw supersedes and deletes the member ref)", known=None)
 def _():
     a, main, second, ahead = need("a", "main", "feature2", "feature4")
     before = refs(state["repo"])
