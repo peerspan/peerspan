@@ -121,13 +121,19 @@ def tree_commit(repo, entries, parent=None, message="crafted"):
 
 
 def bundle(repo, out, tip, exclude=(), ref=None):
-    """`git bundle create` of TIP as the single ref `refs/heads/REF` (default: a branch named after OUT), without
-    history reachable from EXCLUDE; returns the bundle's bytes."""
+    """A bundle of TIP whose single ref is `refs/heads/REF` (default: OUT's stem), without history reachable from
+    EXCLUDE; returns its bytes. It is made through a temporary ref, so no branch (checked out in a worktree or not)
+    is touched."""
     name = ref or Path(out).stem
-    if rev(repo, f"refs/heads/{name}") != tip:
-        git(repo, "branch", "-f", name, tip)
-    git(repo, "bundle", "create", "-q", out, f"refs/heads/{name}", *[f"^{x}" for x in exclude])
-    return Path(out).read_bytes()
+    temp = f"refs/fixture-bundle/{name}"
+    git(repo, "update-ref", temp, tip)
+    try:
+        git(repo, "bundle", "create", "-q", out, temp, *[f"^{x}" for x in exclude])
+    finally:
+        git(repo, "update-ref", "-d", temp)
+    data = rename_ref(Path(out).read_bytes(), temp, f"refs/heads/{name}")
+    Path(out).write_bytes(data)
+    return data
 
 
 def rename_ref(data, old, new):
