@@ -149,5 +149,5 @@ to a network."
    home host: create, share, fetch, edit, submit, run, review, restart and withdraw, recording
    commands, revisions, outputs, refusals and manual repairs.
 
-Later, proposed and not accepted: [peerbox gates](peerbox-gate-proposal.md), an optional evaluator that
-promotes contributions by a measured result.
+Later, accepted 2026-11-13 (PBX-9 to PBX-14): [peerbox gates](peerbox-gate-proposal.md), an optional
+evaluator that promotes contributions by a measured result.

@@ -1,8 +1,10 @@
 # Peerbox gates: promoting contributions by a measured result
 
-Status: **proposal, 2026-11-13; not accepted.** Nothing here is specified or implemented. It
-extends the [peerbox contract](peerbox-contract.md) (PBX-1 to PBX-8), which must be
-implemented first (its slices A to C). The [decisions](#decisions) below need the owner.
+Status: **accepted on 2026-11-13.** The owner chose the recommendation of each of the six
+[decisions](#decisions), recorded as
+[PBX-9 to PBX-14](decision-log.md#pbx-9-to-pbx-14-peerbox-gates-2026-11-13). Nothing is
+specified or implemented yet: a contract amendment follows. It extends the
+[peerbox contract](peerbox-contract.md) (PBX-1 to PBX-8), whose slices A to C come first.
 
 A **gate** is an optional, owner-configured evaluator on a peerbox. Every contribution to a
 gated peerbox is run against the evaluator on the home host, in a microVM, from the
