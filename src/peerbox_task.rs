@@ -536,6 +536,11 @@ pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<Task
         }
         return Ok(status);
     }
+    // A new task's deadline is in the future at the receiver, refused as
+    // the task routes refuse it for agent tasks.
+    if crate::task::time(&r.deadline)? <= crate::clock::now() {
+        return Err(Error::Forbidden);
+    }
     if let Some(manifest) = &r.artifacts {
         store.reserve(&tx, manifest)?;
     }
@@ -656,19 +661,20 @@ enum Outcome {
 /// a bundle is served).
 fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     let mut conn = store.connection()?;
-    let Some((request, mut status)) = received(&conn, sender, id)? else {
+    let tx = conn.transaction()?;
+    let Some((request, mut status)) = received(&tx, sender, id)? else {
         return Ok(());
     };
-    if status.state != "queued" || status.cancel_requested {
-        return Ok(());
-    }
-    // A task past its deadline ends `expired` before its operation runs.
-    let tx = conn.transaction()?;
+    // A task still queued at its deadline ends `expired` and serves
+    // nothing (task contract).
     if crate::task::expire(&tx, sender, &request, &mut status)? {
         tx.commit()?;
         return Ok(());
     }
     drop(tx);
+    if status.state != "queued" || status.cancel_requested {
+        return Ok(());
+    }
     let checked = match check(store, &conn, sender, &request) {
         Ok(c) => c,
         // Recoverable: left queued.

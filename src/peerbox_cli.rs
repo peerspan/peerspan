@@ -695,10 +695,23 @@ async fn fetch(
         _ => None,
     }
     .context("bundle_invalid: the bundle's single ref is not refs/heads/BRANCH at the head")?;
-    if !dir.exists() {
+    // DIR and the quarantine hold the bundle's object format.
+    let format = peerspan_host::peerbox::bundle_object_format(&file).map_err(failure)?;
+    let format_arg = format!("--object-format={format}");
+    if dir.exists() {
+        let found = git
+            .text(&dir, &["rev-parse", "--show-object-format"], "invalid")
+            .map_err(failure)?;
+        if found != format {
+            bail!(
+                "invalid: {} uses the {found} object format and the peerbox uses {format}; fetch it into another directory",
+                dir.display()
+            );
+        }
+    } else {
         git.text(
             scratch.path(),
-            &["init", "-q", &dir.to_string_lossy()],
+            &["init", "-q", &format_arg, &dir.to_string_lossy()],
             "invalid",
         )
         .map_err(failure)?;
@@ -714,7 +727,13 @@ async fn fetch(
     let quarantine = scratch.path().join("quarantine");
     git.text(
         scratch.path(),
-        &["init", "-q", "--bare", &quarantine.to_string_lossy()],
+        &[
+            "init",
+            "-q",
+            "--bare",
+            &format_arg,
+            &quarantine.to_string_lossy(),
+        ],
         "invalid",
     )
     .map_err(failure)?;

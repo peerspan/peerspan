@@ -15,6 +15,8 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
+  - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
   - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
   - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
   - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
@@ -70,6 +72,71 @@ Contents:
 
 ## Full entries
 
+### PBX-15: separating the gate's checker from the candidate (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerbox gates.
+- **Source:** [peerbox-gate-proposal.md, decision 7](peerbox-gate-proposal.md#7-separating-the-checker-from-the-candidate), raised in review of PBX-10: "when the evaluator imports or runs the candidate's code in the same VM, that code can print its own final `PEERBOX-GATE` line with a winning score, and can put held-out contents into `reason`. Nothing inside one VM protects the evaluator from code running there as the same user."
+- **Supersedes:** PBX-10.
+- **Recorded in:** this log and the proposal (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
+- **Implementing PRs:** none yet.
+
+#### PBX-15. Separating the checker from the candidate
+
+- **Options:** (a) "Two runs": "a candidate run on the contribution's tree with the held-out inputs only, timed by the runtime itself, then the owner's checker in a separate VM comparing the candidate's outputs with the held-out expected outputs, which never enter a candidate's VM. Only the runtime's time and the checker's pass, score and reason are trusted." (b) "Keep one run, document": "keep decision 2 and say that a gate is only as trustworthy as the evaluator's own isolation of candidate code, never returning `reason`."
+- **Chosen:** (a).
+- **Reason given:** against (b): "Cheaper, but any evaluator that runs candidate code can be forged."
+
+### PBX-9 to PBX-14: peerbox gates (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: an optional owner-configured evaluator that promotes contributions by a measured result.
+- **Source:** [peerbox-gate-proposal.md, Decisions](peerbox-gate-proposal.md#decisions), decisions 1 to 6.
+- **Recorded in:** this log and the proposal (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all six". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### PBX-9. Where the gate lives
+
+- **Options:** (a) "Local configuration on the home host, shown to the peerbox's readers." (b) "A signed field of the owner's policy, next to the peerbox rule: hosts on earlier software would refuse the policy (RUN-5), for no added assurance."
+- **Chosen:** (a).
+- **Reason given:** "Review is already the home host owner's local act, and the home host runs the evaluator either way, so signing the gate into the policy would not let anyone check what it ran."
+
+#### PBX-10. Keeping the evaluator's held-out files secret
+
+Superseded by PBX-15.
+
+- **Options:** (a) "The files live on the home host and are added to each evaluation's workspace under `.peerbox-gate/`; the contributor receives only the verdict, the scores and the reason, never output or artifacts." (b) "Evaluators only from the repository itself: no secret, so a memoizing change passes." (c) "Running the evaluator outside the candidate's VM: needs a second VM per evaluation and a channel between them, which the runtime does not have."
+- **Chosen:** (a).
+- **Reason given:** "The candidate's code can read the files while it runs, but the VM has no network and nothing it writes reaches the contributor."
+
+#### PBX-11. What happens on a pass
+
+- **Options:** (a) "The gate promotes automatically (fast-forward only) and records the decision; the owner can pause the gate and can always review by hand." (b) "The gate only recommends and the owner accepts: keeps a person in every merge, which is the default without a gate anyway."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-12. Noisy measurements
+
+- **Options:** (a) "Measure the frontier and the candidate in the same evaluation, `repeats` times each (default 1, at most 5), and compare the candidate's worst against the frontier's best." (b) "A frontier score measured once and pinned: cheaper, but drifts with the machine's load and with runtime upgrades." (c) "Statistical tests over many repeats: needs more runs than a microVM budget allows for most projects."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-13. Receipts
+
+- **Options:** (a) "Durable, unsigned decision records now, as for review; a signed, hash-chained receipt log, which the peerbox contract already defers, follows as its own proposal." (b) "Signed receipts in this slice: they only show that the home host signed what it says it ran, and they double the work before anything is usable."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-14. Order of evaluation
+
+- **Options:** (a) "One at a time, oldest first, each against the current frontier." (b) "Several at once, then re-checking each winner against the new frontier: faster on a big machine, but every promotion invalidates the others' comparisons."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the options' own text.
+
 ### PBX-1 to PBX-8: peerboxes (2026-11-13)
 
 - **Date:** 2026-11-13.
@@ -103,7 +170,7 @@ The owner chose the recommendation of each: PBX-1 to PBX-6 with "go with the rec
 
 - **Options:** (a) "The home host cancels it." (b) "It runs to completion, as runtime tasks do today."
 - **Chosen:** (a).
-- **Reason given:** "The run is the owner's own machine executing someone else's code, and Playbox stops it too."
+- **Reason given:** "The run is the owner's own machine executing someone else's code, and comparable systems stop it too."
 
 #### PBX-5. Invitation
 

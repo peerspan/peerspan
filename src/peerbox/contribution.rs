@@ -470,7 +470,7 @@ fn refuse_dotgit(
 
 /// The prerequisites a bundle file's header names, read as Git reads
 /// them: lines starting with `-`, before the blank line.
-fn prerequisites(file: &Path, id_length: usize) -> Result<Vec<String>, Failure> {
+fn prerequisites(file: &Path) -> Result<Vec<String>, Failure> {
     let invalid = |m: &str| Failure::new("bundle_invalid", m.to_owned());
     let f = std::fs::File::open(file).map_err(|e| Failure::new("internal", e.to_string()))?;
     let mut header = Vec::new();
@@ -487,19 +487,7 @@ fn prerequisites(file: &Path, id_length: usize) -> Result<Vec<String>, Failure> 
     if !matches!(lines.next(), Some("# v2 git bundle" | "# v3 git bundle")) {
         return Err(invalid("not a version 2 or 3 Git bundle"));
     }
-    // A bundle is SHA-1 unless a version 3 header names another format.
-    let lines: Vec<&str> = lines.collect();
-    let format = lines
-        .iter()
-        .find_map(|l| l.strip_prefix("@object-format="))
-        .unwrap_or("sha1");
-    if format != if id_length == 64 { "sha256" } else { "sha1" } {
-        return Err(invalid(
-            "the bundle's object format is not the peerbox repository's",
-        ));
-    }
     Ok(lines
-        .into_iter()
         .filter_map(|l| l.strip_prefix('-'))
         .map(|l| l.split(' ').next().unwrap_or_default().to_owned())
         .collect())
@@ -537,6 +525,15 @@ pub(crate) fn verify(
         )
     })?;
     let id_length = git.id_length(&repo)?;
+    // The quarantine has the repository's object format; a bundle of
+    // another format is refused before Git reads it.
+    let format = if id_length == 64 { "sha256" } else { "sha1" };
+    if super::bundle_object_format(file)? != format {
+        return Err(Failure::new(
+            "bundle_invalid",
+            format!("the bundle's object format is not the peerbox repository's ({format})"),
+        ));
+    }
     let scratch = Scratch::new(scratch_base)?;
     let stage = scratch.path().join("quarantine");
     borrowing(git, &repo, &stage, id_length == 64)?;
@@ -562,7 +559,7 @@ pub(crate) fn verify(
             format!("the bundle's single ref must be {wanted}"),
         )
     })?;
-    for prerequisite in prerequisites(file, id_length)? {
+    for prerequisite in prerequisites(file)? {
         if !commit_id(&prerequisite)
             || prerequisite.len() != id_length
             || !git.reachable(&repo, &prerequisite, &protected)?
@@ -980,9 +977,16 @@ impl Store {
     }
 }
 
-/// Saves a contribution inside a task's final transaction.
+/// Saves contributions inside a task's final transaction. A contribution
+/// the owner decided meanwhile keeps its decision: superseding or
+/// withdrawing changes only a pending one.
 pub(crate) fn save_all(tx: &Transaction<'_>, writes: &[Contribution]) -> Result<(), Error> {
     for c in writes {
+        if c.state == SUPERSEDED
+            && load(tx, &c.contribution_id)?.is_some_and(|current| current.state != PENDING)
+        {
+            continue;
+        }
         save(tx, c)?;
     }
     Ok(())
