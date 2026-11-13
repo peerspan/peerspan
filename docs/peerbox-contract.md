@@ -50,7 +50,7 @@ A **contribution** is a commit a peer submitted, with this record:
 | `submitted_at` | RFC3339. |
 | `state` | `pending`, `accepted`, `rejected` or `superseded`. |
 | `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person, and the protected head before and after (equal for a rejection). |
-| `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. A `status` result keeps the latest 8 and adds `runs_total` (Status and withdraw). |
+| `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. Every result that returns a record (`submit`, `status`, `withdraw`) keeps the latest 8 and adds `runs_total`, so one record always fits the task output. |
 
 The home host stores each contribution's head under
 `refs/peerbox/PEERBOX_ID/members/PERSON_ID/BRANCH`, its **member ref**. Peer requests never
