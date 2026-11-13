@@ -365,9 +365,9 @@ above; a gated peerbox can still be reviewed by hand.
 | --- | --- |
 | `version` | 1 for the first gate on the peerbox, plus one each time it is set again. |
 | `state` | `active`, or `paused` with `paused_reason` (`owner`, `frontier_failed`, `runtime_disabled` or `dirty_worktree`). |
-| `command` | The candidate command: `argv` as for a runtime task's `run`. |
+| `command` | The candidate command: `argv` as for a runtime task's `run`, but 1 to 64 strings of at most 4,096 bytes summed, so the public summary always fits a `list` entry. |
 | `inputs_sha256` | The digest of the inputs snapshot (below). |
-| `checker` | The checker command: `argv` as above. |
+| `checker` | The checker command: `argv` as for `command`. |
 | `checker_sha256` | The digest of the checker snapshot. |
 | `score` | `time` (the candidate run's `duration_ms`) or `checker` (the checker's `score`). |
 | `direction` | `lower` or `higher`: which scores are better. |
@@ -393,7 +393,9 @@ checker command or any run's output.
 
 A contribution is **queued** for the gate when it becomes `pending` on a gated peerbox. The
 home host evaluates queued contributions one at a time, oldest first by `(submitted_at,
-contribution_id)` (PBX-14), each against the protected head when its evaluation starts. A
+contribution_id)` (PBX-14), each against the protected head when its evaluation starts: that commit is the evaluation's
+**frontier**, fixed for the whole evaluation. A candidate that is not a descendant of the
+frontier is rejected with `not_fast_forward` before any run. A
 contribution superseded or withdrawn while queued or under evaluation leaves the queue, and
 its runs are cancelled. While the gate is paused, evaluations wait; review by hand works.
 
@@ -434,10 +436,13 @@ checker's `score` for `score: checker`.
   `(1 - min_gain / 100)`; for `higher`, the smallest candidate score must be at least the
   largest frontier score times `(1 + min_gain / 100)`. Failing that is **rejected** with
   `below_margin`.
-- A candidate that passes is **promoted** as an accept (Review, steps 1 to 4) by the gate.
-  `not_fast_forward` and `head_moved` reject the contribution with that code (its contributor
-  rebases and submits again, PBX-11); `dirty_worktree` pauses the gate with `dirty_worktree`
-  and leaves the contribution queued.
+- A candidate that passes is **promoted** as an accept by the gate (Review, steps 3 and 4),
+  except that the compare-and-swap is against the evaluation's frontier, never a head read
+  again: the protected branch moves from exactly the measured frontier to the candidate. If
+  the protected head is no longer the frontier, nothing is promoted and the contribution
+  returns to the front of the queue, to be evaluated again against the new head: a head
+  that moved is not the contributor's fault. `dirty_worktree` pauses the gate with
+  `dirty_worktree` and leaves the contribution queued.
 
 The gate's `frontier` becomes the evaluation's frontier measurements, or the candidate's on a
 promotion. A decision by the gate has `decided_by` `"gate"`, `reason` the code (and the
@@ -564,7 +569,10 @@ missing or malformed line, `pass` false and a failed check run, and `run_failed`
 `outputs_too_large` for the candidate; a candidate printing its own `PEERBOX-GATE` line and
 writing outside `.peerbox-gate/out/` changing nothing; a candidate's own `.peerbox-gate/`
 entries removed; the expected outputs never in a candidate run's workspace; `frontier_failed`
-pausing the gate; `not_fast_forward` and `head_moved` rejecting, `dirty_worktree` pausing;
+pausing the gate; `not_fast_forward` rejecting before any run; the owner accepting a
+contribution during an evaluation, so the promotion swaps nothing and the candidate is
+evaluated again against the new head; `dirty_worktree` pausing; a gate command over 4,096
+bytes refused;
 evaluation order and one at a time; superseding while queued; pause, resume, clear and
 review by hand while paused; `runtime_disabled`; the public result in `status` and the
 summary in `list`, with no run output, checker command or digest; restart during an
