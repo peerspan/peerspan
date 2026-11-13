@@ -31,8 +31,8 @@ clock = suite.use_clock()
 DAY, HOUR = 86400, 3600
 
 
-def case(name, spec):
-    return suite.case(name, spec, known=REASON)
+def case(name, spec, known=REASON):
+    return suite.case(name, spec, known=known)
 
 
 def pbx():
@@ -142,7 +142,7 @@ def _():
 
 
 @case("run_needs_both_rules_and_switch", "peerbox Checks 2 and 4: peerbox.run, a runtime rule matching the sender "
-                                         "and the local switch, each required")
+                                         "and the local switch, each required", known=None)
 def _():
     a, rt, main = need("a", "rt", "main")
     status, body = raw_run(main)
@@ -177,7 +177,7 @@ def _():
 
 
 @case("bounds_from_runtime_rule", "peerbox Checks 4 and Runs: the runtime rule's bounds, its maximums as defaults, "
-                                  "max_artifact_bytes over the archive")
+                                  "max_artifact_bytes over the archive", known=None)
 def _():
     b, rt, main = need("b", "rt", "main")
     need("ready")
@@ -218,7 +218,7 @@ def _():
 
 
 @case("commit_unknown", "peerbox Runs: commit_unknown for an unknown commit and one outside the protected branch; "
-                        "a commit ID of another length 400")
+                        "a commit ID of another length 400", known=None)
 def _():
     main = need("main")[0]
     need("ready")
@@ -265,7 +265,7 @@ def _():
 
 
 @case("withdrawal_cancels_run", "peerbox Withdrawal (PBX-4): losing peerbox.run cancels a started run with "
-                                "`access withdrawn`; a runtime rule's withdrawal does not")
+                                "`access withdrawn`; a runtime rule's withdrawal does not", known=None)
 def _():
     b, rt, main = need("b", "rt", "main")
     need("ready")
