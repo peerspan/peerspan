@@ -396,8 +396,9 @@ home host evaluates queued contributions one at a time, oldest first by `(submit
 contribution_id)` (PBX-14), each against the protected head when its evaluation starts: that commit is the evaluation's
 **frontier**, fixed for the whole evaluation. A candidate that is not a descendant of the
 frontier is rejected with `not_fast_forward` before any run. A
-contribution superseded or withdrawn while queued or under evaluation leaves the queue, and
-its runs are cancelled. While the gate is paused, evaluations wait; review by hand works.
+contribution superseded, withdrawn, or accepted or rejected by hand while queued or under
+evaluation leaves the queue, and its runs are cancelled: a gate never overrides a decision
+already made. While the gate is paused, evaluations wait; review by hand works.
 
 An evaluation measures the **frontier** (the protected head) and the **candidate** (the
 contribution head), `repeats` times each, in the order frontier, candidate, frontier,
@@ -436,6 +437,8 @@ checker's `score` for `score: checker`.
   `(1 - min_gain / 100)`; for `higher`, the smallest candidate score must be at least the
   largest frontier score times `(1 + min_gain / 100)`. Failing that is **rejected** with
   `below_margin`.
+- Every decision by the gate first checks, atomically with recording it, that the
+  contribution is still `pending`; if it is not, the gate records nothing.
 - A candidate that passes is **promoted** as an accept by the gate (Review, steps 3 and 4),
   except that the compare-and-swap is against the evaluation's frontier, never a head read
   again: the protected branch moves from exactly the measured frontier to the candidate. If
@@ -570,7 +573,9 @@ missing or malformed line, `pass` false and a failed check run, and `run_failed`
 writing outside `.peerbox-gate/out/` changing nothing; a candidate's own `.peerbox-gate/`
 entries removed; the expected outputs never in a candidate run's workspace; `frontier_failed`
 pausing the gate; `not_fast_forward` rejecting before any run; the owner accepting a
-contribution during an evaluation, so the promotion swaps nothing and the candidate is
+contribution during an evaluation, so the promotion swaps nothing; the owner rejecting the
+candidate itself during its evaluation, which cancels the evaluation and keeps the owner's
+rejection and the candidate is
 evaluated again against the new head; `dirty_worktree` pausing; a gate command over 4,096
 bytes refused;
 evaluation order and one at a time; superseding while queued; pause, resume, clear and
