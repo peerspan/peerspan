@@ -319,7 +319,7 @@ decision durably; the contributor reads it with `status`.
 | `peerbox list --peer HOST [--json]` | Submits `list`, following `next` until null, and prints the peerboxes. |
 | `peerbox fetch --peer HOST PEERBOX --repository DIR` | Submits `fetch` with `have` from DIR's refs for that peerbox, verifies as above and sets `refs/peerbox/PEERBOX/BRANCH` in DIR, initializing DIR when absent. |
 | `peerbox submit --peer HOST PEERBOX --repository DIR --branch NAME [--base COMMIT]` | Bundles NAME in DIR, excluding history reachable from `--base` (default: the merge base of NAME and the fetched ref), uploads it and submits. |
-| `peerbox status --peer HOST PEERBOX [CONTRIBUTION] [--json]` | Submits `status` and prints it. |
+| `peerbox status --peer HOST PEERBOX [CONTRIBUTION] [--before CONTRIBUTION] [--limit N] [--json]` | Submits `status` and prints it. Without a contribution it follows `next` until null or until `--limit` records (default 100) have been printed, newest first; `--before` starts below that contribution. |
 | `peerbox withdraw --peer HOST PEERBOX CONTRIBUTION` | Submits `withdraw`. |
 | `peerbox run --peer HOST PEERBOX --commit COMMIT [runtime flags] -- COMMAND...` | Submits `run`, with `task run`'s flags except `--workspace` and `--peerfs-workspace`, and follows it as `task run` does, with its exit codes. |
 
