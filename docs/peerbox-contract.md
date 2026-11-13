@@ -238,7 +238,8 @@ from the network stays `person remove`; `peerbox unshare` ends only their peerbo
 
 ### Fetch
 
-The home host reads the protected branch's head and creates a bundle (version 2, or 3 for a
+The home host reads the protected branch's head; when the branch no longer exists, the
+task fails with `unavailable`, and `list` shows its `head` as null. Otherwise it creates a bundle (version 2, or 3 for a
 SHA-256 repository) with the single ref `refs/heads/BRANCH` at that head. With `have`, it
 keeps the `have` commits that are reachable from that head and leaves out every commit
 reachable from them; it ignores every other ID, so the bundle reveals nothing about history
@@ -324,7 +325,7 @@ decision durably; the contributor reads it with `status`.
 
 | CLI after `--state DIR` | Behavior |
 | --- | --- |
-| `peerbox create --repository PATH --branch NAME [--title TEXT] [--network ID] [--yes]` | Shows what a read discloses (the branch and head, the commits reachable from it, their distinct author and committer names and addresses, and the bundle size) and asks to confirm, defaulting to no; `--yes` skips the question. Creates the record and prints its ID. |
+| `peerbox create --repository PATH --branch NAME [--title TEXT] [--network ID] [--yes]` | Shows what a read discloses (the branch and head, the commits reachable from it, their distinct author and committer names and addresses, and the bundle size) and asks to confirm, defaulting to no; `--yes` skips the question. Creates the record and prints its ID. `--title` defaults to the repository directory's name. A branch with no commit is refused with `branch_unknown`. |
 | `peerbox share PEERBOX --for PRINCIPAL ... [--action read\|submit\|run ...] [--max-bundle-bytes N] [--max-pending N] [--allow-disconnected] [--person-key PATH]` | Gives each `--for` principal exactly these actions and bounds on the peerbox: it removes the principal from any other rule of that peerbox, then adds it to a rule with the same actions and bounds or to a new rule, leaving other principals unchanged; then it signs the next policy version as `runtime enable` does, saying first that hosts on software without peerbox rules will stop accepting this person's policy. `--action` defaults to `read`; `--max-bundle-bytes` defaults to 104,857,600; `--max-pending` defaults to 4 with `submit` and is 0 without it, where any other value is refused. |
 | `peerbox unshare PEERBOX [--for PRINCIPAL ...] [--person-key PATH]` | Removes those principals from the peerbox's rules, or every rule of the peerbox without `--for`, dropping rules left with no principal; signs as above. |
 | `peerbox invite PEERBOX LABEL [--action ...] [--max-bundle-bytes N] [--max-pending N] [--expires-in D \| --expires-at T]` | Creates a network invite and a pending share and prints the `psb1-` code (Invitations for new participants). |
@@ -348,9 +349,10 @@ instead. With `--json`, a peer-side command prints the operation's result object
 `list` and `status`, the pages merged into one `peerboxes` or `contributions` array);
 `create` prints the peerbox record; `invite` prints `{code, invitation_id, expires_at}`;
 `show` and `review` print the records they list. The local API is `GET|POST /v1/peerboxes`, `GET|DELETE /v1/peerboxes/{id}`,
-`PUT|DELETE /v1/peerboxes/{id}/rule`, `GET /v1/peerboxes/{id}/contributions` and
+`GET /v1/peerboxes/{id}/contributions` and
 `POST /v1/peerboxes/contributions/{id}/decision`; peer-side operations use `POST /v1/tasks`
-with `executor: "peerbox"`.
+with `executor: "peerbox"`. `share`, `unshare` and `delete` change the rules through the
+existing policy routes, as `runtime enable` does; there is no separate rule route.
 
 ## Gates
 
@@ -509,12 +511,15 @@ the adapter never writes outside it and never changes its checked-out branch or 
 ## Persistence
 
 The host schema version increments by one: the next free version on `main` when the
-implementing PR merges. New tables hold peerbox records and contributions with their
-decisions; received and outbound task records of peerbox tasks gain `executor` and `peerbox`
+implementing PR merges. New tables `peerboxes`, `peerbox_contributions` and
+`peerbox_pending_shares` hold peerbox records, contributions with their decisions, and
+pending shares; received and outbound task records of peerbox tasks gain `executor` and `peerbox`
 as runtime tasks gain `run`; a peerbox run's received record also has the runtime fields.
-Older binaries reject the new version. New tables also hold pending shares. Route records accept the three peerbox actions. New tables hold gates, their snapshots' metadata and evaluations; the snapshots are files in the host's state directory. New activity kinds are `peerbox.gate_set`, `peerbox.gate_paused`, `peerbox.gate_evaluated`, `peerbox.created`,
-`peerbox.shared`, `peerbox.invited`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
-`peerbox.deleted`.
+Older binaries reject the new version. Route records accept the three peerbox actions. New tables hold gates, their snapshots' metadata and evaluations; the snapshots are files in the host's state directory. New activity kinds are `peerbox.gate_set`, `peerbox.gate_paused`, `peerbox.gate_evaluated`, `peerbox.created`,
+`peerbox.invited`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
+`peerbox.deleted`, each recorded on the home host: when a record is created or deleted, an
+invite created, a bundle served, a contribution stored, and a decision recorded. A share
+is a policy edit and shows as one.
 
 ## Verification
 
