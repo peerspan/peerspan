@@ -1066,6 +1066,7 @@ Ignored unless the process has `PEERSPAN_DEC_TEST_MODE=1`.
 | `di_` | invitation | section 10.1 |
 | `psi2-` | invite code | section 10.1 |
 | `psl2-` | request code | section 10.2 |
+| `psb1-` | peerbox invite code | [peerbox contract](peerbox-contract.md#invitations-for-new-participants) |
 | `create_` | creation | random, section 16.3 |
 | `act_` | action | section 16.4 |
 | `dint_` | signing plan | random, section 19.3 |

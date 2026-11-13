@@ -2,8 +2,8 @@
 
 A **peerbox** is a Git repository that its **home host** serves to people in a network it
 belongs to, for fetching, contributing, and running checks on exact commits. The design is
-in the [peerbox proposal](peerbox-proposal.md), and its decisions are PBX-1 to PBX-6 in the
-[decision log](decision-log.md#pbx-1-to-pbx-6-peerboxes-2026-11-13). This contract extends
+in the [peerbox proposal](peerbox-proposal.md), and its decisions are PBX-1 to PBX-8 in the
+[decision log](decision-log.md#pbx-1-to-pbx-8-peerboxes-2026-11-13). This contract extends
 the [task contract](task-contract.md), the [artifact contract](artifact-contract.md) and the
 [runtime task contract](runtime-task-contract.md); what it does not change is as specified
 there. Membership, policies and their signing are those of the
@@ -11,7 +11,7 @@ there. Membership, policies and their signing are those of the
 [wire appendix](decentralized-wire-formats.md); peerboxes work only in coordinator-free
 networks. The Rust host at the repository root is the only host (DEC-OWN5).
 
-Not in this contract: strangers admitted by link, several branches or path filtering in one
+Not in this contract: a membership class other than full member for invited people, several branches or path filtering in one
 peerbox, merging, replicas of the home host, PeerFS-backed peerboxes, signed run receipts,
 agent tools, and grants for peerbox operations.
 
@@ -164,6 +164,49 @@ stop queued starts and not a started run, as for runtime tasks.
 Withdrawal cannot recall a bundle already delivered. Stored contributions stay for review,
 and their contributor keeps `status` on them.
 
+### Invitations for new participants
+
+A person outside the network joins it and gets a peerbox's access through one **peerbox
+invite** (PBX-7, PBX-8). It is a network invite with the peerbox attached: accepting it makes
+them an ordinary member through the existing join flow (spec section 8.1), with the
+administrator's admission unchanged, and the home host then signs their peerbox rule. A
+person already in the network gets access through `peerbox share` instead.
+
+1. **Create.** On the home host, the peerbox's owner runs `peerbox invite PEERBOX LABEL
+   [--action read|submit|run ...] [--max-bundle-bytes N] [--max-pending N] [--expires-in D |
+   --expires-at T]`. It creates a network invite as `peerspan invite LABEL` does, with the
+   same expiry rules, in the peerbox's network, and stores a **pending share** keyed by that
+   invite's invitation ID: the peerbox, the actions and the bounds, which the owner reviews
+   before it prints. It prints a `psb1-` code: `psb1-` followed by unpadded Base64URL of the
+   JSON object `{"invite": PSI2_CODE, "peerbox_id", "title", "home_host_id", "actions"}`.
+   Everything outside `invite` is a hint for the joiner's display; only the signed rule
+   grants access.
+2. **Join.** On the new machine, `peerbox join [--repository DIR]` reads the code from a
+   hidden prompt or `--invite-stdin`, never from a command argument, shows the peerbox's
+   title, home host and offered actions beside the network invite's review, and runs `join`
+   with the inner `psi2-` code. `peerspan join` and `up --join` also accept a `psb1-` code
+   and behave the same. A machine already in that network refuses the code and says to ask
+   the owner for `peerbox share`.
+3. **Admission.** As for any join: the joiner approves their machine, a network
+   administrator admits the request (the owner, when they are one), and the joiner commits.
+   An owner who is not an administrator sends the admin the request as today.
+4. **Share.** When the home host admits the admission of the person whose request came
+   through that invitation ID, it adds a peerbox rule for `person:` that person with the
+   pending share's actions and bounds, and signs the next policy version as `peerbox share`
+   does. When the network's provider for the owner needs the owner's interaction (an SSH
+   person key, for example), status shows `peerbox_share_waiting` with the command
+   `peerbox share --pending INVITATION_ID` instead. The pending share is then deleted.
+5. **Fetch.** The joiner's `peerbox join` keeps running after the commit: it submits `list`
+   to the home host until the peerbox appears or 10 minutes pass, then prints it, and with
+   `--repository` fetches it there.
+
+A pending share ends with its invite's expiry when no request came through it, or when the
+request is refused or abandoned; at most 7 days in all. `peerbox invite --list` and `peerbox
+invite --cancel INVITATION_ID` show and delete pending shares; cancelling one leaves the
+network invite itself in place, since invite codes cannot be revoked (spec section 5), so
+the person can still join the network but receives no peerbox access. Removing the person
+from the network stays `person remove`; `peerbox unshare` ends only their peerbox access.
+
 ## Operations
 
 ### Fetch
@@ -236,10 +279,14 @@ decision durably; the contributor reads it with `status`.
 | `peerbox create --repository PATH --branch NAME [--title TEXT] [--network ID] [--yes]` | Shows what a read discloses (the branch and head, the commits reachable from it, their distinct author and committer names and addresses, and the bundle size) and asks to confirm, defaulting to no; `--yes` skips the question. Creates the record and prints its ID. |
 | `peerbox share PEERBOX --for PRINCIPAL ... [--action read\|submit\|run ...] [--max-bundle-bytes N] [--max-pending N] [--allow-disconnected] [--person-key PATH]` | Adds or replaces the peerbox's rule and signs the next policy version as `runtime enable` does, saying first that hosts on software without peerbox rules will stop accepting this person's policy. `--action` defaults to `read`; defaults are 104,857,600 bytes and 4 pending. |
 | `peerbox unshare PEERBOX [--person-key PATH]` | Removes the rule, signing as above. |
+| `peerbox invite PEERBOX LABEL [--action ...] [--max-bundle-bytes N] [--max-pending N] [--expires-in D \| --expires-at T]` | Creates a network invite and a pending share and prints the `psb1-` code (Invitations for new participants). |
+| `peerbox invite --list`, `peerbox invite --cancel INVITATION_ID` | Shows or deletes pending shares. |
+| `peerbox share --pending INVITATION_ID [--person-key PATH]` | Signs the rule of a pending share whose person was admitted, when automatic signing needed the owner. |
 | `peerbox delete PEERBOX [--person-key PATH]` | Removes the rule, the record and its member refs; contribution records stay. |
 | `peerbox show [PEERBOX] [--json]` | Records, rules and pending counts. |
 | `peerbox review [PEERBOX] [--json]` | Pending contributions with contributor, base, head, `git diff --stat` and runs. |
 | `peerbox review CONTRIBUTION (--accept \| --reject) [--reason TEXT]` | Records the decision (Review); exits 1 with the code on a 409. |
+| `peerbox join [--repository DIR] [--invite-stdin]` | Joins the network from a `psb1-` code, then waits for the peerbox and fetches it (Invitations for new participants). |
 | `peerbox list --peer HOST [--json]` | Submits `list` and prints the peerboxes. |
 | `peerbox fetch --peer HOST PEERBOX --repository DIR` | Submits `fetch` with `have` from DIR's refs for that peerbox, verifies as above and sets `refs/peerbox/PEERBOX/BRANCH` in DIR, initializing DIR when absent. |
 | `peerbox submit --peer HOST PEERBOX --repository DIR --branch NAME [--base COMMIT]` | Bundles NAME in DIR, excluding history reachable from `--base` (default: the merge base of NAME and the fetched ref), uploads it and submits. |
@@ -260,8 +307,8 @@ The host schema version increments by one: the next free version on `main` when 
 implementing PR merges. New tables hold peerbox records and contributions with their
 decisions; received and outbound task records of peerbox tasks gain `executor` and `peerbox`
 as runtime tasks gain `run`; a peerbox run's received record also has the runtime fields.
-Older binaries reject the new version. New activity kinds are `peerbox.created`,
-`peerbox.shared`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
+Older binaries reject the new version. New tables also hold pending shares. New activity kinds are `peerbox.created`,
+`peerbox.shared`, `peerbox.invited`, `peerbox.fetched`, `peerbox.submitted`, `peerbox.decided` and
 `peerbox.deleted`.
 
 ## Verification
@@ -289,6 +336,7 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
 - review: accept fast-forwarding, `not_fast_forward`, `head_moved`, `dirty_worktree`, reject
   with a reason, and the decision visible through `status`;
 - withdrawal: new fetches and submissions refused, stored contributions and `status` kept;
+- invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; the pending share kept across a restart of the home host;
 - restarts of both hosts during a fetch and a submit, and records kept;
 - opening a database of the previous schema version.
 
