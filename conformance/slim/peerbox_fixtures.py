@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from harness import check
-from peerbox_common import (bundle, bundle_heads, commit_files, git, init_repo, refs, rename_ref, rev, tree_commit,
+from peerbox_common import (bundle, bundle_format, bundle_heads, commit_files, git, init_repo, refs, rename_ref, rev, tree_commit,
                             unbundle)
 
 HOOK = "#!/bin/sh\n[ -n \"$PBX_FIXTURE\" ] || touch \"$(dirname \"$0\")/../../HOOK_RAN\"\n"
@@ -80,6 +80,26 @@ def runs_repo(path):
     git(repo, "update-ref", "refs/heads/main", main)
     git(repo, "reset", "-q", "--hard", "main")
     return {"repo": repo, "main": main, "secret": secret}
+
+
+def sha256_repo(path):
+    """A SHA-256 owner repository (`git init --object-format=sha256`): main of 2 commits. Returns {repo, main,
+    main_parent}, both 64-hex commit IDs."""
+    repo = init_repo(path, object_format="sha256")
+    parent = commit_files(repo, {"README": "sha256 project\n", "data.bin": os.urandom(1000)}, "first")
+    main = commit_files(repo, {"lib.txt": "two\n"}, "second")
+    return {"repo": repo, "main": main, "main_parent": parent}
+
+
+def sha256_clone(owner, path, pbx):
+    """An existing SHA-256 clone of OWNER's repository as an earlier `peerbox fetch` left it: its peerbox ref at
+    main's parent, so a later fetch sends that commit in `have`."""
+    clone = init_repo(path, object_format="sha256")
+    git(clone, "fetch", "-q", owner["repo"], f"{owner['main_parent']}:refs/peerbox/{pbx}/main")
+    return clone
+
+
+V3_HEADER = b"# v3 git bundle\n@object-format=sha256\n"
 
 
 def worktree(clone, wt, pbx, branch="feature"):
@@ -257,6 +277,13 @@ def agent_check(work, owner, main):
           and files_under(space["sibling"]) == sibling, "the API contribution bundle")
 
 
+def run_workspaces(runtime_dir, run_id):
+    """The workspaces the fake runtime started with `--dir RUNTIME_DIR` unpacked for RUN_ID: each start of the fake
+    makes a root `fake-runtime-*` there, and each run a directory `<run_id[:16]>-*` in it holding `workspace`
+    (fake_runtime.py, Runtime and Run). Every root is searched, since a restarted fake makes a new one."""
+    return sorted(Path(runtime_dir).glob(f"fake-runtime-*/{run_id[:16]}-*/workspace"))
+
+
 def requires(repo, data, work):
     """`git bundle verify` of DATA in REPO: (exit status, its output naming the prerequisites)."""
     path = Path(work) / "verify.bundle"
@@ -392,6 +419,34 @@ def self_check(work, schema_tables=SCHEMA_TABLES):
     check(left == set(schema_tables) and version == 31, f"the predecessor: version {version}, extra "
                                                         f"{sorted(left - set(schema_tables))}")
     agent_check(work / "agents", repo, main)
+    # fetch_sha256: a SHA-256 repository, its bundles (v3, with and without have) and an existing clone.
+    owner256 = sha256_repo(work / "owner256")
+    main256, parent256 = owner256["main"], owner256["main_parent"]
+    check(len(main256) == 64 and len(parent256) == 64 and all(c in "0123456789abcdef" for c in main256),
+          f"SHA-256 commit IDs {main256!r}")
+    full256 = bundle(owner256["repo"], work / "full256.bundle", main256, ref="main")
+    check(full256.startswith(V3_HEADER) and bundle_format(full256) == "sha256"
+          and bundle_heads(full256, work) == [(main256, "refs/heads/main")]
+          and rev(unbundle(full256, work), "refs/fetched/main") == main256, "a SHA-256 bundle: v3 header, 64-hex ref")
+    clone256 = sha256_clone(owner256, work / "clone256", "pbx_fixture")
+    check(rev(clone256, "refs/peerbox/pbx_fixture/main") == parent256
+          and git(clone256, "rev-parse", "--show-object-format") == "sha256", "the existing SHA-256 clone")
+    short256 = bundle(owner256["repo"], work / "short256.bundle", main256, exclude=[parent256], ref="main")
+    status, said = requires(clone256, short256, work)
+    check(status == 0 and parent256 in said and len(short256) < len(full256), f"a SHA-256 have bundle: {said[-200:]}")
+    check(bundle_format(full) == "sha1", "a SHA-1 bundle read as SHA-256")
+    # peerbox_runs: the workspace path, against a layout made as the fake runtime makes it.
+    import tempfile
+    rt_dir = work / "rt"
+    rt_dir.mkdir()
+    run = "run_" + "ab" * 32
+    for _ in range(2):  # two starts of the fake: two roots
+        root = tempfile.mkdtemp(prefix="fake-runtime-", dir=rt_dir)
+        tempfile.mkdtemp(prefix="run_" + "cd" * 6 + "-", dir=root)  # another run, no workspace
+    other = Path(tempfile.mkdtemp(prefix=run[:16] + "-", dir=root))
+    (other / "workspace").mkdir()
+    (Path(tempfile.mkdtemp(prefix="run_" + "ef" * 6 + "-", dir=root)) / "workspace").mkdir()
+    check(run_workspaces(rt_dir, run) == [other / "workspace"], f"run_workspaces: {run_workspaces(rt_dir, run)}")
     return time.monotonic() - began
 
 
