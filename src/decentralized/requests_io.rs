@@ -32,7 +32,8 @@ pub(crate) fn incoming_plan(
 ) -> Result<IncomingPlan> {
     let secret = p.secret.ok_or_else(|| Error::new("recovery_required"))?;
     require(
-        !p.record.carrier_endpoints.is_empty() && p.record.carrier_endpoints.len() <= 8,
+        !p.record.carrier_endpoints.is_empty()
+            && p.record.carrier_endpoints.len() <= super::bootstrap::MAX_CARRIER_ENDPOINTS,
         "recovery_required",
     )?;
     // Check existing frames without doing cleanup or changing poll metadata.
@@ -480,8 +481,15 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
             }
             // A writer's signed contact changes only this private operation's
             // transport hints. It supplies no membership or provider pin.
+            // Kept while they fit (DEC-Q34): a hint left out costs a path,
+            // while refusing the frame would stop the request.
             for address in array(object(&contact.payload)?, "bootstrap_addresses")? {
-                p.record.carrier_endpoints.push(json!({"kind":"participant","address":address,"public_key":contact.host_public_key}));
+                let endpoint = json!({"kind":"participant","address":address,"public_key":contact.host_public_key});
+                if !p.record.carrier_endpoints.contains(&endpoint)
+                    && p.record.carrier_endpoints.len() < super::bootstrap::MAX_CARRIER_ENDPOINTS
+                {
+                    p.record.carrier_endpoints.push(endpoint);
+                }
             }
         }
         let tuple = (
@@ -507,9 +515,6 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
         )
     });
     p.record.carrier_endpoints.dedup();
-    if p.record.carrier_endpoints.len() > 8 {
-        return Err(Error::quota("more than 8 carrier endpoints"));
-    }
     let mut inserted = 0;
     for frame in all.values() {
         inserted+=tx.execute("INSERT INTO dec_frames(request_id,role,writer_key,frame_id,record) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id,role,writer_key,frame_id) DO NOTHING",rusqlite::params![id,frame.role,frame.writer_host_public_key,frame.frame_id,json!({"frame_base64":encode(&frame.body)}).to_string()]).map_err(|_|Error::new("internal"))?;

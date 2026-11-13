@@ -229,7 +229,7 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
     // them too, for a requester this host cannot reach.
     for endpoint in endpoints(invite)? {
         if !pending.record.carrier_endpoints.contains(&endpoint)
-            && pending.record.carrier_endpoints.len() < 8
+            && pending.record.carrier_endpoints.len() < super::bootstrap::MAX_CARRIER_ENDPOINTS
         {
             pending.record.carrier_endpoints.push(endpoint);
         }

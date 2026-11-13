@@ -57,7 +57,10 @@ pub(super) fn endpoint_list(code: &PairingToken) -> Result<Vec<Value>> {
         )
     });
     endpoints.dedup();
-    require(endpoints.len() <= 8, "quota_exceeded")?;
+    require(
+        endpoints.len() <= super::bootstrap::MAX_CARRIER_ENDPOINTS,
+        "quota_exceeded",
+    )?;
     Ok(endpoints)
 }
 pub(super) fn from_code(code: &PairingToken, d: &Descriptor) -> Result<Pending> {
@@ -580,8 +583,14 @@ pub(super) fn endpoints_with_self(store: &Store, p: &Pending) -> Result<Vec<Valu
         .bootstrap
         .clone();
     let mut endpoints = p.record.carrier_endpoints.clone();
+    // This host's own addresses are kept while they fit (DEC-Q34).
     for address in addresses {
-        endpoints.push(json!({"kind":"participant","address":address,"public_key":store.identity().public_key}));
+        let endpoint = json!({"kind":"participant","address":address,"public_key":store.identity().public_key});
+        if !endpoints.contains(&endpoint)
+            && endpoints.len() < super::bootstrap::MAX_CARRIER_ENDPOINTS
+        {
+            endpoints.push(endpoint);
+        }
     }
     endpoints.sort_by_key(|e| {
         (
@@ -591,7 +600,6 @@ pub(super) fn endpoints_with_self(store: &Store, p: &Pending) -> Result<Vec<Valu
         )
     });
     endpoints.dedup();
-    require(endpoints.len() <= 8, "quota_exceeded")?;
     Ok(endpoints)
 }
 pub(super) fn retain_packet(
