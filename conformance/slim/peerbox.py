@@ -25,11 +25,11 @@ from harness import (Suite, attention, check, create_network, join_new_person, l
                      ssh_key, wait_for)
 from runtime_common import (bind, learn, need, policy_statement, policy_version, refused,
                             run_side_by_side, sign_policy, state)
-from peerbox_common import (DEFAULT_BUNDLE, OUTPUT_LIMIT, PBX_ID, PSB1, REASON, RULE_KEYS, Prompted,
-                            admit_waiting, b64url_json, bundle, bundle_heads, check_record, commit_files, create,
+from peerbox_common import (DEFAULT_BUNDLE, OUTPUT_LIMIT, PSB1, REASON, RULE_KEYS, Prompted,
+                            admit_waiting, b64url_json, bundle, bundle_heads, check_record, commit_files, create, failed_with,
                             fetch_bytes, git, init_repo, join_with_code, op_fails, op_ok, outcome, owner_cli,
                             pbx_rules, principal, raw_op, refs, rename_ref, rev, rule, rules_for, settle, sha256,
-                            share, status_all, submit_bundle, submit_op, tail, tree_commit, unbundle, unshare,
+                            share, status_all, shown, submit_bundle, submit_op, tail, tree_commit, unbundle, unshare,
                             upload_bundle, with_peerbox_rules)
 
 suite = Suite("peerbox", __doc__)
@@ -38,7 +38,6 @@ clock = suite.use_clock()
 MAIN_SCHEMA = 31  # the schema version on main when this suite was written; the contract adds the next one
 DAY, HOUR = 86400, 3600
 HOOK = "#!/bin/sh\n[ -n \"$PBX_FIXTURE\" ] || touch \"$(dirname \"$0\")/../../HOOK_RAN\"\n"
-INVITATION_ID = re.compile(r"di_[0-9A-Za-z]+")
 
 
 def case(name, spec):
@@ -100,8 +99,11 @@ def invite_code(*args, host=None):
     found = PSB1.search(text)
     check(found, f"peerbox invite printed no psb1- code: exit {result.code}")
     inner = b64url_json(found.group(0), "psb1-")
-    invitation = (result.json or {}).get("invitation_id") if isinstance(result.json, dict) else None
-    return found.group(0), inner, invitation or (INVITATION_ID.search(text) or [None])[0]
+    made = result.json
+    check(isinstance(made, dict) and set(made) == {"code", "invitation_id", "expires_at"}
+          and made["code"] == found.group(0) and made["invitation_id"], "peerbox invite --json is not "
+                                                                         "{code, invitation_id, expires_at}")
+    return made["code"], inner, made["invitation_id"]
 
 
 def pending_shares(host=None):
@@ -154,10 +156,11 @@ def _():
             check(want in said, f"the disclosure ({label}) does not show {want!r}: {tail(said)}")
         check(re.search(r"\b3\b", said) and "Sly Secret" not in said and "sly@example.test" not in said,
               f"the disclosure ({label}) must count 3 reachable commits and name no author outside main")
-    check(not re.search(r"pbx_[0-9a-f]{32}", owner_cli("show").stdout), "a refused create left a peerbox")
+    check(shown() == [], "a refused create left a peerbox")
     state["pbx"] = create(repo, title="Alice's project")
-    shown = owner_cli("show", need("pbx")[0]).stdout
-    check(PBX_ID.match(need("pbx")[0]) and "Alice's project" in shown and "main" in shown, f"show: {tail(shown)}")
+    records = shown(None, pbx())
+    check(len(records) == 1 and records[0]["peerbox_id"] == pbx() and records[0]["title"] == "Alice's project"
+          and records[0]["branch"] == "main" and records[0]["repository"] == str(repo), f"show: {records}")
     state["hidden"] = create(repo, title="hidden")
 
 
@@ -289,8 +292,9 @@ def _():
     check(pages > 1 and seen == readable, f"{pages} pages, {len(seen)} entries (sorted, unique: "
                                           f"{seen == sorted(set(seen))}), want {len(readable)} over several pages")
     listed = b.cli("--json", "peerbox", "list", "--peer", a.id, timeout=90)
-    check(listed.ok and sorted(set(re.findall(r"pbx_[0-9a-f]{32}", listed.stdout))) == readable,
-          f"peerbox list --peer: exit {listed.code} {tail(listed.stderr)}")
+    check(listed.ok and isinstance(listed.json, dict)
+          and [e["peerbox_id"] for e in listed.json.get("peerboxes") or []] == readable,
+          f"peerbox list --peer --json, one merged peerboxes array: exit {listed.code} {tail(listed.stderr)}")
     value, _, _ = op_ok({"op": "list"}, sender=c)
     check([e["peerbox_id"] for e in value["peerboxes"]] == sorted([pbx(), need("hidden")[0]]) and value["next"] is None,
           f"carol's list {value}")
@@ -315,8 +319,9 @@ def _():
     state["full_size"] = len(data)
     clone = suite.work / "bob-clone"
     fetched = b.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90)
-    check(fetched.ok and rev(clone, f"refs/peerbox/{pbx()}/main") == main,
-          f"peerbox fetch: exit {fetched.code} {tail(fetched.stderr)}")
+    check(fetched.ok and rev(clone, f"refs/peerbox/{pbx()}/main") == main and isinstance(fetched.json, dict)
+          and set(fetched.json) == {"head", "bundle_sha256", "size"} and fetched.json["head"] == main,
+          f"peerbox fetch --json prints the fetch result: exit {fetched.code} {tail(fetched.stderr)}")
     wt = state["bob_wt"] = suite.work / "bob-wt"
     git(clone, "worktree", "add", "-q", wt, "-b", "feature", f"refs/peerbox/{pbx()}/main")
     state["bob_clone"] = clone
@@ -344,7 +349,8 @@ def _():
           and not last.get("artifacts"), f"a fetch with the head in have: {kind} {value} {last.get('artifacts')}")
     before = refs(clone)
     again = b.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90)
-    check(again.ok and refs(clone) == before, f"a repeat CLI fetch: exit {again.code}, refs changed "
+    check(again.ok and refs(clone) == before and again.json == {"head": main, "bundle_sha256": None, "size": 0},
+          f"a repeat CLI fetch: exit {again.code} {again.json}, refs changed "
                                               f"{refs(clone) != before}")
 
 
@@ -365,10 +371,9 @@ def _():
     result = b.cli("--json", "peerbox", "submit", "--peer", a.id, pbx(), "--repository", need("bob_clone")[0],
                    "--branch", "feature", timeout=90)
     check(result.ok, f"peerbox submit: exit {result.code} {tail(result.stderr)}")
+    record = check_record(result.json, pbx())  # --json prints the operation's result: the contribution record
     records, _ = status_all(pbx())
-    found = [r for r in records if r["head"] == head]
-    check(len(found) == 1, f"status lists {len(found)} records with the submitted head")
-    record = check_record(found[0], pbx())
+    check([r for r in records if r["head"] == head] == [record], "status does not list exactly the submitted record")
     check(record["state"] == "pending" and record["base"] == main and record["branch"] == "feature"
           and record["decision"] is None and record["runs"] == [] and record["runs_total"] == 0
           and record["contributor"] == {"person_id": state["bob_pid"], "host_id": b.id, "agent_id": None,
@@ -403,12 +408,10 @@ def _():
     tip = new_commit("based", {"b.txt": "b\n"}, start=main)
     for base in (state["secret"], os.urandom(20).hex()):
         data = bundle(need("bob_clone")[0], suite.work / f"based-{base[:6]}.bundle", tip, exclude=[main], ref="based")
-        kind, value, _ = outcome(submit_bundle(pbx(), data, base, "based"))
-        check(kind == "failed" and value.get("error") == "base_unknown", f"base {base[:8]}: {kind} {value}")
+        failed_with("base_unknown", submit_bundle(pbx(), data, base, "based"))
     old = new_commit("old-base", {"o.txt": "o\n"}, start=state["main_parent"])
     data = bundle(need("bob_clone")[0], suite.work / "old.bundle", old, exclude=[state["main_parent"]], ref="old-base")
-    kind, value, _ = outcome(submit_bundle(pbx(), data, main, "old-base"))
-    check(kind == "failed" and value.get("error") == "base_not_ancestor", f"base main for a head on main~1: {value}")
+    failed_with("base_not_ancestor", submit_bundle(pbx(), data, main, "old-base"))
     check(refs(state["repo"]) == before, "a refused submission changed a ref of the repository")
 
 
@@ -422,9 +425,7 @@ def _():
     header = good.index(b"\n\n") + 2
     middle = header + (len(good) - header) // 2
     mutated = good[:middle] + bytes([good[middle] ^ 0xFF]) + good[middle + 1:]
-    kind, value, _ = outcome(submit_bundle(pbx(), mutated, main, "hostile"))
-    check(kind == "failed" and value.get("error") == "bundle_invalid" and value.get("message"),
-          f"a mutated byte: {kind} {value}")
+    failed_with("bundle_invalid", submit_bundle(pbx(), mutated, main, "hostile"))
     variants = {"a tag ref": rename_ref(good, "refs/heads/hostile", "refs/tags/hostile"),
                 "a peerbox ref": rename_ref(good, "refs/heads/hostile",
                                             f"refs/peerbox/{pbx()}/members/{state['bob_pid']}/hostile"),
@@ -435,19 +436,32 @@ def _():
     git(need("bob_clone")[0], "bundle", "create", "-q", suite.work / "two.bundle", "refs/heads/hostile",
         "refs/heads/second", f"^{main}")
     variants["two refs"] = (suite.work / "two.bundle").read_bytes()
+    # Submit step 2: a tree entry named `.git` as Git's hasDotgit defines it, at any depth, in any case and in its
+    # HFS+ (ignorable code points) and NTFS (8.3 short name, trailing dot) spellings, whatever its type.
     hook = b"#!/bin/sh\ntouch /tmp/peerbox-hostile-hook\n"
+    config = b"[core]\n\thooksPath = .\n"
+    dotgit = {}
     for label, entries in ((".git/hooks", {".git/hooks/post-checkout": ("100755", hook)}),
-                           (".GIT/config", {".GIT/config": ("100644", b"[core]\n\thooksPath = .\n")}),
-                           ("a .git file", {"sub/.git": ("100644", b"gitdir: /etc\n")})):
+                           (".GIT/config", {".GIT/config": ("100644", config)}),
+                           ("a deep .Git file", {"a/b/.Git": ("100644", b"gitdir: /etc\n")}),
+                           ("a .git symlink", {"sub/.git": ("120000", b"/etc")}),
+                           ("HFS+ .g\\u200cit", {".g\u200cit/config": ("100644", config)}),
+                           ("NTFS git~1", {"GIT~1/config": ("100644", config)}),
+                           ("NTFS .git.", {"deep/.git./config": ("100644", config)})):
         crafted = tree_commit(need("bob_clone")[0], {"README": ("100644", b"project\n"), **entries}, parent=main)
-        variants[label] = bundle(need("bob_clone")[0], suite.work / f"crafted-{crafted[:8]}.bundle", crafted,
-                                 exclude=[main], ref="hostile")
+        dotgit[label] = bundle(need("bob_clone")[0], suite.work / f"crafted-{crafted[:8]}.bundle", crafted,
+                               exclude=[main], ref="hostile")
     stored = []
-    for label, data in variants.items():
+    for label, data in variants.items():  # the bundle's single ref must be refs/heads/BRANCH; no code is named
         kind, value, _ = outcome(submit_bundle(pbx(), data, main, "hostile"))
         if kind != "failed":
             stored.append(f"{label}: {kind} {value}")
-    check(not stored, f"hostile bundles accepted: {stored}")
+    for label, data in dotgit.items():
+        kind, value, _ = outcome(submit_bundle(pbx(), data, main, "hostile"))
+        if not (kind == "failed" and isinstance(value, dict) and set(value) == {"error", "message"}
+                and value["error"] == "bundle_invalid"):
+            stored.append(f"{label}: {kind} {value}, want failed bundle_invalid")
+    check(not stored, f"hostile bundles not refused as required: {stored}")
     check(refs(state["repo"]) == before and not hook_ran(), "a hostile submission changed a ref or ran a hook")
 
 
@@ -457,9 +471,8 @@ def _():
     main, first = need("main", "first")
     second = contribute("feature2", {"f2.txt": "2\n"}, start=main)
     tip = new_commit("feature3", {"f3.txt": "3\n"}, start=main)
-    kind, value, _ = outcome(send("feature3", tip))
-    check(kind == "failed" and value.get("error") == "pending_limit" and member_ref(state["bob_pid"], "feature3") is None,
-          f"a third pending contribution under max_pending 2: {kind} {value}")
+    failed_with("pending_limit", send("feature3", tip))
+    check(member_ref(state["bob_pid"], "feature3") is None, "a refused submission set a member ref")
     replaced = contribute("feature", {"feature.txt": "bob's change, revised\n"})
     old = mine(first["contribution_id"])
     check(old["state"] == "superseded" and replaced["state"] == "pending"
@@ -474,9 +487,10 @@ def _():
 @case("review_accept", "peerbox Review: accept fast-forwards main and the clean worktree; the decision in status")
 def _():
     a, main, feature = need("a", "main", "feature")
-    listed = owner_cli("review", pbx())
-    check(feature["contribution_id"] in listed.stdout and need("feature2")[0]["contribution_id"] in listed.stdout,
-          f"peerbox review does not list the pending contributions: {tail(listed.stdout)}")
+    listed = owner_cli("review", pbx()).json
+    check(isinstance(listed, list) and {r.get("contribution_id") for r in listed}
+          == {feature["contribution_id"], need("feature2")[0]["contribution_id"]},
+          f"peerbox review --json does not list exactly the pending contributions: {str(listed)[:300]}")
     result = review(feature["contribution_id"], "accept")
     check(result.ok, f"accept: exit {result.code} {tail(result.stderr)}")
     check(rev(state["repo"], "main") == feature["head"] and (state["repo"] / "feature.txt").read_text()
@@ -486,7 +500,7 @@ def _():
     check(record["state"] == "accepted" and set(decision) == {"decision", "reason", "decided_at", "decided_by",
                                                               "old_head", "new_head"}
           and decision["decision"] == "accepted" and decision["old_head"] == main
-          and decision["new_head"] == feature["head"] and state["alice_pid"] in str(decision["decided_by"]),
+          and decision["new_head"] == feature["head"] and decision["decided_by"] == state["alice_pid"],
           f"the accepted record {record}")
     state["main"] = feature["head"]
 
@@ -546,12 +560,7 @@ def _():
           == main, f"the rejected record {record}")
     again = review(second["contribution_id"], "accept")
     check(again.code == 1, f"accepting a rejected contribution: exit {again.code}")
-    status, body = raw_op({"op": "withdraw", "peerbox_id": pbx(), "contribution_id": second["contribution_id"]})
-    if status == 200:
-        kind, value, _ = outcome(body["task_id"])
-        check(kind == "failed" and value.get("error") == "decided", f"withdrawing a decided one: {kind} {value}")
-    else:
-        refused(status, body, 409, "decided")
+    op_fails("decided", {"op": "withdraw", "peerbox_id": pbx(), "contribution_id": second["contribution_id"]})
     value, _, _ = op_ok({"op": "withdraw", "peerbox_id": pbx(), "contribution_id": ahead["contribution_id"]})
     check(check_record(value)["state"] == "superseded" and member_ref(state["bob_pid"], "feature4") is None
           and rev(state["repo"], f"refs/peerbox/{pbx()}/contributions/{ahead['contribution_id']}") == ahead["head"],
@@ -595,11 +604,13 @@ def _():
         r["contributor"]["person_id"] == state["bob_pid"] for r in records), "status misses or adds records")
     stamps = [r["submitted_at"] for r in records]
     check(len(stamps) > len(set(stamps)), "fixture: no two contributions share a submitted_at")
-    shown = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), timeout=90)
-    check(shown.ok and re.findall(r"pbc_[0-9a-f]{32}", shown.stdout)[:1] == ids[:1]
-          and set(re.findall(r"pbc_[0-9a-f]{32}", shown.stdout)) == set(ids), f"CLI status: exit {shown.code}")
+    every = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), timeout=90)
+    check(every.ok and isinstance(every.json, dict) and [r["contribution_id"] for r in
+                                                       every.json.get("contributions") or []] == ids,
+          f"CLI status --json, one merged contributions array: exit {every.code}")
     five = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), "--limit", "5", "--before", ids[2], timeout=90)
-    check(five.ok and sorted(set(re.findall(r"pbc_[0-9a-f]{32}", five.stdout))) == sorted(ids[3:8]),
+    check(five.ok and isinstance(five.json, dict)
+          and [r["contribution_id"] for r in five.json.get("contributions") or []] == ids[3:8],
           f"CLI status --limit 5 --before: exit {five.code}")
     state["bob_records"] = len(ids)
 
@@ -622,6 +633,9 @@ def _():
     entry = [e for e in value["peerboxes"] if e["peerbox_id"] == pbx()]
     check(entry and entry[0]["actions"] == ["peerbox.read", "peerbox.submit"], f"carol's actions {entry}")
     op_ok({"op": "fetch", "peerbox_id": pbx()}, sender=c)  # the network rule's larger read bound
+    # Status: another person's contribution, or an unknown one, ends the task failed with unknown (no HTTP 404).
+    for other in (need("feature2")[0]["contribution_id"], "pbc_" + os.urandom(16).hex()):
+        op_fails("unknown", {"op": "status", "peerbox_id": pbx(), "contribution_id": other}, sender=c)
     clone, wt = suite.work / "carol-clone", suite.work / "carol-wt"
     check(c.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90).ok,
           "carol's CLI fetch")
@@ -637,7 +651,8 @@ def _():
     small = new_commit("feature", {"carol.txt": "c\n"}, wt=wt)
     result = c.cli("--json", "peerbox", "submit", "--peer", a.id, pbx(), "--repository", clone, "--branch",
                    "feature", timeout=90)
-    check(result.ok and member_ref(state["carol_pid"], "feature") == small
+    check(result.ok and check_record(result.json, pbx())["head"] == small
+          and member_ref(state["carol_pid"], "feature") == small
           and member_ref(state["bob_pid"], "feature") == bobs, f"carol's submit: exit {result.code} "
                                                                f"{tail(result.stderr)}")
     unshare(pbx(), "network")
@@ -654,7 +669,7 @@ def _():
     check(set(inner) == {"invite", "peerbox_id", "title", "home_host_id", "actions"}
           and inner["invite"].startswith("psi2-") and inner["peerbox_id"] == pbx() and inner["home_host_id"] == a.id
           and inner["title"] == "Alice's project"
-          and inner["actions"] in (["read", "submit"], ["peerbox.read", "peerbox.submit"]), f"psb1 body {inner}")
+          and inner["actions"] == ["peerbox.read", "peerbox.submit"], f"psb1 body {inner}")
     check(invitation and invitation in pending_shares(), "peerbox invite --list does not show the pending share")
     d = state["d"] = suite.host("dan")
     for argv in (("peerbox", "join", code), ("join", code)):
@@ -677,17 +692,17 @@ def _():
     e = state["e"] = suite.host("erin")
     erin_code, _, erin_invitation = invite_code(pbx(), "erin")
     before = pbx_rules()
-    state["erin_key"] = ssh_key(e.root, "erin")
+    state["erin_key"], state["dan_key"] = ssh_key(e.root, "erin"), ssh_key(d.root, "dan")
     joined = {}
 
     def dan():
-        run = Prompted(d, "--json", "peerbox", "join", "--invite-stdin", "--repository", d.root / "repo",
-                       first_line=code)
+        run = Prompted(d, "--json", "peerbox", "join", "--invite-stdin", "--repository", d.root / "repo", "--as",
+                       "dan", "--person-key-file", need("dan_key")[0], first_line=code)
         admit_waiting(a, d)
         joined["dan"] = (run.wait(240), run.text)
     run_side_by_side((dan, (), {}), (join_with_code, (a, e, erin_code, need("erin_key")[0], net), {}))
     check(joined["dan"][0] == 0, f"peerbox join exited {joined['dan'][0]}")
-    state["dan_pid"] = person_id(d, d.home / ".config/peerspan/person_ed25519")
+    state["dan_pid"] = person_id(d, need("dan_key")[0])
     state["erin_pid"] = person_id(e, need("erin_key")[0])
     wait_for(lambda: rules_for(pbx(), principal(need("erin_pid")[0])), timeout=60, message="erin's rule")
     dan_rules, erin_rules = rules_for(pbx(), principal(need("dan_pid")[0])), rules_for(pbx(), principal(need("erin_pid")[0]))
@@ -780,7 +795,7 @@ def _():
     records, _ = status_all(pbx())
     check(kind == "succeeded" and [r["head"] for r in records].count(tip) == 1, f"submit across restarts: {kind}")
     status, listed = a.api("GET", f"/v1/peerboxes/{pbx()}/contributions")
-    check(status == 200 and value["contribution_id"] in str(listed) and pbx() in owner_cli("show").stdout,
+    check(status == 200 and value["contribution_id"] in str(listed) and pbx() in [r["peerbox_id"] for r in shown()],
           f"records after restarts: {status}")
 
 

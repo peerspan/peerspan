@@ -27,7 +27,6 @@ import runtime_common
 REASON = "peerboxes not implemented (peerbox contract)"
 PBX_ID = re.compile(r"^pbx_[0-9a-f]{32}$")
 PBC_ID = re.compile(r"^pbc_[0-9a-f]{32}$")
-PBX_IN = re.compile(r"pbx_[0-9a-f]{32}")
 PSB1 = re.compile(r"psb1-[A-Za-z0-9_-]+")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 BUNDLE_TYPE = "application/x-git-bundle"
@@ -238,14 +237,24 @@ def unshare(pbx, *principals, host=None, key=None, person_public=None):
 
 
 def create(repo, branch="main", title=None, host=None, extra=()):
-    """`peerbox create --yes` on HOST (alice's by default); returns the peerbox ID it prints."""
+    """`peerbox create --yes --json` on HOST (alice's by default); returns the ID of the record it prints."""
     args = ["create", "--repository", repo, "--branch", branch, "--yes", *extra]
     if title is not None:
         args += ["--title", title]
     result = owner_cli(*args, host=host, timeout=60)
-    found = PBX_IN.search(result.stdout)
-    check(found, f"peerbox create printed no peerbox ID: {tail(result.stdout)}")
-    return found.group(0)
+    record = result.json
+    check(isinstance(record, dict) and PBX_ID.match(str(record.get("peerbox_id"))) and record.get("branch") == branch,
+          f"peerbox create --json printed no peerbox record: {tail(result.stdout)}")
+    return record["peerbox_id"]
+
+
+def shown(host=None, *args):
+    """`peerbox show [PEERBOX] --json`: the peerbox records it lists (CLI and local API, --json)."""
+    records = owner_cli("show", *args, host=host).json
+    check(isinstance(records, list) and all(isinstance(r, dict) and PBX_ID.match(str(r.get("peerbox_id")))
+                                            for r in records), f"peerbox show --json is not a list of records: "
+                                                               f"{str(records)[:200]}")
+    return records
 
 
 # Peerbox tasks (peerbox Requests, Results).
@@ -286,13 +295,17 @@ def op_ok(op, sender=None, receiver=None, artifacts=None):
     return value, last, task_id
 
 
+def failed_with(code, task_id, sender=None, receiver=None):
+    """The task ended `failed` with exactly {"error": CODE, "message": TEXT} (peerbox Results); returns the output."""
+    kind, value, _ = outcome(task_id, sender, receiver)
+    check(kind == "failed" and isinstance(value, dict) and set(value) == {"error", "message"}
+          and value["error"] == code and isinstance(value["message"], str), f"{kind} {value}, want failed {code}")
+    return value
+
+
 def op_fails(code, op, sender=None, receiver=None, artifacts=None):
     """A peerbox operation that must end `failed` with {"error": CODE, "message"}; returns the output."""
-    task_id = submit_op(op, sender, receiver, artifacts)
-    kind, value, _ = outcome(task_id, sender, receiver)
-    check(kind == "failed" and isinstance(value, dict) and value.get("error") == code
-          and isinstance(value.get("message"), str), f"peerbox {op['op']}: {kind} {value}, want failed {code}")
-    return value
+    return failed_with(code, submit_op(op, sender, receiver, artifacts), sender, receiver)
 
 
 def raw_op(op, sender=None, receiver=None, drop=(), person_public=None, person_id=None, **fields):
