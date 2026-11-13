@@ -9,7 +9,8 @@ a fork of the profile's branch, and the result names the fork's branch.
 
 This is story 2 of the runtime: the design is decision 6 of `runtime.md` in the internal design
 repository, and its decisions are RUN-8 to RUN-11 in the
-[decision log](decision-log.md#run-8-to-run-11-runtime-agents-2026-11-12). This contract extends
+[decision log](decision-log.md#run-8-to-run-11-runtime-agents-2026-11-12), with RUN-12 to RUN-16
+after them. This contract extends
 the [task contract](task-contract.md) and the [runtime task contract](runtime-task-contract.md).
 Where it doesn't say otherwise, those contracts apply. It changes nothing for senders: the
 peer routes, the authorization of `task.submit`, the status record and the events are as in the
@@ -123,6 +124,7 @@ the reason.
 - `peerfs_workspace` the fork's name, and `peerfs_fork_from` the profile's `from_branch`;
 - `peerfs_agent` the agent's name, `peerfs_commit` true, and `peerfs_commit_message`
   `TASK_ID from SENDER_HOST_ID`;
+- `peerfs_discard` true (RUN-16);
 - `stdin` the task's `input`;
 - `harness` the profile's `harness_dir`;
 - `image` the profile's `image`, left out when it is null;
@@ -219,6 +221,14 @@ cancelled task's partial work is kept. The owner compares and merges the branche
 (`peerfs log`, `ws merge`). Until peerfs replicates across hosts, the branches stay on the
 receiving host.
 
+**The workspace** is discarded once the commit is made, or when there was nothing to commit
+(RUN-16). The branch and its commits stay. What goes is what only the workspace held: the paths
+peerfs keeps out of commits, such as dependencies and build output, which for a build can be
+gigabytes. So a finished task costs no disk beyond its commit. A result with `error`, such as a
+failed commit, or a run the runtime lost, leaves the workspace `NAME` in place for the owner, as
+the branch line says. How the command exited does not matter: a failing exit that was committed
+loses its workspace too.
+
 ## The runtime's local API
 
 `POST /v1/runs` gains these optional fields. Each defaults to its value for a runtime task, and
@@ -234,6 +244,7 @@ runtime tasks never set them. The runtime refuses anything else with 400.
 | `peerfs_agent` | An addressable agent name, with `peerfs_workspace` set: the agent recorded on the run's snapshots and commit. Default `peerspan-runtime`. |
 | `peerfs_commit` | `true` or `false` (the default), with `peerfs_workspace` set. With `true`, once the run has ended and been snapshotted, the runtime commits the workspace to its branch: one commit, with the message `peerfs_commit_message`. |
 | `peerfs_commit_message` | 1 to 4,096 bytes of UTF-8. Required with `peerfs_commit` true. |
+| `peerfs_discard` | `true` or `false` (the default), with `peerfs_commit` true. With `true`, once the commit is made, or when there was nothing to commit, the runtime discards the workspace and keeps its branch (RUN-16). It discards nothing when the result has `error` set, such as a failed snapshot or commit, or for a run that never started. A discard that fails changes neither the run's result nor its `error`; the runtime logs it. |
 | `image` | An OCI image reference, as for a profile, or null (the default). The run boots it in place of the runtime's own image, with the image's environment merged under `env` as for the runtime's own. The runtime pulls an image it does not have into its image cache when the run starts. A reference it cannot parse is 400, and one it cannot pull fails the run before `started`, with `error` saying why. A runtime that reports `images` false answers a run naming one with 422 `unavailable`. |
 
 The `exited` event's result gains `commit`: the commit's peerfs object ID, or null when there
@@ -286,6 +297,10 @@ runtime suites.
 - A commit's ID is `01` followed by the lowercase hex SHA-256 of the workspace's sorted paths and
   contents and the commit message, or null when nothing changed since the fork.
 - A command-line flag makes every commit fail, giving `commit` null and `error` set.
+- With `peerfs_discard` true, after a commit or a run that changed nothing, and with no `error`,
+  it removes the workspace directory and keeps its contents as the branch's, so a later
+  `peerfs_fork_from` naming the branch still copies them. After a failed commit, or any result
+  with `error`, it removes nothing.
 - It records each request's fields, `secrets` paths but never their contents, in a file named on
   its command line, so the suite can check what the host sent.
 
@@ -310,7 +325,9 @@ The suite covers:
   (A `claude` profile on an image without glibc fails after `started`. That is a live check, not
   a suite case, since the fake runtime runs no shell.)
 - **Lifecycle:** queued, accepted, then succeeded with the output `MESSAGE\n\nBranch: NAME at
-  commit ID`. The fork holds the agent's write, and `from_branch` is unchanged.
+  commit ID`. The fork holds the agent's write, and `from_branch` is unchanged. The request has
+  `peerfs_discard` true; afterwards the fork's workspace is gone, and a run forked from its
+  branch finds the agent's write (RUN-16). A run that changed nothing leaves no workspace either.
 - **Failure and empty output:** a failing exit with its message and branch line. An empty message
   replaced by `exit N`. A run that changed nothing, giving `unchanged from FROM`.
 - **Before the start:** a missing secret file failing the task before `started` with `Branch:
@@ -333,13 +350,14 @@ The suite covers:
   storing it.
   The RUN-15 variable is not a suite case: the script's text is the host release's.
 - **A failed commit:** with the fake runtime told to fail commits, a command that exits 0
-  ending `failed` with its message and the `not committed:` trailer.
+  ending `failed` with its message and the `not committed:` trailer, and the fork's workspace
+  still holding the agent's write.
 - **Migration:** opening a database of the previous schema version.
 
 A **live acceptance** run, story 2 in `runtime.md`, uses an installed release, `peerspan-runtime`
 with real VMs, and a real key. Three tasks from the owner's laptop to `codex` on the owner's
 server, with no open session there, run concurrently on three forks. Each returns a message and
-a branch, and the owner merges one. With per-run snapshots (RUN-10), each branch's history holds
+a branch, and the owner merges one. None leaves a workspace on the server. With per-run snapshots (RUN-10), each branch's history holds
 the before and after snapshots and the commit, all attributed to the agent, rather than one
 snapshot per tool call. The run also records memory per agent VM, wall time and tokens per task.
 The same run with a `claude` profile on a glibc image, and a real Anthropic key, is the

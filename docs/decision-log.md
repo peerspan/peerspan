@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
   - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
   - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
   - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
@@ -71,6 +72,23 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-16: removing a finished task's workspace (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** runtime agents: what happens to a task's peerfs workspace when the task ends.
+- **Source:** issue [#210](https://github.com/peerspan/peerspan/issues/210) and the owner's answer to one question on 2026-11-13, after the real-repository run (docs-internal `docs/runtime.md`, "A real repository"): each task building peerspan left about 11 GB of build output in its workspace, and four tasks left 45 GB on the server until the workspaces were discarded by hand. The options and reason below are quoted from that question.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), Running (the branch and the workspace) and The runtime's local API (`peerfs_discard`).
+- **Implementing PRs:** none yet.
+- **Question:** "For #210, a runtime agent's finished task leaves its peerfs workspace on the server, holding the build output (about 11 GB per task for peerspan). How should it be removed? Each task forks a fresh workspace named after the task, so no later task can reuse it; a build cache shared between tasks is #15."
+- **Options:**
+  - (a) Runtime discards: "A new optional run field, peerfs_discard, which the host sets for runtime agents. Once the commit succeeds, or nothing changed, the runtime runs `ws discard`, so only derived files go. If the commit fails, the workspace stays for the owner, as the contract already says. One atomic step; changes the runtime and both contracts."
+  - (b) Host discards after: "The host calls a new runtime endpoint, DELETE /v1/workspaces/NAME, after it records the result. More moving parts: a second request that can fail separately, and a new endpoint the runtime must authorize."
+  - (c) Keep for a retention: "The runtime discards finished task workspaces after a set time, say 24 h, so the build output can be inspected while debugging. Nothing can reuse it, so the disk cost stays until the timer fires."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a discard that fails changes neither the run's result nor its `error`, since the work is already committed; the runtime logs it. This is a contract choice within RUN-16.
 
 ### PBX-15: separating the gate's checker from the candidate (2026-11-13)
 
