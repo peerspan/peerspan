@@ -15,7 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
-  - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-proposed) (proposed 2026-11-13)
+  - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
   - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
   - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
@@ -74,51 +74,52 @@ Contents:
 
 ## Full entries
 
-### PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes (proposed)
+### PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes (2026-11-13)
 
-- **Date:** 2026-11-13 (proposed; not decided).
+- **Date:** 2026-11-13.
 - **Area:** peerboxes: an agent prepares `peerbox create`, `share` or `invite`, and the owner confirms it with one approval before the home host carries it out.
-- **Source:** the owner approved drafting an "agent-proposed, human-confirmed" amendment on 2026-11-13; the options are those of the amendment's [Open decisions](peerbox-contract.md#open-decisions).
-- **Status:** proposed. The owner decides each; the amendment is written with the recommendations until then. When decided, each entry's **Chosen** and **Reason given** are filled in and this heading loses "(proposed)"; the IDs stay.
+- **Source:** the owner approved drafting an "agent-proposed, human-confirmed" amendment on 2026-11-13; the options are those of the amendment's [Decisions](peerbox-contract.md#decisions).
 - **Recorded in:** this log and the contract (this PR).
 - **Contract section:** [peerbox-contract.md, Agent proposals](peerbox-contract.md#agent-proposals).
 - **Implementing PRs:** none yet.
 
+The owner chose the recommendation of each: "go with the recommendations on all six".
+
 #### PBX-16. Where the person approves
 
 - **Options:** (a) "The existing `approvals`, `approve` and `deny` commands, with a `pbp_` ID form." (b) "New `peerbox proposals`, `peerbox approve` and `peerbox decline` commands."
-- **Recommended:** (a): "one place to look, and the terminal rule and its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "one place to look, and the terminal rule and its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged."
 
 #### PBX-17. What lets an agent propose
 
 - **Options:** (a) "A credential flag, `peerbox_proposals`, asked at `attach` and default no, like `calls`." (b) "A route action `peerbox.propose` naming this host." (c) "Every credential."
-- **Recommended:** (a): "routes name a peer and cite its policy, and a proposal has neither; (c) puts approval requests in front of people who never chose them."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "routes name a peer and cite its policy, and a proposal has neither; (c) puts approval requests in front of people who never chose them."
 
 #### PBX-18. Whom an agent may propose to share with
 
 - **Options:** (a) "`person:` principals that are current members, at most 64." (b) "Every principal a rule accepts, `network` included."
-- **Recommended:** (a): "each person is named and resolved in the review; giving the whole network access stays a deliberate command."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "each person is named and resolved in the review; giving the whole network access stays a deliberate command."
 
 #### PBX-19. How long a proposal waits
 
 - **Options:** (a) "1 hour, fixed." (b) "Chosen by the agent, up to 24 hours." (c) "15 minutes, as a call."
-- **Recommended:** (a): "the person is usually in the session that asked; a longer wait leaves stale requests in the list, and `review_changed` already covers a repository that moved."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "the person is usually in the session that asked; a longer wait leaves stale requests in the list, and `review_changed` already covers a repository that moved."
 
 #### PBX-20. An explanation from the agent
 
 - **Options:** (a) "None in the record; the agent explains in its session." (b) "A `note` of up to 1,024 bytes, shown quoted and marked as the agent's."
-- **Recommended:** (a): "the agent may be repeating another person's text, and the approval screen should show only what will happen."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "the agent may be repeating another person's text, and the approval screen should show only what will happen."
 
 #### PBX-21. When the review changes before approval
 
 - **Options:** (a) "Recompute at execution and fail with `review_changed` on any difference." (b) "Show the new facts in the `approve` prompt and execute on them."
-- **Recommended:** (a): "the approval then covers exactly what the person saw; (b) turns the digest into a check of the arguments only."
-- **Chosen:** not yet decided.
+- **Chosen:** a.
+- **Reason given:** "the approval then covers exactly what the person saw; (b) turns the digest into a check of the arguments only."
 
 ### RUN-16: removing a finished task's workspace (2026-11-13)
 

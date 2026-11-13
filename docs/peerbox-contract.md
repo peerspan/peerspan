@@ -15,7 +15,7 @@ networks. The Rust host at the repository root is the only host (DEC-OWN5).
 Not in this contract: a membership class other than full member for invited people, several branches or path filtering in one
 peerbox, merging, replicas of the home host, PeerFS-backed peerboxes, signed run receipts,
 agent tools for review, agent tools that create, share or invite without the owner's approval
-(see the proposed [Agent proposals](#agent-proposals)), and grants for peerbox operations.
+(see [Agent proposals](#agent-proposals)), and grants for peerbox operations.
 
 Both hosts need `git` 2.34 or later on `PATH` for peerbox commands; without it they fail
 with `git_missing`. Every Git command a host runs for a peerbox runs with
@@ -480,9 +480,9 @@ public result).
 Agents use peerboxes through the adapter, as they use runtime tasks: an owner-defined route
 names the home host, and the adapter does the local Git work under the agent's own
 permissions. Review and invitations stay with people: no agent tool accepts or rejects a
-contribution, shares a peerbox or creates an invite. The proposed
-[Agent proposals](#agent-proposals) amendment would let an agent prepare a create, share or
-invite that runs only after the owner approves it at a terminal.
+contribution, shares a peerbox or creates an invite by itself. Under
+[Agent proposals](#agent-proposals), an agent can prepare a create, share or invite that runs
+only after the owner approves it at a terminal.
 
 **Routes.** Routes accept the actions `peerbox.read`, `peerbox.submit` and `peerbox.run`,
 set with `adapter route add --action` or in session setup, and shown in route records and
@@ -513,11 +513,9 @@ the adapter never writes outside it and never changes its checked-out branch or 
 
 ### Agent proposals
 
-Status: **proposed amendment, not accepted.** The owner approved drafting it on 2026-11-13;
-its open choices are PBX-16 to PBX-21 in the
-[decision log](decision-log.md#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-proposed),
-each written here as its recommendation. Until the owner decides, the Agents section above
-stands as merged: no agent tool creates, shares or invites.
+Accepted 2026-11-13: PBX-16 to PBX-21 in the
+[decision log](decision-log.md#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13),
+each chosen as recommended.
 
 An agent can **prepare** a `peerbox create`, `peerbox share` or `peerbox invite` on its own
 host; the person confirms it with one approval at a terminal on that host; only then does the
@@ -753,33 +751,33 @@ Agent proposals for review, `unshare`, `delete`, gates, `invite --cancel` or
 `share --pending`; principals other than `person:`; proposals from another host of the person;
 approving from another machine; one approval covering several proposals.
 
-#### Open decisions
+#### Decisions
 
-Each is written above as its recommendation; the owner decides (decision log PBX-16 to PBX-21).
+The owner chose each recommendation on 2026-11-13 (decision log PBX-16 to PBX-21).
 
 1. **PBX-16. Where the person approves.** (a) The existing `approvals`, `approve` and `deny`
    commands, with a `pbp_` ID form. (b) New `peerbox proposals`, `peerbox approve` and
-   `peerbox decline` commands. **Recommend (a):** one place to look, and the terminal rule and
+   `peerbox decline` commands. **Chosen (a):** one place to look, and the terminal rule and
    its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged.
 2. **PBX-17. What lets an agent propose.** (a) A credential flag, `peerbox_proposals`, asked at
    `attach` and default no, like `calls`. (b) A route action `peerbox.propose` naming this
-   host. (c) Every credential. **Recommend (a):** routes name a peer and cite its policy, and a
+   host. (c) Every credential. **Chosen (a):** routes name a peer and cite its policy, and a
    proposal has neither; (c) puts approval requests in front of people who never chose them.
 3. **PBX-18. Whom an agent may propose to share with.** (a) `person:` principals that are
    current members, at most 64. (b) Every principal a rule accepts, `network` included.
-   **Recommend (a):** each person is named and resolved in the review; giving the whole network
+   **Chosen (a):** each person is named and resolved in the review; giving the whole network
    access stays a deliberate command.
 4. **PBX-19. How long a proposal waits.** (a) 1 hour, fixed. (b) Chosen by the agent, up to
-   24 hours. (c) 15 minutes, as a call. **Recommend (a):** the person is usually in the session
+   24 hours. (c) 15 minutes, as a call. **Chosen (a):** the person is usually in the session
    that asked; a longer wait leaves stale requests in the list, and `review_changed` already
    covers a repository that moved.
 5. **PBX-20. An explanation from the agent.** (a) None in the record; the agent explains in its
    session. (b) A `note` of up to 1,024 bytes, shown quoted and marked as the agent's.
-   **Recommend (a):** the agent may be repeating another person's text, and the approval screen
+   **Chosen (a):** the agent may be repeating another person's text, and the approval screen
    should show only what will happen.
 6. **PBX-21. When the review changes before approval.** (a) Recompute at execution and fail
    with `review_changed` on any difference. (b) Show the new facts in the `approve` prompt and
-   execute on them. **Recommend (a):** the approval then covers exactly what the person saw; (b)
+   execute on them. **Chosen (a):** the approval then covers exactly what the person saw; (b)
    turns the digest into a check of the arguments only.
 
 ## Persistence
