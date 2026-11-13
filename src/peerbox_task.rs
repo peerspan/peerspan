@@ -681,6 +681,13 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     if status.state != "queued" || status.cancel_requested {
         return Ok(());
     }
+    // A submission waits, unchecked, until its bundle is stored: the
+    // checks read the network's state, which is not free.
+    if request.peerbox.as_ref().is_some_and(|p| p.op == "submit")
+        && !inputs_stored(&conn, sender, id)?
+    {
+        return Ok(());
+    }
     let checked = match check(store, &conn, sender, &request) {
         Ok(c) => c,
         // Recoverable: left queued.
@@ -705,10 +712,6 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     let Some(p) = request.peerbox.clone() else {
         return Ok(());
     };
-    if p.op == "submit" && !inputs_stored(&*store.connection()?, sender, id)? {
-        // Left queued until the bundle is fetched.
-        return Ok(());
-    }
     let outcome = match p.op.as_str() {
         "list" => list(store, &checked, p.after.as_deref()),
         "fetch" => fetch(store, &checked, &p, sender),
