@@ -72,7 +72,7 @@ write the protected branch or another person's member ref.
 | `op` | Other fields | Artifacts | Result |
 | --- | --- | --- | --- |
 | `list` | none | none | `{"peerboxes": [...]}` |
-| `fetch` | `peerbox_id`; optional `have`, 0 to 32 distinct commit IDs | none | `{"head", "bundle_sha256", "size"}` and the result artifact `peerbox.bundle` |
+| `fetch` | `peerbox_id`; optional `have`, 0 to 32 distinct commit IDs | none | `{"head", "bundle_sha256", "size"}` and the result artifact `peerbox.bundle`, or no artifact when the caller has the head |
 | `submit` | `peerbox_id`, `base`, `branch`, `bundle` (a digest) | the bundle | the contribution record |
 | `status` | `peerbox_id`; optional `contribution_id` | none | `{"contributions": [...]}` |
 | `run` | `peerbox_id`, `commit`, `run` | none | the run result (runtime task contract) |
@@ -227,6 +227,9 @@ outside the protected branch. A bundle larger than `max_bundle_bytes` or the art
 file limit fails the task with `too_large` and its size in `message` (PBX-3); with no `have`
 the caller cannot fetch that peerbox.
 
+When `have` contains the head, nothing is new: the task succeeds with `bundle_sha256` null
+and `size` 0 and attaches no artifact, and the fetching host changes no ref.
+
 The bundle is the task's result artifact `peerbox.bundle`, media type
 `application/x-git-bundle`, transferred and kept as result artifacts are. The fetching host
 verifies its digest, verifies it with `git bundle verify`, and fetches it into a quarantine
@@ -237,7 +240,9 @@ or failed fetch changes none.
 
 The bundle's single ref must be `refs/heads/BRANCH` and its prerequisites reachable from the
 protected head. Before storing, in order, the home host:
-1. checks the sender's pending contributions against `max_pending` (`pending_limit`);
+1. checks that the sender's pending contributions after this submission, not counting a
+   pending one it replaces at the same member ref, number at most `max_pending`
+   (`pending_limit`);
 2. verifies the bundle and fetches it into a quarantine repository with
    `transfer.fsckObjects=true` (`bundle_invalid`, with Git's message);
 3. checks that `base` is reachable from the protected head (`base_unknown`) and an ancestor of
@@ -334,15 +339,16 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
 
 `peerbox` covers:
 - the policy body: peerbox rules admitted by the owner's other host and another person's
-  host; an empty `peerbox_rules`, an unknown key, two rules for one peerbox, `submit` without
+  host; an empty `peerbox_rules`, an unknown key, one principal in two rules of one peerbox, `submit` without
   `read`, and `max_pending` 0 with `submit` refused; rules kept across a renewal;
 - authorization: an unknown peerbox and one the sender may not read, both 404 `unknown`;
   `list` showing only readable peerboxes; `submit` without `peerbox.submit` 403; a lapsed
   sender with and without `allow_disconnected`; a grant or `target_agent_id` 400;
 - create: the disclosure summary, refusal by default, and `--yes`;
 - fetch: the bundle verifies and holds exactly the protected head; `have` shortens it; a
+  repeat fetch with the head in `have` succeeding with no artifact; a
   `have` outside the protected branch changes nothing; `too_large`;
-- submit: a valid contribution stored under the member ref; `pending_limit`; branch names
+- submit: a valid contribution stored under the member ref; `pending_limit`, and a replacement at the same member ref accepted at the limit; branch names
   refused; `base_unknown` and `base_not_ancestor`; hostile bundles (a mutated byte, a ref
   outside `refs/heads/`, an option-like ref name, a tree with `.git` paths or hooks) storing
   nothing; superseding; a peer unable to write the protected branch or another member's ref;
