@@ -12,6 +12,10 @@ runtime_* suites; the shared fixtures are runtime_common.py.
 The second harness and per-profile images (RUN-12, RUN-13): `claude` gets its own harness directory and an Anthropic
 key, and the fake is also started with `--unpullable-image`, naming one image it cannot pull.
 
+Removing the workspace (RUN-16): every request has `peerfs_discard` true, so after a commit, or a run that changed
+nothing, the fork's workspace directory is gone and its branch is read by a run forked from it on the fake; after a
+failed commit the workspace stays.
+
 Written from docs/runtime-agent-contract.md only (cited as "agents <section>"), with the runtime task, task and
 launch contracts it builds on. No VM, no KVM, no peerfs, no model calls.
 """
@@ -167,6 +171,23 @@ def workspace(name):
     return state["rt"].dir / "peerfs" / name
 
 
+def on_branch(branch, path):
+    """PATH's text on BRANCH, read by a run on the fake forked from it (RUN-16: the branch outlives its workspace);
+    None when the run cannot read it."""
+    rt, = need("rt")
+    rid = "run_" + os.urandom(32).hex()
+    status, body = rt.api("POST", "/v1/runs", {
+        "run_id": rid, "argv": ["cat", path], "cwd": "/workspace", "env": {}, "workspace_archive": None,
+        "resources": {"cpus": 1, "memory_mib": 128, "timeout_seconds": 60}, "results": "none",
+        "peerfs_workspace": "reader." + os.urandom(4).hex(), "peerfs_fork_from": branch})
+    check(status == 201, f"a run forked from {branch}: {status} {body}")
+    done = wait_for(lambda: rt.entries("exited", rid), timeout=10, message="the run forked from the branch")[-1]
+    if not done["started"] or done["result"]["exit_code"] != 0:
+        return None
+    out = rt.api("GET", f"/v1/runs/{rid}/events")[1]
+    return b"".join(base64.b64decode(e["data"]) for e in out if e["kind"] == "stdout").decode()
+
+
 def activity_kinds():
     status, body = state["a"].api("GET", "/v1/activity?limit=1000")
     check(status == 200 and isinstance(body, list), f"GET /v1/activity: {status} {str(body)[:200]}")
@@ -254,7 +275,10 @@ def _():
              "peerfs_commit_message": "fixture", "stdin": base64.b64encode(b"write a.txt b ; echo done").decode()}
     for label, fields in (("network", {"network": "lan"}), ("stdin", {"stdin": "%%"}), ("harness", {"harness": "x"}),
                           ("secrets", {"secrets": {"..": "/x"}}), ("peerfs_agent", {"peerfs_agent": "Bad"}),
-                          ("peerfs_commit_message", {"peerfs_commit_message": ""}), ("unknown", {"surprise": 1})):
+                          ("peerfs_commit_message", {"peerfs_commit_message": ""}), ("unknown", {"surprise": 1}),
+                          ("peerfs_discard", {"peerfs_discard": "yes"}),
+                          ("peerfs_discard without a commit", {"peerfs_discard": True, "peerfs_commit": False,
+                                                               "peerfs_commit_message": None})):
         (status, body), _ = start(**{**agent, **fields})
         check(status == 400 and body["code"] == "invalid", f"{label}: {status} {body}")
     (status, _), rid = start(**agent)
@@ -556,8 +580,8 @@ def _():
     want = {"cwd": "/workspace", "env": {}, "resources": {"cpus": 3, "memory_mib": 3072, "timeout_seconds": 300},
             "network": "none", "workspace_archive": None, "results": "none", "peerfs_workspace": fork(task_id),
             "peerfs_fork_from": "main", "peerfs_agent": "codex", "peerfs_commit": True,
-            "peerfs_commit_message": f"{task_id} from {b.id}", "stdin": base64.b64encode(prompt.encode()).decode(),
-            "harness": str(state["harness"])}
+            "peerfs_commit_message": f"{task_id} from {b.id}", "peerfs_discard": True,
+            "stdin": base64.b64encode(prompt.encode()).decode(), "harness": str(state["harness"])}
     wrong = {k: body.get(k) for k, v in want.items() if body.get(k) != v}
     check(not wrong, f"the request differs from the contract: {wrong}")
     secrets = body.get("secrets") or {}
@@ -592,8 +616,8 @@ def _():
           f"argv does not run claude -p: {argv}")
     want = {"image": GLIBC_IMAGE, "harness": str(state["claude_harness"]), "peerfs_workspace": fork(task_id, "claude"),
             "peerfs_fork_from": "main", "peerfs_agent": "claude", "peerfs_commit": True,
-            "peerfs_commit_message": f"{task_id} from {b.id}", "stdin": base64.b64encode(prompt.encode()).decode(),
-            "cwd": "/workspace", "env": {}, "network": "internet", "workspace_archive": None, "results": "none"}
+            "peerfs_commit_message": f"{task_id} from {b.id}", "peerfs_discard": True,
+            "stdin": base64.b64encode(prompt.encode()).decode(), "cwd": "/workspace", "env": {}, "network": "internet", "workspace_archive": None, "results": "none"}
     wrong = {k: body.get(k) for k, v in want.items() if body.get(k) != v}
     check(not wrong, f"the request differs from the contract: {wrong}")
     secrets = body.get("secrets") or {}
@@ -608,7 +632,8 @@ def _():
     key_nowhere(key=state["anthropic_key"], key_file=state["anthropic_file"])
 
 
-@suite.case("lifecycle_succeeded", "agents Transitions; The output (Branch: NAME at commit ID); The branch")
+@suite.case("lifecycle_succeeded", "agents Transitions; The output (Branch: NAME at commit ID); The branch; "
+                                   "The workspace (RUN-16)")
 def _():
     task_id, found = need("lifecycle")[0]
     check(kinds(found) == ["queued", "accepted", "succeeded"], f"events {kinds(found)}")
@@ -616,12 +641,14 @@ def _():
     check(isinstance(commit, str) and COMMIT.match(commit), f"the runtime's commit {commit!r}")
     check(found[-1]["output"] == f"done\n\nBranch: {fork(task_id)} at commit {commit}",
           f"output {found[-1]['output']!r}")
-    check((workspace(fork(task_id)) / "notes.txt").read_text() == "hello", "the fork does not hold the write")
+    check(not workspace(fork(task_id)).exists(), "the fork's workspace was kept after the commit (RUN-16)")
+    check(on_branch(fork(task_id), "notes.txt") == "hello", "the fork's branch does not hold the write")
     check(sorted(p.name for p in workspace("main").iterdir()) == ["README"]
           and (workspace("main") / "README").read_text() == "main seed\n", "from_branch changed")
 
 
-@suite.case("failure_and_empty_output", "agents Transitions; The output (a failing exit, exit N, unchanged from FROM)")
+@suite.case("failure_and_empty_output", "agents Transitions; The output (a failing exit, exit N, unchanged from FROM); "
+                                        "The workspace (RUN-16: none kept after a commit or no change)")
 def _():
     need("ready")
     ready("codex")
@@ -635,6 +662,7 @@ def _():
         line = (f"Branch: {fork(task_id)} at commit {exited(task_id)['commit']}" if how
                 else f"Branch: {fork(task_id)}, unchanged from main")
         check(got == message and trailer == line, f"output {evs[-1]['output']!r}, want {message!r} and {line!r}")
+        check(not workspace(fork(task_id)).exists(), f"{message}: the fork's workspace was kept (RUN-16)")
 
 
 @suite.case("before_the_start", "agents Transitions (queued to failed); The output (Branch: none, the bound); "
@@ -782,7 +810,7 @@ def _():
     check(final["kind"] == "cancelled" and final["output"]
           == f"cancelled\n\nBranch: {fork(task_id)} at commit {exited(task_id)['commit']}",
           f"cancelled while running: {final['kind']} {final.get('output')!r}")
-    check((workspace(fork(task_id)) / "c.txt").read_text() == "partial", "the partial work was not kept")
+    check(on_branch(fork(task_id), "c.txt") == "partial", "the partial work was not kept on the branch")
 
 
 @suite.case("restarts", "agents Running (the stored request, resends); runtime The runtime's local API "
@@ -826,7 +854,7 @@ def _():
 
 
 @suite.case("failed_commit", "agents Transitions (a run result with error fails the task); The output (not "
-                             "committed: ERROR)")
+                             "committed: ERROR); The workspace (kept after a failed commit, RUN-16)")
 def _():
     need("ready")
     ready("codex")
@@ -838,6 +866,8 @@ def _():
         check(final["kind"] == "failed" and final["output"]
               == f"wrote it\n\nBranch: {fork(task_id)}, not committed: {error}",
               f"a failed commit: {final['kind']} {final.get('output')!r}")
+        check((workspace(fork(task_id)) / "k.txt").read_text() == "z",
+              "the fork's workspace does not hold the write after a failed commit")
     finally:
         fake()
 
