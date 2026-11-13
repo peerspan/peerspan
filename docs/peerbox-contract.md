@@ -71,7 +71,7 @@ write the protected branch or another person's member ref.
 
 | `op` | Other fields | Artifacts | Result |
 | --- | --- | --- | --- |
-| `list` | none | none | `{"peerboxes": [...]}` |
+| `list` | optional `after` (a peerbox ID) | none | `{"peerboxes": [...], "next"}` |
 | `fetch` | `peerbox_id`; optional `have`, 0 to 32 distinct commit IDs | none | `{"head", "bundle_sha256", "size"}` and the result artifact `peerbox.bundle`, or no artifact when the caller has the head |
 | `submit` | `peerbox_id`, `base`, `branch`, `bundle` (a digest) | the bundle | the contribution record |
 | `status` | `peerbox_id`; optional `contribution_id` or `before` (a contribution ID) | none | `{"contributions": [...], "next"}` |
@@ -88,7 +88,10 @@ is a runtime task's `run` without `workspace`, which is 400.
 result as their final `output`, a JSON object written as text, or `failed` with
 `{"error": CODE, "message": TEXT}`. A `run` follows the runtime task contract from its
 checks on (Runs, below). An entry of `peerboxes` is `{peerbox_id, title, branch, head,
-actions}`, where `actions` are the caller's.
+actions}`, where `actions` are the caller's. Entries are in ascending `peerbox_id` order,
+after `after` when given; the home host returns as many whole entries as fit the task
+contract's 65,536-byte output, and `next` is the last returned ID when more remain, else
+null.
 
 ## Authorization
 
@@ -313,7 +316,7 @@ decision durably; the contributor reads it with `status`.
 | `peerbox review [PEERBOX] [--json]` | Pending contributions with contributor, base, head, `git diff --stat` and runs. |
 | `peerbox review CONTRIBUTION (--accept \| --reject) [--reason TEXT]` | Records the decision (Review); exits 1 with the code on a 409. |
 | `peerbox join [--repository DIR] [--invite-stdin]` | Joins the network from a `psb1-` code, then waits for the peerbox and fetches it (Invitations for new participants). |
-| `peerbox list --peer HOST [--json]` | Submits `list` and prints the peerboxes. |
+| `peerbox list --peer HOST [--json]` | Submits `list`, following `next` until null, and prints the peerboxes. |
 | `peerbox fetch --peer HOST PEERBOX --repository DIR` | Submits `fetch` with `have` from DIR's refs for that peerbox, verifies as above and sets `refs/peerbox/PEERBOX/BRANCH` in DIR, initializing DIR when absent. |
 | `peerbox submit --peer HOST PEERBOX --repository DIR --branch NAME [--base COMMIT]` | Bundles NAME in DIR, excluding history reachable from `--base` (default: the merge base of NAME and the fetched ref), uploads it and submits. |
 | `peerbox status --peer HOST PEERBOX [CONTRIBUTION] [--json]` | Submits `status` and prints it. |
@@ -350,7 +353,8 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   host; an empty `peerbox_rules`, an unknown key, one principal in two rules of one peerbox, `submit` without
   `read`, and `max_pending` 0 with `submit` refused; rules kept across a renewal;
 - authorization: an unknown peerbox and one the sender may not read, both 404 `unknown`;
-  `list` showing only readable peerboxes; `submit` without `peerbox.submit` 403; a lapsed
+  `list` showing only readable peerboxes, and paging with `after` and `next` when they do not
+  fit one output; `submit` without `peerbox.submit` 403; a lapsed
   sender with and without `allow_disconnected`; a grant or `target_agent_id` 400;
 - create: the disclosure summary, refusal by default, and `--yes`;
 - fetch: the bundle verifies and holds exactly the protected head; `have` shortens it; a
