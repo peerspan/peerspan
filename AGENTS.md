@@ -69,8 +69,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   checks, blobs kept, reference last); pull, proxy paths and privacy, refusals,
   verification failures, byte bound and resumption, a 17 MiB object, withdrawal,
   reset, S stopping, concurrency and cancellation; then agents' grants, the grants
-  file, the adapter routes, `deny-pull` and `fs.pulled`. Full tier (405 + 234 lines
-  plus 380 shared; 68 and 31 seconds measured). The other-account proxy check needs
+  file, the adapter routes, `deny-pull` and `fs.pulled`. Full tier (444 + 234 lines
+  plus 392 shared; 66 to 109 and 31 seconds measured). The other-account proxy check needs
   root and is skipped elsewhere.
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).
