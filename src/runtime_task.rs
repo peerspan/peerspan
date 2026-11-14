@@ -140,6 +140,17 @@ pub(crate) struct Internal {
     /// The run wrote more stdout than kept, not all whitespace.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stdout_more: bool,
+    /// A peerbox run: the workspace archive the host built from the
+    /// commit's tree (peerbox contract, Runs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<PathBuf>,
+    /// A peerbox run: the owner's policy version it was dispatched under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_version: Option<u64>,
+    /// The final event's message when the host itself cancelled the run
+    /// (peerbox contract, Withdrawal: `access withdrawn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_message: Option<String>,
 }
 
 fn invalid(field: &str) -> Error {
@@ -330,6 +341,18 @@ fn authorize(
     sender: &str,
     r: &TaskRequest,
 ) -> Result<RuntimeRule, Error> {
+    let run = r.run.as_ref().ok_or_else(|| invalid("run"))?;
+    authorize_run(store, conn, sender, r, run)
+}
+/// Checks 1 to 3 with `run` in place of the request's own: a peerbox run's
+/// (peerbox contract, Checks 4).
+pub(crate) fn authorize_run(
+    store: &Store,
+    conn: &Connection,
+    sender: &str,
+    r: &TaskRequest,
+    run: &RunSpec,
+) -> Result<RuntimeRule, Error> {
     if store.runtime_switch()?.is_none() {
         return Err(forbidden("runtime_disabled", "this host's runtime is off"));
     }
@@ -403,7 +426,6 @@ fn authorize(
         if store.blocked(conn, sender)? {
             return Err(Error::Forbidden);
         }
-        let run = r.run.as_ref().ok_or_else(|| invalid("run"))?;
         let res = run.resources.clone().unwrap_or_default();
         let over = |v: Option<i64>, max: i64| v.is_some_and(|v| v > max);
         if over(res.cpus, rule.max_cpus)
@@ -487,6 +509,75 @@ pub(crate) fn dispatched(conn: &Connection, sender: &str, task_id: &str) -> Resu
     Ok(internal(conn, sender, task_id)?.dispatched)
 }
 
+/// Records a peerbox run just received (peerbox contract, Runs) with the
+/// internal run fields of a runtime task and the bounds it was accepted
+/// under. The runtime worker starts it once its archive is ready.
+pub(crate) fn mark_peerbox_run(
+    tx: &Transaction<'_>,
+    sender: &str,
+    task_id: &str,
+    rule: RuntimeRule,
+) -> Result<(), Error> {
+    save_internal(
+        tx,
+        sender,
+        task_id,
+        &Internal {
+            run_id: run_id(sender, task_id),
+            bounds: Some(rule),
+            ..Default::default()
+        },
+    )
+}
+/// A peerbox run's workspace archive is built: the runtime worker takes the
+/// task from here, as a runtime task.
+pub(crate) fn peerbox_run_ready(
+    tx: &Transaction<'_>,
+    sender: &str,
+    task_id: &str,
+    archive: PathBuf,
+) -> Result<(), Error> {
+    let mut i = internal(tx, sender, task_id)?;
+    i.archive = Some(archive);
+    save_internal(tx, sender, task_id, &i)?;
+    tx.execute(
+        "UPDATE received_tasks SET record = json_set(record, '$.peerbox_run', json('true')) WHERE sender = ?1 AND task_id = ?2",
+        params![sender, task_id],
+    )?;
+    Ok(())
+}
+/// Cancels a started peerbox run as an owner's cancel would, its final
+/// event's message `access withdrawn` (peerbox contract, Withdrawal).
+fn cancel_withdrawn(store: &Store, sender: &str, task_id: &str) -> Result<(), Error> {
+    {
+        let mut conn = store.connection()?;
+        let tx = conn.transaction()?;
+        let mut i = internal(&tx, sender, task_id)?;
+        i.cancel_message = Some("access withdrawn".into());
+        save_internal(&tx, sender, task_id, &i)?;
+        tx.commit()?;
+    }
+    store.cancel_received(sender, task_id)?;
+    Ok(())
+}
+/// Whether a received task is a peerbox run handed to the runtime worker.
+fn is_peerbox_run(conn: &Connection, sender: &str, task_id: &str) -> Result<bool, Error> {
+    let flag: Option<bool> = conn.query_row(
+        "SELECT json_extract(record, '$.peerbox_run') FROM received_tasks WHERE sender = ?1 AND task_id = ?2",
+        params![sender, task_id],
+        |r| r.get(0),
+    )?;
+    Ok(flag.unwrap_or(false))
+}
+/// The owner's policy version a peerbox run was dispatched under.
+pub(crate) fn dispatched_policy_version(
+    conn: &Connection,
+    sender: &str,
+    task_id: &str,
+) -> Result<Option<u64>, Error> {
+    Ok(internal(conn, sender, task_id)?.policy_version)
+}
+
 /// Accepts a runtime task as `queued`, idempotently by sender and task ID.
 pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<TaskStatus, Error> {
     validate(&r)?;
@@ -566,6 +657,9 @@ pub(crate) fn cancel_requested(
 ) -> Result<(), Error> {
     if status.state == "queued" && !internal(tx, sender, &status.task_id)?.dispatched {
         record(tx, sender, status, "cancelled", None, None, None)?;
+        if is_peerbox_run(tx, sender, &status.task_id)? {
+            crate::peerbox::update_run(tx, sender, &status.task_id, "cancelled", None)?;
+        }
     }
     Ok(())
 }
@@ -628,23 +722,31 @@ struct Task {
     internal: Internal,
     /// A runtime agent's task rather than a runtime task.
     agent: bool,
+    /// A peerbox run (peerbox contract, Runs): `request.run` is the
+    /// peerbox operation's.
+    peerbox: bool,
 }
 fn load(conn: &Connection, sender: &str, task_id: &str) -> Result<Option<Task>, Error> {
-    let Some((request, status)) = received(conn, sender, task_id)? else {
+    let Some((mut request, status)) = received(conn, sender, task_id)? else {
         return Ok(None);
     };
+    let peerbox = request.is_peerbox_run();
+    if peerbox && request.run.is_none() {
+        request.run = request.peerbox.as_ref().and_then(|p| p.run.clone());
+    }
     Ok(Some(Task {
         sender: sender.into(),
         request,
         status,
         internal: internal(conn, sender, task_id)?,
         agent: is_agent_task(conn, sender, task_id)?,
+        peerbox,
     }))
 }
 /// Runtime tasks not yet final, in `created_at` order.
 fn open_tasks(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
     let mut statement = conn.prepare(
-        "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1) AND json_extract(record, '$.state') IN ('queued', 'running') ORDER BY json_extract(record, '$.created_at'), rowid",
+        "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1 OR json_extract(record, '$.peerbox_run') = 1) AND json_extract(record, '$.state') IN ('queued', 'running') ORDER BY json_extract(record, '$.created_at'), rowid",
     )?;
     statement
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -713,6 +815,18 @@ fn finish(
     } else {
         (kind, output, artifacts)
     };
+    // A cancellation the host made itself names its reason.
+    let message = match message {
+        None if kind == "cancelled" => t.internal.cancel_message.clone(),
+        m => m,
+    };
+    if t.peerbox {
+        let exit_code = output
+            .as_deref()
+            .and_then(|o| serde_json::from_str::<Value>(o).ok())
+            .and_then(|v| v["exit_code"].as_i64());
+        crate::peerbox::update_run(&tx, sender, task_id, kind, exit_code)?;
+    }
     // A runtime agent's final event records `task.run_exited` itself.
     if !t.agent && kind != "rejected" && kind != "cancelled" && status.state == "running" {
         append_event(
@@ -748,6 +862,10 @@ fn finish(
         save_internal(&tx, sender, task_id, &i)?;
     }
     tx.commit()?;
+    // A peerbox run's archive is not needed once the task is final.
+    if let Some(archive) = &i.archive {
+        let _ = std::fs::remove_file(archive);
+    }
     Ok(())
 }
 
@@ -757,7 +875,7 @@ async fn clean_up(store: &Arc<Store>) -> Result<(), Error> {
     let pending = crate::api::blocking(store.clone(), |s| {
         let conn = s.connection()?;
         let mut statement = conn.prepare(
-            "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1) AND json_extract(record, '$.runtime.cleanup') = 1",
+            "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1 OR json_extract(record, '$.peerbox_run') = 1) AND json_extract(record, '$.runtime.cleanup') = 1",
         )?;
         let keys = statement
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
@@ -823,8 +941,10 @@ fn start_body(store: &Store, t: &Task) -> Result<Value, Error> {
         .as_ref()
         .ok_or_else(|| Error::Internal(anyhow::anyhow!("a runtime task without bounds")))?;
     let res = run.resources.clone().unwrap_or_default();
-    let archive = match &run.workspace {
-        Some(Workspace::Archive(sha)) => Some(
+    let archive = match (&run.workspace, &t.internal.archive) {
+        // A peerbox run's archive, built from the commit's tree.
+        (_, Some(path)) if t.peerbox => Some(path.to_string_lossy().into_owned()),
+        (Some(Workspace::Archive(sha)), _) => Some(
             store
                 .artifact_dir()
                 .join(sha)
@@ -986,6 +1106,24 @@ async fn pass(
             follow(store, following, shutdown, key, false);
         }
     }
+    // A started peerbox run whose sender no longer matches `peerbox.run` in
+    // a policy version stored since its dispatch is cancelled (peerbox
+    // contract, Withdrawal; PBX-4).
+    for (t, _) in &tasks {
+        if t.peerbox
+            && (t.internal.dispatched || t.status.state == "running")
+            && !t.status.cancel_requested
+        {
+            let (sender, id) = (t.sender.clone(), t.status.task_id.clone());
+            crate::api::blocking(store.clone(), move |s| {
+                if crate::peerbox_task::run_withdrawn(s, &sender, &id)? {
+                    cancel_withdrawn(s, &sender, &id)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+    }
     for (t, ready) in tasks {
         let key = (t.sender.clone(), t.status.task_id.clone());
         if t.internal.dispatched || t.status.state == "running" {
@@ -1047,14 +1185,48 @@ async fn pass(
             if is_agent_task(&tx, &sender, &id)? {
                 return dispatch_agent(s, tx, &sender, &request, status);
             }
-            let rule = match authorize(s, &tx, &sender, &request) {
-                Ok(rule) => rule,
+            let peerbox = is_peerbox_run(&tx, &sender, &id)?;
+            // A peerbox run is checked again under its peerbox rule
+            // (peerbox contract, Checks) and its runtime rule.
+            let checked = if peerbox {
+                crate::peerbox_task::recheck_run(s, &tx, &sender, &request).and_then(
+                    |(rule, version)| {
+                        // The prepared workspace archive is the run's input:
+                        // it stays within the rule now authorizing the start
+                        // (runtime task contract, Checks 3, rechecked before
+                        // the run starts).
+                        let size = internal(&tx, &sender, &id)?
+                            .archive
+                            .and_then(|path| std::fs::metadata(path).ok())
+                            .map_or(0, |m| i64::try_from(m.len()).unwrap_or(i64::MAX));
+                        if size > rule.max_artifact_bytes {
+                            return Err(Error::Coded {
+                                status: 403,
+                                code: "too_large",
+                                message: format!(
+                                    "the workspace archive is {size} bytes, over the runtime rule's max_artifact_bytes {}",
+                                    rule.max_artifact_bytes
+                                ),
+                                extra: Default::default(),
+                            });
+                        }
+                        Ok((rule, Some(version)))
+                    },
+                )
+            } else {
+                authorize(s, &tx, &sender, &request).map(|rule| (rule, None))
+            };
+            let (rule, version) = match checked {
+                Ok(checked) => checked,
                 Err(Error::Unavailable(_)) => return Ok(None),
                 Err(e) => {
                     let reason = match e {
                         Error::Coded { message, .. } => message,
                         _ => crate::task::LAPSED.into(),
                     };
+                    if peerbox {
+                        crate::peerbox::update_run(&tx, &sender, &id, "rejected", None)?;
+                    }
                     record(
                         &tx,
                         &sender,
@@ -1077,6 +1249,7 @@ async fn pass(
             i.bounds = Some(rule);
             i.dispatched = true;
             i.socket = Some(socket.clone());
+            i.policy_version = version;
             save_internal(&tx, &sender, &id, &i)?;
             tx.commit()?;
             Ok(Some(socket))
@@ -1409,6 +1582,9 @@ fn apply(
             "started" if t.status.state == "queued" => {
                 t.internal.started = true;
                 record(&tx, sender, &mut t.status, "accepted", None, None, None)?;
+                if t.peerbox {
+                    crate::peerbox::update_run(&tx, sender, id, "running", None)?;
+                }
                 // A runtime agent's `accepted` records `task.run_started` itself.
                 if !t.agent {
                     append_event(&tx, "task.run_started", &format!("{sender}/{id}"), &now())?;
