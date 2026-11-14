@@ -189,19 +189,27 @@ pub(crate) fn came_through(
     save(conn, &share)
 }
 
-/// Whether this host's record of the join request noted as `came` holds
-/// the network administrator's admission of that exact request, for that
-/// person as a new person: a request that folded into an existing person
-/// needs no administrator and never counts.
-fn admitted(conn: &Connection, came: &Came) -> bool {
-    let Ok(request) = crate::decentralized::requests::load(conn, &came.request_id) else {
-        return false;
-    };
-    let r = &request.record;
-    r.mode == "new"
-        && r.expected_person_public_key == came.person_public_key
-        && r.administrator_packet_base64 != "-"
-        && r.administrator_offer_id != "-"
+/// Whether the network's verified activations hold a network
+/// administrator's admission of exactly the request noted as `came`, for
+/// that person as a new person (Invitations for new participants 3, 4): a
+/// request that folded into an existing person needs no administrator and
+/// never counts, and a person merely present proves nothing.
+fn admitted(store: &Store, conn: &Connection, network: &str, came: &Came) -> bool {
+    // This host records each activation it verified; only such a request
+    // is read from the projection.
+    let recorded: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM dec_activations WHERE network_id = ?1 AND request_id = ?2)",
+            params![network, came.request_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(false);
+    recorded
+        && store
+            .product_admitted_new_person(conn, network, &came.request_id)
+            .ok()
+            .flatten()
+            .is_some_and(|person| person == came.person_public_key)
 }
 
 /// Deletes the pending shares that ended without an admission, or whose
@@ -271,8 +279,11 @@ fn pass(store: &Store) -> Result<(), Error> {
             }
             // The person of a request whose admission this host holds, once
             // they are a member: never a person merely present.
-            let evidenced: Vec<&Came> =
-                share.requests.iter().filter(|r| admitted(&tx, r)).collect();
+            let evidenced: Vec<&Came> = share
+                .requests
+                .iter()
+                .filter(|r| admitted(store, &tx, &share.network_id, r))
+                .collect();
             if evidenced.is_empty() {
                 continue;
             }
