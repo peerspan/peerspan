@@ -141,6 +141,7 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question.
 - **Note:** the bound is checked on the bytes S has answered, so a pull may exceed it by at most one 16 MiB answer; and since PeerFS keeps only checked blobs from a failed pull, a resumed pull fetches the trees and commits again. Both are contract choices within PF-11.
+- **Note:** a fetch the proxy stops part way is answered with the objects already held for it, so PeerFS keeps the blobs it checks and a pull stopped by its bound resumes from what was fetched, as the chosen option says. The contract first answered such a fetch 507, which discarded them; the implementer found this end to end (PF-3 part 1: with a 30 MiB bound, the rerun fetched 19.9 MB, and 3.3 MB after the change). A contract choice within PF-11.
 
 ### PF-06: an object larger than an objects answer (2026-11-14)
 
