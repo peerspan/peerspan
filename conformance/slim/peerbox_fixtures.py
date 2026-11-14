@@ -1,9 +1,10 @@
 """Git fixture builders of the peerbox suites, and a host-free self-check of all of them.
 
-Every case of peerbox.py, peerbox_runs.py and peerbox_agents.py stops at the first peerbox command until the contract is implemented,
-so fixture code after that point would otherwise never run before review. The cases build their repositories,
-commits and bundles only through the functions here, and each suite runs `self_check` as its first case (no
-expected-failure marker): a fixture that does not produce what a case expects is a FAIL, never an XFAIL.
+Every case of peerbox.py, peerbox_runs.py, peerbox_agents.py and peerbox_proposals.py stops at the first
+unimplemented peerbox command, so fixture code after that point would otherwise never run before review. The cases
+build their repositories, commits and bundles only through the functions here, and each suite runs `self_check` (or,
+for peerbox_proposals.py, `proposal_check`) as its first case (no expected-failure marker): a fixture that does not
+produce what a case expects is a FAIL, never an XFAIL.
 
 Written from docs/peerbox-contract.md only; uses the system `git` and nothing of the host.
 """
@@ -456,3 +457,73 @@ def unbundle_fails(data, work, clone):
     except AssertionError:
         return True
     return False
+
+
+# peerbox_proposals: a repository whose path and identities hold terminal escapes, and a git that can be held.
+
+HOSTILE_DIR = "box\x1b[2J\x07\u009b\"q\\name"  # a directory name (so the default title): ESC, BEL, a C1 CSI, " and \\
+# (name, email) of the hostile commit's author and committer: control characters and escape sequences inside.
+HOSTILE_AUTHOR = ("Eve\x1b[31m Evil", "eve\x07@example.test")
+HOSTILE_COMMITTER = ("Mal\x1b]0;owned\x07lory", "mal\u0085@example.test")
+
+
+def hostile_repo(parent):
+    """A repository at PARENT/HOSTILE_DIR whose main is a first commit by the suite's identities and a second whose
+    author and committer are HOSTILE_AUTHOR and HOSTILE_COMMITTER, written as a raw commit object so Git's own
+    identity checks cannot clean them. Returns {repo, main, identities}, identities sorted by name, then email, as UTF-8 bytes."""
+    repo = init_repo(Path(parent) / HOSTILE_DIR)
+    first = commit_files(repo, {"README": "hostile\n"}, "first")
+    tree = git(repo, "rev-parse", f"{first}^{{tree}}")
+    (an, ae), (cn, ce) = HOSTILE_AUTHOR, HOSTILE_COMMITTER
+    raw = (f"tree {tree}\nparent {first}\nauthor {an} <{ae}> 1700000000 +0000\n"
+           f"committer {cn} <{ce}> 1700000000 +0000\n\nhostile identities\n").encode()
+    main = git(repo, "hash-object", "-t", "commit", "-w", "--literally", "--stdin", input=raw)
+    git(repo, "update-ref", "refs/heads/main", main)
+    ids = {("Ada Author", "ada@example.test"), ("Cy Committer", "cy@example.test"), HOSTILE_AUTHOR, HOSTILE_COMMITTER}
+    ordered = sorted(ids, key=lambda p: (p[0].encode(), p[1].encode()))
+    return {"repo": repo, "main": main, "identities": [{"name": n, "email": e} for n, e in ordered]}
+
+
+def held_git(directory):
+    """A `git` wrapper in DIRECTORY that sleeps 60 seconds before running git while DIRECTORY/hold exists, for a
+    daemon started with DIRECTORY first on its PATH. Returns (directory, the flag file)."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    flag = directory / "hold"
+    (directory / "git").write_text(f"#!/bin/sh\n[ -f {flag} ] && sleep 60\nexec {shutil.which('git')} \"$@\"\n")
+    (directory / "git").chmod(0o755)
+    return directory, flag
+
+
+def proposal_check(work):
+    """The peerbox_proposals fixtures, built in WORK and checked to be what its cases expect."""
+    began = time.monotonic()
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    hostile = hostile_repo(work)
+    repo = hostile["repo"]
+    check(repo.name == HOSTILE_DIR and '"' in repo.name and "\\" in repo.name and "\x1b" in repo.name
+          and repo.is_dir() and rev(repo, "main") == hostile["main"]
+          and git(repo, "rev-list", "--count", "main") == "2", "the hostile repository")
+    shown = git(repo, "log", "-1", "--format=%an%x00%ae%x00%cn%x00%ce", "main").split("\0")
+    check(shown == [*HOSTILE_AUTHOR, *HOSTILE_COMMITTER], f"the hostile identities as git reads them: {shown!r}")
+    pairs = set()
+    for line in git(repo, "log", "--format=%an%x00%ae%x00%cn%x00%ce", "main").split("\n"):  # U+0085 is no break
+        n1, e1, n2, e2 = line.split("\0")
+        pairs |= {(n1, e1), (n2, e2)}
+    check(sorted(pairs, key=lambda p: (p[0].encode(), p[1].encode()))
+          == [(i["name"], i["email"]) for i in hostile["identities"]], f"the distinct identities {sorted(pairs)}")
+    check(git(repo, "status", "--porcelain") == "", "the hostile repository's worktree is not clean")
+    wrapper, flag = held_git(work / "held")
+    env = {**os.environ, "PATH": f"{wrapper}:{os.environ.get('PATH', '')}"}
+    p = subprocess.run(["git", "--version"], env=env, capture_output=True, timeout=10)
+    check(p.returncode == 0 and p.stdout.startswith(b"git version"), "the git wrapper without the flag")
+    flag.write_text("1")
+    held = subprocess.Popen(["git", "--version"], env=env, stdout=subprocess.DEVNULL, start_new_session=True)
+    time.sleep(1)
+    still = held.poll() is None
+    os.killpg(held.pid, 9)
+    held.wait()
+    flag.unlink()
+    check(still, "the git wrapper did not hold while its flag existed")
+    return time.monotonic() - began

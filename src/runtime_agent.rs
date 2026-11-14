@@ -339,6 +339,7 @@ pub(crate) fn run_body(
         "peerfs_agent": agent_name,
         "peerfs_commit": true,
         "peerfs_commit_message": format!("{} from {sender}", request.task_id),
+        "peerfs_discard": true,
         "stdin": STANDARD.encode(request.input.as_bytes()),
         "harness": profile.harness_dir,
         "secrets": { name: secret },

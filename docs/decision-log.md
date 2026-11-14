@@ -15,6 +15,8 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
+  - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
   - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
   - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
   - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
@@ -71,6 +73,70 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: an agent prepares `peerbox create`, `share` or `invite`, and the owner confirms it with one approval before the home host carries it out.
+- **Source:** the owner approved drafting an "agent-proposed, human-confirmed" amendment on 2026-11-13; the options are those of the amendment's [Decisions](peerbox-contract.md#decisions).
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Agent proposals](peerbox-contract.md#agent-proposals).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all six".
+
+#### PBX-16. Where the person approves
+
+- **Options:** (a) "The existing `approvals`, `approve` and `deny` commands, with a `pbp_` ID form." (b) "New `peerbox proposals`, `peerbox approve` and `peerbox decline` commands."
+- **Chosen:** a.
+- **Reason given:** "one place to look, and the terminal rule and its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged."
+
+#### PBX-17. What lets an agent propose
+
+- **Options:** (a) "A credential flag, `peerbox_proposals`, asked at `attach` and default no, like `calls`." (b) "A route action `peerbox.propose` naming this host." (c) "Every credential."
+- **Chosen:** a.
+- **Reason given:** "routes name a peer and cite its policy, and a proposal has neither; (c) puts approval requests in front of people who never chose them."
+
+#### PBX-18. Whom an agent may propose to share with
+
+- **Options:** (a) "`person:` principals that are current members, at most 64." (b) "Every principal a rule accepts, `network` included."
+- **Chosen:** a.
+- **Reason given:** "each person is named and resolved in the review; giving the whole network access stays a deliberate command."
+
+#### PBX-19. How long a proposal waits
+
+- **Options:** (a) "1 hour, fixed." (b) "Chosen by the agent, up to 24 hours." (c) "15 minutes, as a call."
+- **Chosen:** a.
+- **Reason given:** "the person is usually in the session that asked; a longer wait leaves stale requests in the list, and `review_changed` already covers a repository that moved."
+
+#### PBX-20. An explanation from the agent
+
+- **Options:** (a) "None in the record; the agent explains in its session." (b) "A `note` of up to 1,024 bytes, shown quoted and marked as the agent's."
+- **Chosen:** a.
+- **Reason given:** "the agent may be repeating another person's text, and the approval screen should show only what will happen."
+
+#### PBX-21. When the review changes before approval
+
+- **Options:** (a) "Recompute at execution and fail with `review_changed` on any difference." (b) "Show the new facts in the `approve` prompt and execute on them."
+- **Chosen:** a.
+- **Reason given:** "the approval then covers exactly what the person saw; (b) turns the digest into a check of the arguments only."
+
+### RUN-16: removing a finished task's workspace (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** runtime agents: what happens to a task's peerfs workspace when the task ends.
+- **Source:** issue [#210](https://github.com/peerspan/peerspan/issues/210) and the owner's answer to one question on 2026-11-13, after the real-repository run (docs-internal `docs/runtime.md`, "A real repository"): each task building peerspan left about 11 GB of build output in its workspace, and four tasks left 45 GB on the server until the workspaces were discarded by hand. The options and reason below are quoted from that question.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), Running (the branch and the workspace) and The runtime's local API (`peerfs_discard`).
+- **Implementing PRs:** [#223](https://github.com/peerspan/peerspan/pull/223) (host and contract) and [peerspan/runtime#23](https://github.com/peerspan/runtime/pull/23) (runtime).
+- **Question:** "For #210, a runtime agent's finished task leaves its peerfs workspace on the server, holding the build output (about 11 GB per task for peerspan). How should it be removed? Each task forks a fresh workspace named after the task, so no later task can reuse it; a build cache shared between tasks is #15."
+- **Options:**
+  - (a) Runtime discards: "A new optional run field, peerfs_discard, which the host sets for runtime agents. Once the commit succeeds, or nothing changed, the runtime runs `ws discard`, so only derived files go. If the commit fails, the workspace stays for the owner, as the contract already says. One atomic step; changes the runtime and both contracts."
+  - (b) Host discards after: "The host calls a new runtime endpoint, DELETE /v1/workspaces/NAME, after it records the result. More moving parts: a second request that can fail separately, and a new endpoint the runtime must authorize."
+  - (c) Keep for a retention: "The runtime discards finished task workspaces after a set time, say 24 h, so the build output can be inspected while debugging. Nothing can reuse it, so the disk cost stays until the timer fires."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a discard that fails changes neither the run's result nor its `error`, since the work is already committed; the runtime logs it. This is a contract choice within RUN-16.
 
 ### PBX-15: separating the gate's checker from the candidate (2026-11-13)
 

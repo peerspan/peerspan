@@ -35,7 +35,7 @@ none, and fails a run on a name it was not given before `started`. `GET /v1/runs
 Runtime agents (docs/runtime-agent-contract.md, "The runtime's local API" and Verification) add optional fields to
 `POST /v1/runs`, each checked as that contract says: `network` (`none`, the default, or `internet`; 422 `too_large`
 above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`, `peerfs_fork_from`, `peerfs_agent`,
-`peerfs_commit`, `peerfs_commit_message` and `image` (RUN-12).
+`peerfs_commit`, `peerfs_commit_message`, `peerfs_discard` (RUN-16) and `image` (RUN-12).
 - `image` is 1 to 1,024 bytes of printable ASCII without whitespace (otherwise 400 `invalid`). `GET /v1/runtime` reports
   `images` true unless started with `--images 0`; such a fake answers a run naming an `image` 422 `unavailable`. An
   image named with `--unpullable-image REF` (repeatable) fails the run before `started`, with an `error` saying the
@@ -55,6 +55,14 @@ above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`
   lowercase hex SHA-256 of the workspace's sorted paths and contents and the commit message, or null when nothing
   changed since the fork (or since the run started, without a fork). `--fail-commits 1` makes every commit fail:
   `commit` null and `error` set. The `exited` result carries `commit` for every run.
+- `peerfs_discard` is `true` or `false` (the default), and `true` only with `peerfs_commit` true (otherwise 400
+  `invalid`). With it true, once the run has started, either the commit was made or nothing changed, and the result
+  has no `error`, the fake
+  discards the workspace before logging `exited`: its directory under `--dir`/peerfs is moved to
+  `--dir`/peerfs/.branches/NAME, kept as the branch's contents, so the name no longer serves as a workspace (a run on
+  it fails before `started`, and a fork onto it is refused) while a later `peerfs_fork_from` naming the branch still
+  copies them, across restarts of the fake too. A result with `error` set (a failed commit or any other error), or
+  a run that never started, removes nothing; a failing exit that was committed is discarded. A discard that fails is logged (`discard_failed`) and changes neither the result nor its `error`.
 - `--requests FILE` appends one JSON line per `POST /v1/runs`, `{at, status, body}`, with `body` the request's raw
   text: its fields, `secrets` paths included but never their contents, so a suite can compare resends byte for byte.
 
@@ -90,7 +98,7 @@ RESOURCE_FIELDS = ("cpus", "memory_mib", "timeout_seconds")
 # runtime-agent-contract, The runtime's local API: optional fields and the value each takes when omitted.
 AGENT_DEFAULTS = {"network": "none", "stdin": None, "harness": None, "secrets": None, "peerfs_fork_from": None,
                   "peerfs_agent": "peerspan-runtime", "peerfs_commit": False, "peerfs_commit_message": None,
-                  "image": None}
+                  "peerfs_discard": False, "image": None}
 HARNESS_SECRETS = ("openai_api_key", "anthropic_api_key")  # runtime-agent-contract: one per harness
 IMAGE = re.compile(r"^[\x21-\x7e]{1,1024}$")  # printable ASCII without whitespace
 SECRET_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -230,6 +238,14 @@ class Run:
                 else:
                     message = self.request["peerfs_commit_message"]
                     commit = "01" + self.peerfs_digest(message)
+            if (self.request.get("peerfs_discard") and error is None
+                    and (commit is not None or after == self.before_digest)):
+                try:
+                    self.runtime.discard(self.peerfs)
+                except Exception as failure:  # noqa: BLE001 - RUN-16: logged, the result is unchanged
+                    self.runtime.log(event="discard_failed", run_id=self.run_id, error=str(failure))
+                else:
+                    self.runtime.log(event="discarded", run_id=self.run_id, workspace=self.peerfs)
         result = {"exit_code": exit_code if started else None, "signal": sig, "timed_out": timed_out,
                   "duration_ms": duration, "stdout_bytes": self.stdout_bytes, "stderr_bytes": self.stderr_bytes,
                   "snapshot": snapshot, "error": error, "commit": commit}
@@ -485,7 +501,8 @@ class Runtime:
         self.args = args
         self.root = tempfile.mkdtemp(prefix="fake-runtime-", dir=args.dir)
         self.start_delay = args.start_delay
-        self.peerfs = {}
+        self.peerfs = {}  # workspaces: name -> directory
+        self.branches = {}  # discarded workspaces whose branch stays (RUN-16): name -> directory of its contents
         self.peerfs_root = os.path.join(args.dir or tempfile.gettempdir(), "peerfs")
         for name in args.peerfs_workspace:
             path = os.path.join(self.peerfs_root, name)
@@ -493,10 +510,15 @@ class Runtime:
             self.peerfs[name] = path
         # Forks made by earlier runs (runtime-agent-contract), kept across restarts while a peerfs space is served.
         self.forks_file = os.path.join(self.peerfs_root, ".forks.json")
+        self.branches_root = os.path.join(self.peerfs_root, ".branches")
         if self.peerfs and os.path.exists(self.forks_file):
             with open(self.forks_file) as f:
                 for name in json.load(f):
-                    self.peerfs.setdefault(name, os.path.join(self.peerfs_root, name))
+                    kept = os.path.join(self.branches_root, name)
+                    if os.path.isdir(kept) and name not in self.peerfs:
+                        self.branches[name] = kept
+                    else:
+                        self.peerfs.setdefault(name, os.path.join(self.peerfs_root, name))
         self.runs = {}
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
@@ -522,17 +544,33 @@ class Runtime:
         the run before started, changing nothing."""
         with self.lock:
             path = os.path.join(self.peerfs_root, name)
-            if name in self.peerfs or os.path.lexists(path):
+            if name in self.peerfs or name in self.branches or os.path.lexists(path):
                 raise RefusedEntry(f"a workspace or branch named {name!r} exists already")
-            if source not in self.peerfs:
+            origin = self.peerfs.get(source) or self.branches.get(source)
+            if origin is None:
                 raise RefusedEntry(f"no branch named {source!r} to fork from")
-            shutil.copytree(self.peerfs[source], path, symlinks=True)
+            shutil.copytree(origin, path, symlinks=True)
             self.peerfs[name] = path
-            forks = sorted(n for n in self.peerfs if n not in self.args.peerfs_workspace)
-            with open(self.forks_file + ".new", "w") as f:
-                json.dump(forks, f)
-            os.replace(self.forks_file + ".new", self.forks_file)
+            self.save_forks()
         return path
+
+    def discard(self, name):
+        """RUN-16: the workspace NAME goes; its contents stay as the branch's, for later forks."""
+        with self.lock:
+            os.makedirs(self.branches_root, mode=0o700, exist_ok=True)
+            kept = os.path.join(self.branches_root, name)
+            shutil.rmtree(kept, ignore_errors=True)
+            os.replace(self.peerfs[name], kept)
+            del self.peerfs[name]
+            self.branches[name] = kept
+            self.save_forks()
+
+    def save_forks(self):
+        """The forks and discarded branches, for restarts of the fake. Called with the lock held."""
+        forks = sorted(n for n in [*self.peerfs, *self.branches] if n not in self.args.peerfs_workspace)
+        with open(self.forks_file + ".new", "w") as f:
+            json.dump(forks, f)
+        os.replace(self.forks_file + ".new", self.forks_file)
 
     def report(self):
         with self.lock:
@@ -630,6 +668,9 @@ class Runtime:
             raise ApiError(400, "invalid", "peerfs_commit_message")
         if commit and message is None:
             raise ApiError(400, "invalid", "peerfs_commit_message is required with peerfs_commit")
+        discard = body["peerfs_discard"]
+        if not isinstance(discard, bool) or (discard and commit is not True):
+            raise ApiError(400, "invalid", "peerfs_discard")
         image = body["image"]
         if image is not None and (not isinstance(image, str) or not IMAGE.match(image)):
             raise ApiError(400, "invalid", "image")
