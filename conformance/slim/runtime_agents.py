@@ -924,6 +924,9 @@ def _():
     check(path is not None, "no state database in the copy")
     db = sqlite3.connect(str(path))
     current = db.execute("PRAGMA user_version").fetchone()[0]
+    # A real database of the previous version has no PeerFS bindings (schema 33); keep the copy one, so the
+    # host's refusal of that namespace below its version still holds.
+    db.execute("DROP TABLE IF EXISTS peerfs_bindings")
     db.execute(f"PRAGMA user_version = {current - 1}")
     db.commit()
     db.close()

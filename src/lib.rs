@@ -62,6 +62,7 @@ pub mod peer_store;
 pub mod peerbox;
 pub mod peerbox_invite;
 pub mod peerbox_task;
+pub(crate) mod peerfs;
 pub mod persons;
 pub mod policy;
 pub mod policy_edit;
