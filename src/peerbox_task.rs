@@ -1111,27 +1111,8 @@ fn submit_inner(
             "submit needs branch, base and bundle",
         ));
     };
-    // Step 1: pending contributions after this one, not counting the one it
-    // replaces at the same member ref.
-    let pending = contribution::of_person(
-        &*store.connection().map_err(internal)?,
-        &rec.peerbox_id,
-        person,
-    )
-    .map_err(internal)?;
-    let others = pending
-        .iter()
-        .filter(|c| c.state == PENDING && c.branch != *branch)
-        .count() as i64;
-    if others + 1 > checked.access.max_pending {
-        return Err(Failure::new(
-            "pending_limit",
-            format!(
-                "{others} contributions are pending, and this peerbox allows {} per person",
-                checked.access.max_pending
-            ),
-        ));
-    }
+    // Step 1, checked again with the refreshed rule before storing.
+    pending_limit(store, rec, person, branch, checked.access.max_pending)?;
     // Steps 2 and 3.
     let git = Git::new(store.state_directory())?;
     let file = store.artifact_dir().join(bundle);
@@ -1143,15 +1124,6 @@ fn submit_inner(
         base,
         &store.state_directory().join("peerbox-tmp"),
     )?;
-    // Checks 1 and 2 again before storing.
-    {
-        let conn = store.connection().map_err(internal)?;
-        match check(store, &conn, sender, request) {
-            Ok(_) => {}
-            Err(Error::Unavailable(_)) => return Ok(Outcome::Queued),
-            Err(e) => return Ok(Outcome::Rejected(refusal(&e))),
-        }
-    }
     // Past the deadline nothing is stored: the next pass expires the task.
     if crate::task::time(&request.deadline).map_err(internal)? <= crate::clock::now() {
         return Ok(Outcome::Queued);
@@ -1193,6 +1165,23 @@ fn store_locked(
         finish(store, sender, id, "failed", None, None, None, None, &[]).map_err(internal)?;
         return Ok(Outcome::Done);
     }
+    // Checks 1 and 2 again before storing (Checks), under the lock and
+    // with the rule as it is now: its actions, bundle bound, membership
+    // and pending bound, never the ones read when the task started.
+    // Nothing is published yet, so a refusal here ends the task as the
+    // recheck does: `rejected` with the reason, nothing stored.
+    let refreshed = {
+        let conn = store.connection().map_err(internal)?;
+        match check(store, &conn, sender, request) {
+            Ok(c) => c,
+            Err(Error::Unavailable(_)) => return Ok(Outcome::Queued),
+            Err(e) => return Ok(Outcome::Rejected(refusal(&e))),
+        }
+    };
+    if subject(&refreshed)?.1 != Some(person) {
+        return Ok(Outcome::Rejected(refusal(&unknown())));
+    }
+    pending_limit(store, rec, person, branch, refreshed.access.max_pending)?;
     let repo = Path::new(&rec.repository);
     let member = contribution::member_ref(&rec.peerbox_id, person, branch);
     let before = git.head_of(repo, &member)?;
@@ -1307,6 +1296,36 @@ fn vanished(
     )
     .map_err(internal)?;
     Ok(Some(Outcome::Done))
+}
+
+/// Submit step 1 (`pending_limit`): this submission and the person's
+/// pending contributions on other branches, a pending one it replaces at
+/// the same member ref not counted, are at most `max_pending`.
+fn pending_limit(
+    store: &Store,
+    rec: &Record,
+    person: &str,
+    branch: &str,
+    max_pending: i64,
+) -> Result<(), Failure> {
+    let others = contribution::of_person(
+        &*store.connection().map_err(internal)?,
+        &rec.peerbox_id,
+        person,
+    )
+    .map_err(internal)?
+    .iter()
+    .filter(|c| c.state == PENDING && c.branch != branch)
+    .count() as i64;
+    if others + 1 > max_pending {
+        return Err(Failure::new(
+            "pending_limit",
+            format!(
+                "{others} contributions are pending, and this peerbox allows {max_pending} per person"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Whether the received task is still queued with no cancel requested.
