@@ -184,6 +184,70 @@ const MAX_PEERFS_WORKSPACES: usize = 64;
 pub fn peerfs_workspace(name: &str) -> bool {
     (1..=255).contains(&name.len()) && name != "." && name != ".." && !name.contains(['/', '\0'])
 }
+/// Whether `name` is a PeerFS branch name (PeerFS read contract, section 2):
+/// the same rule as a workspace's name.
+pub fn peerfs_branch(name: &str) -> bool {
+    peerfs_workspace(name)
+}
+
+/// The action a filesystem rule grants (PeerFS read contract, PF-03).
+/// Other actions are reserved for PF-5.
+pub const FS_READ_ACTION: &str = "fs.read";
+const MAX_FS_RULES: usize = 64;
+
+/// A filesystem rule (PeerFS read contract, section 2): who may read one
+/// branch of one space on the host it names.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FsRule {
+    pub host: String,
+    pub space: String,
+    pub branch: String,
+    pub principals: Vec<String>,
+    pub actions: Vec<String>,
+    pub allow_disconnected: bool,
+}
+impl FsRule {
+    /// The rule's unit in edits and its sort key: `(host, space, branch)`.
+    pub fn key(&self) -> (&str, &str, &str) {
+        (&self.host, &self.space, &self.branch)
+    }
+    /// Its unit in an edit's dropped additions. Host and space IDs hold no
+    /// spaces, so the branch is the rest.
+    pub fn marker(&self) -> String {
+        format!("fs rule {} {} {}", self.host, self.space, self.branch)
+    }
+    fn check(&self) -> Result<(), Error> {
+        if !crate::peer_store::valid_id(&self.host, "host", 32) {
+            return Err(invalid("a filesystem rule's host is a host ID"));
+        }
+        if !crate::peer_store::valid_id(&self.space, "space", 16) {
+            return Err(invalid("a filesystem rule's space is a space ID"));
+        }
+        if !peerfs_branch(&self.branch) {
+            return Err(invalid(
+                "a filesystem rule's branch is a PeerFS branch name",
+            ));
+        }
+        if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
+            return Err(invalid("a filesystem rule has 1-64 principals"));
+        }
+        for p in &self.principals {
+            principal(p)?;
+        }
+        if !self.principals.windows(2).all(|w| w[0] < w[1]) {
+            return Err(invalid(
+                "a filesystem rule's principals are distinct and in ascending order",
+            ));
+        }
+        if self.actions != [FS_READ_ACTION] {
+            return Err(invalid(
+                "a filesystem rule's actions are exactly [\"fs.read\"]",
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// One `edits` entry (coordination contract, concurrent edits): the
 /// highest number of `host`'s edits the policy reflects.
@@ -265,6 +329,14 @@ pub struct PolicyBody {
         deserialize_with = "present"
     )]
     pub runtime_rules: Option<Vec<RuntimeRule>>,
+    /// Filesystem rules (PeerFS read contract, section 2); absent when
+    /// there are none, so a policy without them has the same body as before.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub fs_rules: Option<Vec<FsRule>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -309,19 +381,28 @@ impl PolicyBody {
     pub fn runtime_rules(&self) -> &[RuntimeRule] {
         self.runtime_rules.as_deref().unwrap_or_default()
     }
+    pub fn fs_rules(&self) -> &[FsRule] {
+        self.fs_rules.as_deref().unwrap_or_default()
+    }
     pub fn content(&self) -> Content {
         Content {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
             runtime_rules: self.runtime_rules().to_vec(),
+            fs_rules: self.fs_rules().to_vec(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
-    /// Sets its rules, capability rules, runtime rules and trusted hosts.
+    /// Sets its rules, capability rules, runtime rules, filesystem rules and
+    /// trusted hosts. Filesystem rules are stored in `(host, space, branch)`
+    /// order, as the statement requires.
     pub fn set_content(&mut self, content: Content) {
         self.rules = content.rules;
         self.capability_rules = Some(content.capability_rules);
         self.runtime_rules = Some(content.runtime_rules).filter(|r| !r.is_empty());
+        let mut fs_rules = content.fs_rules;
+        fs_rules.sort_by(|a, b| a.key().cmp(&b.key()));
+        self.fs_rules = Some(fs_rules).filter(|r| !r.is_empty());
         self.trusted_hosts = Some(content.trusted_hosts);
     }
     fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
@@ -348,7 +429,8 @@ impl PolicyBody {
             &self.trusted_hosts,
             &self.edits,
         ) {
-            (None, None, None, None) if self.runtime_rules.is_none() => {}
+            (None, None, None, None) if self.runtime_rules.is_none() && self.fs_rules.is_none() => {
+            }
             (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
                 if self
                     .rules
@@ -405,6 +487,20 @@ impl PolicyBody {
                         return Err(invalid("a policy has at most one runtime rule per host"));
                     }
                 }
+                if let Some(fs_rules) = &self.fs_rules {
+                    if fs_rules.is_empty() || fs_rules.len() > MAX_FS_RULES {
+                        return Err(invalid("a policy's fs_rules has 1-64 rules"));
+                    }
+                    for r in fs_rules {
+                        r.check()?;
+                    }
+                    // Ascending and unique by (host, space, branch).
+                    if !fs_rules.windows(2).all(|w| w[0].key() < w[1].key()) {
+                        return Err(invalid(
+                            "a policy's fs_rules are in ascending (host, space, branch) order, one per branch",
+                        ));
+                    }
+                }
                 if trusted.len() > MAX_TRUSTED {
                     return Err(invalid("a policy has at most 64 trusted hosts"));
                 }
@@ -439,6 +535,8 @@ pub struct Content {
     /// Only coordinator-free policies hold runtime rules; a legacy policy
     /// has none.
     pub runtime_rules: Vec<RuntimeRule>,
+    /// Likewise for filesystem rules.
+    pub fs_rules: Vec<FsRule>,
     pub trusted_hosts: Vec<String>,
 }
 impl Content {
@@ -689,6 +787,7 @@ impl Policy {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules.clone(),
             runtime_rules: None,
+            fs_rules: None,
             trusted_hosts: self.trusted_hosts.clone(),
             edits: self.edits.clone(),
         }
@@ -799,6 +898,7 @@ impl Policy {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
             runtime_rules: Vec::new(),
+            fs_rules: Vec::new(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
@@ -2060,6 +2160,7 @@ mod tests {
                 rules: rules(),
                 capability_rules,
                 runtime_rules: Vec::new(),
+                fs_rules: Vec::new(),
                 trusted_hosts: vec![
                     format!("host_{}", "b".repeat(64)),
                     format!("host_{}", "a".repeat(64)),
