@@ -54,6 +54,14 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   `GET /v1/host-bridge` provider (identity, socket/account fences, bounds,
   concurrent release, restart) and historical HostKeys with a genuinely
   admitted, then revoked/expired, second host. Full tier (676 lines, 72 seconds).
+- `peerfs_read`, `peerfs_read_lapse`: PF-2 whole-branch read (PeerFS read
+  contract section 8, PF-06) against an in-suite fake provider serving
+  host-bridge, branches, log and `objects/fetch` with `within`, with
+  `peerfs_read_common.py`: policy vectors, share/unshare/shares, discovery, head
+  and objects, size and concurrency bounds, rules, withdrawal, provider states
+  and router isolation; then two networks, a lapsed member with and without
+  `allow_disconnected`, expiry and renewal on the test clock. Full tier (424 +
+  90 lines plus 481 shared; 98 and 82 seconds measured).
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).
 - `project_onboarding`: exact local project reviews, atomic metadata attachment,
