@@ -126,7 +126,7 @@ def _():
     state["learners"] = [state["b"]]
 
 
-@case("peerbox_setup", "peerbox CLI: create, share (read, submit), fetch; Submit")
+@suite.case("peerbox_setup", "peerbox CLI: create, share (read, submit), fetch; Submit")
 def _():
     a, b = need("a", "b")
     state["pbx"] = create(state["repo"], title="runs")
