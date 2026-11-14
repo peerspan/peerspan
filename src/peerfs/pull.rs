@@ -105,8 +105,9 @@ static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::defaul
 struct Running(String);
 impl Running {
     fn take(key: String) -> Option<Self> {
-        let mut running = RUNNING.lock().ok()?;
-        running.insert(key.clone()).then_some(Self(key))
+        let inserted = RUNNING.lock().ok()?.insert(key.clone());
+        // The guard is made only after the lock is released: dropping it takes the lock.
+        inserted.then(|| Self(key))
     }
 }
 impl Drop for Running {
