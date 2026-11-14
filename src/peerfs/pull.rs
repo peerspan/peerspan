@@ -425,12 +425,6 @@ impl Source {
     fn state(&self) -> std::sync::MutexGuard<'_, Served> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
-    /// Records the first failure; the proxy contacts the sharing host no more.
-    fn fail(&self, failure: Failure) -> Response {
-        let mut state = self.state();
-        let failure = *state.failure.get_or_insert(failure);
-        failure.response()
-    }
 }
 
 /// One pull's proxy: a private directory in the state directory holding its socket,
@@ -555,6 +549,11 @@ struct FetchRequest {
 /// host's `objects` route, in one PeerFS object batch in the order asked. The sharing
 /// host answers only the leading objects that fit 16 MiB, so the rest are asked for
 /// again until all are held.
+///
+/// When the pull stops part way (its byte bound reached, or the sharing host failing),
+/// the objects already held are still handed over, so PeerFS keeps the blobs it checks
+/// before it fails on the first missing one and a later pull resumes from them; the
+/// pull's outcome is the recorded failure.
 async fn fetch(source: &Source, body: &[u8]) -> Response {
     let Ok(request) = serde_json::from_slice::<FetchRequest>(body) else {
         return answer_error(400, "invalid", "invalid request");
@@ -575,15 +574,17 @@ async fn fetch(source: &Source, body: &[u8]) -> Response {
     );
     let mut answers: Vec<(Vec<u8>, Vec<std::ops::Range<usize>>)> = Vec::new();
     let mut next = 0;
+    let mut stopped = None;
     while next < wanted.len() {
         {
             let state = source.state();
             if let Some(failure) = state.failure {
-                return failure.response();
+                stopped = Some(failure);
+                break;
             }
             if state.bytes > source.max_bytes {
-                drop(state);
-                return source.fail(Failure::TooLarge);
+                stopped = Some(Failure::TooLarge);
+                break;
             }
         }
         let body = match serde_json::to_vec(&json!({
@@ -595,34 +596,38 @@ async fn fetch(source: &Source, body: &[u8]) -> Response {
         };
         let data = match ask_objects(source, &path, &body).await {
             Ok(data) => data,
-            Err(failure) => return source.fail(failure),
-        };
-        {
-            let mut state = source.state();
-            state.bytes = state.bytes.saturating_add(data.len() as u64);
-            if state.bytes > source.max_bytes {
-                drop(state);
-                return source.fail(Failure::TooLarge);
+            Err(failure) => {
+                stopped = Some(failure);
+                break;
             }
-        }
+        };
         let Some(ranges) = provider::split_batch(&data, &wanted[next..]) else {
-            return source.fail(Failure::Remote);
+            stopped = Some(Failure::Remote);
+            break;
         };
         next += ranges.len();
         answers.push((data, ranges));
+        let mut state = source.state();
+        state.bytes = state
+            .bytes
+            .saturating_add(answers.last().map_or(0, |a| a.0.len()) as u64);
+        if state.bytes > source.max_bytes {
+            stopped = Some(Failure::TooLarge);
+            break;
+        }
+    }
+    if let Some(failure) = stopped {
+        let failure = *source.state().failure.get_or_insert(failure);
+        if answers.is_empty() {
+            return failure.response();
+        }
     }
     let entries: Vec<&[u8]> = answers
         .iter()
         .flat_map(|(data, ranges)| ranges.iter().map(|r| &data[r.clone()]))
         .collect();
     let batch = provider::join_batch(&entries);
-    {
-        let mut state = source.state();
-        if let Some(failure) = state.failure {
-            return failure.response();
-        }
-        state.objects += entries.len() as u64;
-    }
+    source.state().objects += entries.len() as u64;
     let length = batch.len();
     let mut response = Response::new(Body::from(batch));
     let headers = response.headers_mut();
