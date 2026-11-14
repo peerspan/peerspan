@@ -284,6 +284,9 @@ impl serde::Serialize for PolicyValue {
 }
 pub(crate) struct Start {
     pub policy: Option<PolicyValue>,
+    /// The newest stored policy when `policy` is None because it no longer
+    /// counts (coordinator-free networks only): what `access renew` revives.
+    inactive: Option<PolicyValue>,
     pub version: u64,
     seq: Option<u64>,
     decision_time: Option<String>,
@@ -338,6 +341,7 @@ impl Editor {
                 crate::decentralized_policy_cli::reserve(local, &self.network, provider).await?;
             return Ok(Start {
                 policy: v.policy.map(PolicyValue::native),
+                inactive: v.inactive.map(PolicyValue::native),
                 version: v.version,
                 seq: Some(v.seq),
                 decision_time: Some(v.decision_time),
@@ -355,6 +359,7 @@ impl Editor {
                     Value::Null => None,
                     p => Some(PolicyValue::legacy(serde_json::from_value(p.clone())?)),
                 },
+                inactive: None,
                 version: v["version"].as_u64().context("invalid daemon response")?,
                 seq: Some(v["seq"].as_u64().context("invalid daemon response")?),
                 decision_time: None,
@@ -380,6 +385,7 @@ impl Editor {
         Ok(Start {
             version: policy.as_ref().map_or(0, |p| p.version),
             policy,
+            inactive: None,
             seq: None,
             decision_time: None,
         })
@@ -657,7 +663,17 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let start = editor.start(&local, signer.original()).await?;
+        let mut start = editor.start(&local, signer.original()).await?;
+        // An expired policy reads as no policy, and automatic renewal skips
+        // it (spec 4.4, 7.1); `access renew` revives its rules unchanged.
+        // That is a new edit after the expired head, as `access allow`
+        // signs then, with a fresh validity window.
+        let revive = matches!(command, AccessCommand::Renew { .. })
+            && start.policy.is_none()
+            && start.inactive.is_some();
+        if revive {
+            start.policy = start.inactive.take();
+        }
         let current = &start.policy;
         let mut duration = None;
         let mut rules = current
@@ -732,8 +748,8 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
                 // A renewal is not an edit, but it starts from the edit
                 // route: when that folded in unsettled edits, it re-applies
                 // them as an edit, so this host's entry advances and they
-                // settle.
-                edit = editor.folds_in(&local, current).await?;
+                // settle. A revived policy has no current head to renew.
+                edit = revive || editor.folds_in(&local, current).await?;
             }
             _ => unreachable!("not a signing access command"),
         }
