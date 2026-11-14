@@ -848,6 +848,34 @@ pub enum FsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Let one of this host's agents pull shared branches into a space, through its
+    /// fs_pull tool; replaces the agent's grant for the space
+    AllowPull {
+        /// The agent's ID (agent_...) or name, registered on this host
+        #[arg(value_name = "AGENT")]
+        agent: String,
+        /// The space on this host it may pull into (space_...)
+        #[arg(long, value_name = "LOCAL_SPACE")]
+        space: String,
+        /// Each pull's byte bound (default 1 GiB)
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        max_bytes: Option<u64>,
+    },
+    /// Withdraw an agent's pull grant; a pull already running finishes
+    DenyPull {
+        /// The agent's ID (agent_...) or name
+        #[arg(value_name = "AGENT")]
+        agent: String,
+        /// The space (space_...)
+        #[arg(long, value_name = "LOCAL_SPACE")]
+        space: String,
+    },
+    /// The agents' pull grants on this host
+    PullGrants {
+        /// Print the JSON answer (the default output)
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2259,7 +2287,8 @@ impl Command {
             | Self::Fs(
                 FsCommand::Shares { json, .. }
                 | FsCommand::Branches { json, .. }
-                | FsCommand::Pull { json, .. },
+                | FsCommand::Pull { json, .. }
+                | FsCommand::PullGrants { json },
             )
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
