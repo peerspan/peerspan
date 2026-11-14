@@ -208,8 +208,8 @@ impl Setup {
         args: &mut UpArgs,
         state: Option<PathBuf>,
     ) -> anyhow::Result<(integration::PreparedAttachment, PathBuf)> {
-        if !cfg!(target_os = "linux") {
-            bail!("guided up currently supports validated Linux installs")
+        if !cfg!(any(target_os = "linux", target_os = "macos")) {
+            bail!("guided up requires Linux or macOS")
         }
         if args.no_start && !args.harness_args.is_empty() {
             bail!("harness arguments require a launch; omit --no-start")

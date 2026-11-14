@@ -48,3 +48,20 @@ The [release procedure](releasing.md) defines package review and publication. Th
 - **macOS** bundles and installer validation.
 - **Bundled Node.js and Peerspan's own release verifier** for 0.2.1 ([#170](https://github.com/peerspan/peerspan/issues/170), [INST-9 to INST-11](decision-log.md#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10)). 0.2.0 qualification showed Node.js 22 blocking the one-liner on clean machines, so the install path will no longer need Node.js ([install contract](install-contract.md#bundled-nodejs)).
 - Broader agent/platform support and onboarding improvements follow observed preview friction. Claims about new adapters or platforms require their own live validation.
+
+### macOS qualification
+
+The first source-level step is to build and run the existing Rust checks on both
+Apple Silicon and Intel macOS, then exercise `peerspan install`, `status`, and
+`up` with launchd on a logged-in Mac. This does not make the Linux release
+archives installable on macOS.
+
+Before describing macOS as a supported release platform, build native host and
+verifier artifacts for both architectures, bundle a pinned macOS Node.js, and
+make the signed bootstrap and archive installer work with the tools available
+on clean Macs. Qualify installs and upgrades from the exact signed candidate,
+then complete a real cross-owner task between macOS and Linux hosts and between
+two Macs. Record the commands, service recovery, integration readiness and
+remaining limits at the release revision. A macOS Peerspan host can join a
+network without making the KVM-based runtime or Peerbox checks available on
+that Mac; those need separate runtime qualification.
