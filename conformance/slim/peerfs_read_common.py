@@ -438,8 +438,11 @@ def refused(status, data, want, what):
 def fetched(space, branch, ids, what):
     status, data, answer = objects(space, branch, ids)
     check(status == 200, f"{what}: HTTP {status} {as_json(data)}")
-    length = {k.lower(): v for k, v in (answer.get("headers") or {}).items()}.get("content-length")
-    check(length is None or int(length) == len(data), f"{what}: Content-Length {length} for {len(data)} bytes")
+    headers = answer.get("headers")
+    check(isinstance(headers, dict), f"{what}: the probe reported no response headers: {sorted(answer)}")
+    length = {k.lower(): v for k, v in headers.items()}.get("content-length")
+    check(length is not None and length.isdigit() and int(length) == len(data),
+          f"{what}: Content-Length {length!r} for {len(data)} bytes")
     return decode(data)
 
 

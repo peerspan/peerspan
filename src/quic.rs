@@ -93,13 +93,25 @@ const DELIVERY_BOUND: Duration = Duration::from_secs(5);
 
 /// Set by a handler whose response may outlast the usual serve bound.
 #[derive(Clone, Default)]
-pub(crate) struct LongTransfer(Arc<std::sync::atomic::AtomicBool>);
+pub(crate) struct LongTransfer {
+    allowed: Arc<std::sync::atomic::AtomicBool>,
+    kept: Arc<std::sync::Mutex<Vec<Box<dyn Send>>>>,
+}
 impl LongTransfer {
     pub(crate) fn allow(&self) {
-        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.allowed.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     fn allowed(&self) -> bool {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.allowed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// Keeps `value` until the stream's response is delivered: the peer acknowledges
+    /// it, stops the stream, or the transport's bounds end it. A resource held only
+    /// by a response body is released once Hyper takes the body, while its bytes may
+    /// still be waiting to be written to the stream.
+    pub(crate) fn keep_until_delivered(&self, value: impl Send + 'static) {
+        if let Ok(mut kept) = self.kept.lock() {
+            kept.push(Box::new(value));
+        }
     }
 }
 
@@ -1729,6 +1741,8 @@ async fn connection(
                     if answered {
                         let _ = tokio::time::timeout(DELIVERY_BOUND, delivered).await;
                     }
+                    // What a handler kept for this response is released only now.
+                    drop(long);
                 });
             }
         }
