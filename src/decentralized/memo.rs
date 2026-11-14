@@ -6,8 +6,10 @@
 //! reload every request on each pass; so are reading a statement, a prior,
 //! a stored frame and the untimed checks of opening one, which every
 //! catalog read, projection and request pass repeats on the same bytes.
-//! Only successes are kept, nothing is persisted, and a full memo starts
-//! over.
+//! A snapshot, a prior and a read projection are keyed without the clock
+//! guard, which advances with every remembered decision; the guard is
+//! checked and patched into each reused result. Only successes are kept,
+//! nothing is persisted, and a full memo starts over.
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, sync::Mutex};
 
@@ -136,6 +138,37 @@ pub(crate) fn hash_value(hash: &mut Sha256, value: &serde_json::Value) {
             }
         }
     }
+}
+
+/// A key over `value` without its top-level `skip` field, and
+/// length-prefixed `parts`. A prior's `clock_guard` advances with every
+/// remembered decision; keying on everything else lets each later guard
+/// reuse the same verified result, with the guard patched in.
+pub(crate) fn value_key_without<'a>(
+    value: &serde_json::Value,
+    skip: &str,
+    parts: impl IntoIterator<Item = &'a [u8]>,
+) -> Key {
+    let mut hash = Sha256::new();
+    match value.as_object() {
+        Some(map) => {
+            hash.update([7]);
+            let kept = map.iter().filter(|(k, _)| k.as_str() != skip);
+            hash.update((kept.clone().count() as u64).to_be_bytes());
+            for (k, v) in kept {
+                hash.update([6]);
+                hash.update((k.len() as u64).to_be_bytes());
+                hash.update(k.as_bytes());
+                hash_value(&mut hash, v);
+            }
+        }
+        None => hash_value(&mut hash, value),
+    }
+    for part in parts {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part);
+    }
+    hash.finalize().into()
 }
 
 /// A key over `value` and length-prefixed `parts`.

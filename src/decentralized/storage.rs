@@ -226,16 +226,26 @@ pub struct ProviderSelection {
     pub device_key: String,
     pub lease_id: String,
 }
-/// Snapshots recently loaded, by network, own host key, and every row
-/// `Snapshot::load` reads for the network.
-static SNAPSHOTS: super::memo::Memo<Snapshot> = super::memo::Memo::new();
-/// A hash of every row of the network that `Snapshot::load` reads, in every
-/// context, with the network and own host key; None if a table cannot be
-/// read, which loads without the memo.
+/// Snapshots recently loaded, before their clock guard, by network, own host
+/// key, and every other row `Snapshot::load` reads for the network. The guard
+/// (`dec_clock`) advances with every remembered decision while nothing else
+/// changes, so it is read and checked again on each load instead.
+static SNAPSHOTS: super::memo::Memo<Unclocked> = super::memo::Memo::new();
+/// A loaded snapshot before its clock guard: its prior's guard is `-` and its
+/// revision covers every row but `dec_clock`. `latest` is the latest time the
+/// rows retain (creation, adoption, admissions), which the guard must reach.
+#[derive(Clone)]
+struct Unclocked {
+    snapshot: Snapshot,
+    latest: String,
+}
+/// A hash of every row of the network that `Snapshot::load` reads but
+/// `dec_clock`, in every context, with the network and own host key; None if
+/// a table cannot be read, which loads without the memo.
 fn fingerprint(connection: &Connection, network_id: &str, own_host_key: &str) -> Option<[u8; 32]> {
     use rusqlite::types::ValueRef;
     use sha2::{Digest, Sha256};
-    const TABLES: [(&str, &str); 11] = [
+    const TABLES: [(&str, &str); 10] = [
         ("networks", "id=?1"),
         ("dec_contexts", "network_id=?1 ORDER BY context_id"),
         ("dec_objects", "network_id=?1 ORDER BY context_id,proof_id"),
@@ -259,7 +269,6 @@ fn fingerprint(connection: &Connection, network_id: &str, own_host_key: &str) ->
             "dec_highwater",
             "network_id=?1 ORDER BY context_id,stream_kind,subject,subject2",
         ),
-        ("dec_clock", "network_id=?1"),
         ("dec_signers", "network_id=?1 ORDER BY context_id"),
         ("dec_migrations", "network_id=?1 ORDER BY proposal_id"),
     ];
@@ -437,15 +446,19 @@ impl Snapshot {
         // A snapshot is a pure function of the rows it is loaded from, so
         // identical rows reuse the one verified last time.
         let key = fingerprint(connection, network_id, own_host_key);
-        if let Some(hit) = key.as_ref().and_then(|k| SNAPSHOTS.get(k)) {
+        let out = if let Some(hit) = key.as_ref().and_then(|k| SNAPSHOTS.get(k)) {
+            let out = Self::clocked(connection, network_id, hit);
             crate::timing::log("step", "snapshot reuse", began);
-            return Ok(hit);
-        }
-        let out = Self::load_inner(connection, network_id, own_host_key);
-        crate::timing::log("step", "snapshot load", began);
-        if let (Some(key), Ok(snapshot)) = (key, &out) {
-            SNAPSHOTS.put(key, snapshot, snapshot.prior.catalog.bytes.len());
-        }
+            out
+        } else {
+            let unclocked = Self::load_unclocked(connection, network_id, own_host_key);
+            if let (Some(key), Ok(unclocked)) = (key, &unclocked) {
+                SNAPSHOTS.put(key, unclocked, unclocked.snapshot.prior.catalog.bytes.len());
+            }
+            let out = unclocked.and_then(|u| Self::clocked(connection, network_id, u));
+            crate::timing::log("step", "snapshot load", began);
+            out
+        };
         out.map_err(|mut e| {
             if e.code == "invalid" {
                 e.code = "state_conflict";
@@ -469,6 +482,14 @@ impl Snapshot {
         })
     }
     fn load_inner(connection: &Connection, network_id: &str, own_host_key: &str) -> Result<Self> {
+        let unclocked = Self::load_unclocked(connection, network_id, own_host_key)?;
+        Self::clocked(connection, network_id, unclocked)
+    }
+    fn load_unclocked(
+        connection: &Connection,
+        network_id: &str,
+        own_host_key: &str,
+    ) -> Result<Unclocked> {
         check(ident(network_id, "net_") && key(own_host_key))?;
         let raw: String = connection
             .query_row(
@@ -770,24 +791,14 @@ impl Snapshot {
                     "-"
                 },
         )?;
-        let clock_raw: Option<String> = connection
-            .query_row(
-                "SELECT record FROM dec_clock WHERE network_id=?1",
-                [network_id],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(db)?;
-        let clock_raw = clock_raw.ok_or_else(|| Error::new("invalid"))?;
-        let clock = private(clock_raw.as_bytes())?;
-        fields(&clock, "format largest_local_time")?;
-        version(&clock)?;
-        let guard = text(&clock, "largest_local_time")?;
-        stamp(guard)?;
-        check(network.created_at.as_str() <= guard && context.adopted_at.as_str() <= guard)?;
-        check(admission_times.iter().all(|at| at.as_str() <= guard))?;
-        revision.push(Value::from(clock_raw.clone()));
-        let prior_value = json!({"format":1,"context_id":network.context_id,"catalog_base64":encode(&catalog_bytes),"admitted_statement_ids":admitted,"admitted_restriction_ids":restrictions,"admitted_activation_ids":activations,"root_head_ids":roots,"maxima":maxima.into_values().collect::<Vec<_>>(),"migration_proposal_id":context.migration_proposal_id,"clock_guard":guard});
+        // Every other input is checked here; the clock guard is checked and
+        // patched in by `clocked`, so this result is reused across guards.
+        let latest = admission_times
+            .into_iter()
+            .chain([network.created_at.clone(), context.adopted_at.clone()])
+            .max()
+            .ok_or_else(|| Error::new("invalid"))?;
+        let prior_value = json!({"format":1,"context_id":network.context_id,"catalog_base64":encode(&catalog_bytes),"admitted_statement_ids":admitted,"admitted_restriction_ids":restrictions,"admitted_activation_ids":activations,"root_head_ids":roots,"maxima":maxima.into_values().collect::<Vec<_>>(),"migration_proposal_id":context.migration_proposal_id,"clock_guard":"-"});
         // Loading retained markers grants no authority. Read projections may
         // diagnose a missing historical access body within its own closure;
         // every fresh/repair application still reparses the strict prior.
@@ -888,15 +899,49 @@ impl Snapshot {
             migrations.push(record);
         }
         let revision = hash(&serde_json::to_vec(&revision).map_err(|_| Error::new("internal"))?);
-        Ok(Self {
-            network,
-            context,
-            descriptor,
-            selection,
-            prior,
-            revision,
-            migrations,
+        Ok(Unclocked {
+            snapshot: Self {
+                network,
+                context,
+                descriptor,
+                selection,
+                prior,
+                revision,
+                migrations,
+            },
+            latest,
         })
+    }
+    /// `unclocked` with the network's current clock guard (`dec_clock`), which
+    /// no earlier time it retains may exceed. Its prior and revision then
+    /// equal those of a load that read every row at once.
+    fn clocked(connection: &Connection, network_id: &str, unclocked: Unclocked) -> Result<Self> {
+        let Unclocked {
+            mut snapshot,
+            latest,
+        } = unclocked;
+        let clock_raw: Option<String> = connection
+            .query_row(
+                "SELECT record FROM dec_clock WHERE network_id=?1",
+                [network_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        let clock_raw = clock_raw.ok_or_else(|| Error::new("invalid"))?;
+        let clock = private(clock_raw.as_bytes())?;
+        fields(&clock, "format largest_local_time")?;
+        version(&clock)?;
+        let guard = text(&clock, "largest_local_time")?;
+        stamp(guard)?;
+        check(latest.as_str() <= guard)?;
+        snapshot.prior.clock_guard = guard.to_owned();
+        snapshot.prior.value["clock_guard"] = Value::from(guard);
+        snapshot.revision = hash(
+            &serde_json::to_vec(&json!([snapshot.revision, clock_raw]))
+                .map_err(|_| Error::new("internal"))?,
+        );
+        Ok(snapshot)
     }
     pub fn project(&self, now: &str) -> Result<Projection> {
         Projection::build(&self.descriptor, &self.prior.value, None, now, "read")
