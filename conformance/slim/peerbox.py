@@ -272,6 +272,22 @@ def _():
     status, response = sign_policy(lambda body: with_peerbox_rules(
         body, pbx_rules() + [rule(x, [state["bob_p"]]) for x in many]))
     check(status == 200 and response.get("committed"), f"200 more rules for bob: {status} {response}")
+    try:
+        listed_and_paged(a, b, c, many)
+    finally:
+        # Leave the network as it was: 200 more rules in alice's policy slow every later projection on every host.
+        status, response = sign_policy(lambda body: with_peerbox_rules(
+            body, [r for r in pbx_rules() if r["peerbox"] not in set(many)]))
+        check(status == 200 and response.get("committed"), f"removing the 200 rules: {status} {response}")
+        for host in state["learners"]:
+            learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
+        with ThreadPoolExecutor(8) as pool:
+            gone = list(pool.map(lambda x: a.api("DELETE", f"/v1/peerboxes/{x}")[0], many))
+        check(all(g in (200, 204) for g in gone) and not set(many) & {r["peerbox_id"] for r in shown()}
+              and not [r for r in pbx_rules() if r["peerbox"] in set(many)], f"deleting the 200 peerboxes: {set(gone)}")
+
+
+def listed_and_paged(a, b, c, many):
     learn(b, state["alice_public"], policy_version(a, state["alice_public"]))
     readable, seen, after, pages = sorted(many + [pbx()]), [], None, 0
     while True:
