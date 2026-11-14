@@ -60,7 +60,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   `peerfs_read_common.py`: policy vectors, share/unshare/shares, discovery, head
   and objects, size and concurrency bounds, rules, withdrawal, provider states
   and router isolation; then two networks, a lapsed member with and without
-  `allow_disconnected`, expiry and renewal on the test clock. Full tier (424 +
+  `allow_disconnected`, expiry and renewal on the test clock. Full tier (420 +
   90 lines plus 481 shared; 98 and 82 seconds measured).
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).

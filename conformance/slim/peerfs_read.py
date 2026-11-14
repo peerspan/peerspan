@@ -319,8 +319,7 @@ def tls_request(context, port, method, path, body=None):
                            f"application/json\r\nContent-Length: {len(payload)}\r\n\r\n".encode() + payload)
             response = http.client.HTTPResponse(stream)
             response.begin()
-            response.read()
-            return response.status
+            return response.status, response.read()
 
 
 @suite.case("provider_states", "read 3 step 1, 4, 6: released, prepared, changed directory, stopped, too old, "
@@ -362,7 +361,7 @@ def _():
         slow.stop()
 
 
-@suite.case("interfaces", "read 5: the three routes absent (404) on owner-local, adapter, pairing and helper routers")
+@suite.case("interfaces", "read 5, 8: the three routes absent (404) on the owner-local and adapter routers")
 def _():
     need("base_rules")
     a, one = state["a"], sp("one")
@@ -384,10 +383,6 @@ def _():
     context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
     context.load_cert_chain(str(cert), str(key))
     context.set_alpn_protocols(["peerspan-bootstrap/1"])
-    for method, path, body in routes[1:]:
-        status = tls_request(context, a.bootstrap_port, method, path, body)
-        check(status == 404, f"pairing router answers {path} with HTTP {status}")
-    state["tls"] = context
     helper_state = suite.work / "helper"
     helper_state.mkdir(mode=0o700)
     port = free_port(socket.SOCK_STREAM)
@@ -403,22 +398,23 @@ def _():
         except (OSError, ssl.SSLError):
             check(time.monotonic() < deadline and process.poll() is None, "helper fixture did not become ready")
             time.sleep(.05)
-    for method, path, body in [("GET", "/peer/v1/fs/branches", None), *routes[1:]]:
-        for name, at in (("pairing", a.bootstrap_port), ("helper", port)):
-            status = tls_request(context, at, method, path, body)
-            check(status == 404, f"{name} router answers {path} with HTTP {status}")
-    state["tls"] = (context, port)
+    state["tls"] = (context, port, routes)
 
 
-@suite.case("pairing_helper_discovery_absent", "read 8 Interfaces: discovery with its query absent (404) on the "
-            "pairing and helper routers", known="both answer any path with a query string 400, not 404")
+@suite.case("pairing_helper_not_served", "read 8 Interfaces: pairing and helper answer the three routes exactly as "
+            "an unserved path of the same shape, with and without a query string")
 def _():
-    (context, port), = need("tls")
-    path, other = f"/peer/v1/fs/branches?network={state['net1']['id']}", "/peer/v1/unknown?network=x"
-    answers = {name: (tls_request(context, at, "GET", path), tls_request(context, at, "GET", other))
-               for name, at in (("pairing", state["a"].bootstrap_port), ("helper", port))}
-    check(all(statuses[0] == 404 for statuses in answers.values()),
-          f"discovery on pairing/helper (and an unknown path with a query): {answers}")
+    (context, port, routes), = need("tls")
+    shapes = [*routes, ("GET", "/peer/v1/fs/branches", None)]
+    differ = []
+    for name, at in (("pairing", state["a"].bootstrap_port), ("helper", port)):
+        for method, path, body in shapes:
+            unserved = path.replace("/peer/v1/fs/", "/peer/v1/unserved-fs/")
+            got = tls_request(context, at, method, path, body)
+            want = tls_request(context, at, method, unserved, body)
+            if got != want:
+                differ.append(f"{name} {method} {path.split('?')[0][-40:]}: {got}, unserved {want}")
+    check(not differ, f"routes answered unlike an unserved path: {differ}")
 
 
 suite.finish()
