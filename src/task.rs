@@ -558,6 +558,11 @@ pub(crate) fn expire(
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
+    // A peerbox run's entry on its contribution ends with it (peerbox
+    // contract, Peerboxes and contributions: `runs`).
+    if request.is_peerbox_run() {
+        crate::peerbox::update_run(tx, sender, &status.task_id, "expired", None)?;
+    }
     Ok(true)
 }
 /// The rejection reason when authorization lapses before an agent accepts.

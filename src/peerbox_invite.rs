@@ -315,6 +315,14 @@ fn pass(store: &Store) -> Result<(), Error> {
         if share.waiting || !due(&share.invitation_id) {
             continue;
         }
+        // Signing holds the invites' lock, as cancelling does, and finds the
+        // share still pending first: a share cancelled meanwhile grants
+        // nothing (Invitations: a cancelled share gives membership and no
+        // access).
+        let _signing = SIGNING.lock().unwrap_or_else(|e| e.into_inner());
+        if read(&*store.connection()?, &share.invitation_id)?.is_none() {
+            continue;
+        }
         let outcome = sign_peerbox_rules(store, &share.network_id, |host, rules| {
             crate::policy::peerbox_put(
                 rules,
@@ -343,6 +351,9 @@ fn pass(store: &Store) -> Result<(), Error> {
     Ok(())
 }
 
+/// Held by an automatic signing from its check that the share is pending
+/// to its grant, and by a cancellation.
+static SIGNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// When each share whose automatic signing failed may be tried again.
 static RETRY: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
@@ -510,6 +521,8 @@ async fn cancel(
 ) -> Result<Json<Value>, Error> {
     Ok(Json(
         blocking(store, move |s| {
+            // Never between a signing's check and its grant.
+            let _signing = SIGNING.lock().unwrap_or_else(|e| e.into_inner());
             let conn = s.connection()?;
             read(&conn, &id)?.ok_or(Error::NotFound)?;
             remove(&conn, &id)?;

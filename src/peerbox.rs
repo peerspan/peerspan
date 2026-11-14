@@ -877,6 +877,13 @@ pub fn workspace_archive(
                         "git cat-file: an unexpected object",
                     ));
                 }
+                // The blob's declared size counts against the archive's
+                // bound before a byte of it is read or held: a link target
+                // is held in memory, and a blob of repetitive content can
+                // be far larger than the repository it came in.
+                if tar.written.saturating_add(size) > tar.limit {
+                    return Err(tar.failure(std::io::Error::other(OVER)));
+                }
                 let mut data = (&mut reader).take(size);
                 match e.mode.as_str() {
                     "120000" => {
