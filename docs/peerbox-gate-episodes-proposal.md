@@ -179,18 +179,24 @@ The gate gains `compare`: `worst_best` (today's rule, the default) or `paired`. 
 so sample *i* of the frontier and of the candidate come from the same episode. `score` stays
 required and is shown as before.
 
-For each repeat *r*, the frontier's and the candidate's samples pair by index; the pairs of
-all repeats pool. With *f* and *c* the paired scores and *d* = *f* − *c* for `lower` (*c* − *f*
-for `higher`), the candidate is promoted when
+Every repeat of an evaluation uses the same secret, so sample *i* is the same episode in
+every repeat. Repeats are therefore not new episodes, and are never pooled as if they were:
+counting a repeated episode again would shrink the bound without testing anything new. The
+home host first averages each episode over the repeats, giving one frontier score *f*ᵢ and
+one candidate score *c*ᵢ per episode. With *d*ᵢ = *f*ᵢ − *c*ᵢ for `lower` (*c*ᵢ − *f*ᵢ for
+`higher`), the candidate is promoted when
 
     mean(d) − 1.645 · sd(d) / √n  ≥  (min_gain / 100) · mean(f)
 
-with `sd` the sample standard deviation and *n* the number of pairs: a one-sided 95% lower
-bound on the gain clears the margin. Pairing removes the variance that comes from the
-episodes themselves, so far fewer episodes are needed than for two independent means. A
-candidate measurement whose sample count differs from its paired frontier measurement is
-`check_failed`. Failing the bound is `below_margin`. The public result gains `{pairs,
-mean_gain_percent, lower_bound_percent}`; the samples themselves stay with the owner.
+with `sd` the sample standard deviation and *n* the number of episodes, not of measurements:
+a one-sided 95% lower bound on the gain clears the margin. Repeats only reduce the noise
+within each episode; more episodes per measurement are what tighten the bound. The same rule
+holds for an environment that ignores the secret and replays a fixed set. Pairing removes the
+variance that comes from the episodes themselves, so far fewer episodes are needed than for
+two independent means. A measurement whose sample count differs from the evaluation's first
+frontier measurement is `check_failed`: on a frontier measurement it pauses the gate, on a
+candidate's it rejects the candidate. Failing the bound is `below_margin`. The public result
+gains `{episodes, mean_gain_percent, lower_bound_percent}`; the samples themselves stay with the owner.
 
 ### Commitment
 
@@ -379,8 +385,10 @@ real loopback port and enforces `link_connections` and `link_bytes`. Cases for a
   `.peerbox-gate/generated/` for the check run only; a failing generator pausing the gate with
   `generator_failed`;
 - `paired`: a promotion and a `below_margin` at known samples on both sides of the bound, for
-  each direction; fewer than 30 or mismatched sample counts as `check_failed`; the public
-  result's `pairs`, `mean_gain_percent` and `lower_bound_percent`;
+  each direction; fewer than 30 or mismatched sample counts as `check_failed`; with
+  `repeats` above 1, each episode averaged over the repeats and *n* the episode count, so
+  identical repeats leave the bound unchanged; the public result's `episodes`,
+  `mean_gain_percent` and `lower_bound_percent`;
 - the commitment recomputed from the salt and settings, unchanged across evaluations, changed
   by `gate set`; `mode`, `compare` and `commitment` in the public summary, and never the
   generator, the salt or a secret;
