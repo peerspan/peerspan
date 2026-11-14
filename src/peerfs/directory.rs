@@ -115,6 +115,12 @@ pub(super) fn open(_: &str, _: bool, _: &Operation) -> Result<Pinned, Error> {
 }
 
 impl Pinned {
+    /// The pinned directory's descriptor, for opening entries inside it.
+    pub(super) fn raw_fd(&self) -> std::os::fd::RawFd {
+        use std::os::fd::AsRawFd;
+        self.file.as_raw_fd()
+    }
+
     pub fn matches(&self, expected: Stamp) -> Result<(), Error> {
         if self.stamp.device != expected.device
             || self.stamp.inode != expected.inode

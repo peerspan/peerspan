@@ -1,6 +1,7 @@
 //! Owner-local PeerFS bindings and typed host signing (PF-1a). No peer FS API.
 mod commit;
 mod directory;
+mod provider;
 
 use crate::{api::blocking, decentralized, model::Error, peer_store::valid_id, store::Store};
 use axum::{
@@ -160,6 +161,8 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/fs/spaces", get(list).post(prepare))
         .route("/v1/fs/spaces/{space_id}", get(inspect))
         .route("/v1/fs/spaces/{space_id}/release", post(release))
+        .route("/v1/fs/spaces/{space_id}/activate", post(activate))
+        .route("/v1/fs/spaces/{space_id}/host-keys/check", post(host_keys))
         .route(
             "/v1/fs/spaces/{space_id}/sign-commit",
             post(sign).layer(DefaultBodyLimit::max(SIGN_BODY)),
@@ -543,6 +546,120 @@ async fn release(
             record.view.state = "released".into();
         }
         Ok(record.view)
+    })
+    .await
+}
+/// Verifies the space's running provider and marks a prepared binding registered. The
+/// probe runs with no database transaction held; the binding and directory are checked
+/// again afterwards, so a release or change meanwhile prevents the transition.
+async fn activate(
+    State(store): State<Arc<Store>>,
+    Extension(op): Extension<Operation>,
+    id: Result<Path<String>, PathRejection>,
+    input: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let id = path(id)?;
+    let request: Binding = decode(input, BODY)?;
+    binding(&request.binding_id)?;
+    run(store, op, move |store, op| {
+        let record = {
+            let c = store.connection().map_err(|_| internal())?;
+            op.check()?;
+            let record = load(&c, &id)?;
+            record.current(store, &request.binding_id)?;
+            record
+        };
+        let pinned = directory::open(&record.view.directory, true, op)?;
+        pinned.matches(record.stamp)?;
+        provider::probe(&pinned, &record.view, op)?;
+        let observed_at = decentralized::local_decision_time().map_err(|_| unavailable())?;
+        // The directory must still be the pinned one after the probe.
+        directory::open(&record.view.directory, true, op)?.matches(record.stamp)?;
+        let c = store.connection().map_err(|_| internal())?;
+        op.check()?;
+        let _no_wait = NoWait::new(&c)?;
+        let tx = c.unchecked_transaction().map_err(db)?;
+        let mut current = load(&tx, &id)?;
+        current.current(store, &request.binding_id)?;
+        if current.stamp.device != record.stamp.device || current.stamp.inode != record.stamp.inode
+        {
+            return Err(conflict());
+        }
+        if current.view.state == "prepared" {
+            op.check()?;
+            tx.execute(
+                "UPDATE peerfs_bindings SET state='registered' WHERE space_id=?1 AND state='prepared'",
+                [&id],
+            )
+            .map_err(db)?;
+            op.check()?;
+            tx.commit().map_err(db)?;
+            current.view.state = "registered".into();
+        }
+        Ok(json!({"registration": current.view,
+            "provider": {"state": "verified", "observed_at": observed_at}}))
+    })
+    .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyCheck {
+    binding_id: String,
+    host_id: String,
+    public_key: String,
+}
+/// Whether a commit's author host and signing key are a recognized identity: the local
+/// host's, or one the binding's pinned context retains a verified admission of. Identity
+/// history only, offline and read-only; it says nothing about current access.
+async fn host_keys(
+    State(store): State<Arc<Store>>,
+    Extension(op): Extension<Operation>,
+    id: Result<Path<String>, PathRejection>,
+    input: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let id = path(id)?;
+    let request: KeyCheck = decode(input, BODY)?;
+    binding(&request.binding_id)?;
+    if !valid_id(&request.host_id, "host", 32) || !decentralized::codec::key(&request.public_key) {
+        return Err(invalid());
+    }
+    let hashes = STANDARD
+        .decode(&request.public_key)
+        .is_ok_and(|key| crate::peer_store::key_id(&key) == request.host_id);
+    run(store, op, move |store, op| {
+        let answer = |recognized: bool| {
+            json!({"host_id": request.host_id, "public_key": request.public_key,
+                "recognized": recognized})
+        };
+        let c = store.connection().map_err(|_| internal())?;
+        op.check()?;
+        // One read view of the binding and the retained authority.
+        let tx = c.unchecked_transaction().map_err(db)?;
+        let record = load(&tx, &id)?;
+        record.current(store, &request.binding_id)?;
+        if !hashes {
+            return Ok(answer(false));
+        }
+        let identity = store.identity();
+        if request.public_key == identity.public_key {
+            return Ok(answer(true));
+        }
+        let snapshot = decentralized::Snapshot::load_public(
+            &tx,
+            &record.view.network_id,
+            &identity.public_key,
+        )
+        .map_err(|_| conflict())?;
+        if snapshot.network.context_id != record.view.context_id {
+            return Err(conflict());
+        }
+        let now = decentralized::local_decision_time().map_err(|_| unavailable())?;
+        let projection = snapshot.project(&now).map_err(|_| conflict())?;
+        op.check()?;
+        let recognized = projection
+            .host_key_admitted(&request.public_key)
+            .map_err(|_| conflict())?;
+        Ok(answer(recognized))
     })
     .await
 }

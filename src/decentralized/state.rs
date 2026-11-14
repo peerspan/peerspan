@@ -1009,6 +1009,24 @@ impl Projection {
         self.catalog.get(id)?;
         self.read_missing.get(id).map_or(Ok(()), |e| Err(e.clone()))
     }
+    /// Whether this context retains a verified admission of a host with `key`: a
+    /// `host_lease` statement it admitted, whose subject names that key and whose proof
+    /// is complete. This is identity history, not current access: later expiry, removal
+    /// or root rotation does not undo it. A retained admission whose proof is incomplete is
+    /// an error, never a quiet `false`.
+    pub(crate) fn host_key_admitted(&self, key: &str) -> Result<bool> {
+        for id in &self.admitted {
+            let statement = self.catalog.get(id)?;
+            if statement.kind != "host_lease" {
+                continue;
+            }
+            if super::codec::text(statement.subject()?, "host_public_key")? == key {
+                self.proof_complete(id)?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     fn provenance(
         &self,
         id: &str,
