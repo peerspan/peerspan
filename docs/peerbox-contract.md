@@ -51,7 +51,7 @@ A **contribution** is a commit a peer submitted, with this record:
 | `bundle_sha256` | The submitted bundle's digest. |
 | `submitted_at` | RFC3339. |
 | `state` | `pending`, `accepted`, `rejected` or `superseded`. |
-| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head, gate}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person's `person_id` or `"gate"`, the protected head before and after (equal for a rejection), and for a gate's decision its public result (Gates), else null. |
+| `decision` | Null, or `{decision, reason, decided_at, decided_by, old_head, new_head}`: `accepted` or `rejected`, the owner's reason (0 to 4,096 bytes), the time, the deciding person's `person_id` or `"gate"`, and the protected head before and after (equal for a rejection). A gate's decision has a seventh key, `gate`, its public result (Gates); an owner's decision has exactly these six keys, with no `gate` key. |
 | `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. Every result that returns a record (`submit`, `status`, `withdraw`) keeps the latest 8 and adds `runs_total`, so one record always fits the task output. |
 
 The home host stores each contribution's head under
@@ -266,9 +266,12 @@ or failed fetch changes none.
 
 The bundle's single ref must be `refs/heads/BRANCH` and its prerequisites reachable from the
 protected head. Before storing, in order, the home host:
-1. checks that the sender's pending contributions after this submission, not counting a
-   pending one it replaces at the same member ref, number at most `max_pending`
-   (`pending_limit`);
+1. checks that the sender's pending contributions after this submission number at most
+   `max_pending` (`pending_limit`): this submission plus the sender's contributions to this
+   peerbox that are `pending` on their other branches. The contribution this submission
+   replaces at the same member ref is not counted, since it becomes `superseded`, and a
+   contribution that is not `pending` (accepted, rejected or superseded) never counts, at
+   that member ref or any other;
 2. verifies the bundle and fetches it into a quarantine repository with
    `transfer.fsckObjects=true` and Git's `hasDotgit` and `gitmodules*` checks raised from
    warnings to errors, and refuses any tree entry, at any depth, named `.git` as Git's
@@ -280,6 +283,23 @@ protected head. Before storing, in order, the home host:
 
 A failed step stores nothing. A submission whose member ref already holds a pending
 contribution replaces it and marks the earlier one `superseded`.
+
+Step 4 and the record are one serialized step of the peerbox (Review). The home host publishes
+the contribution ref and the member ref only while the task is still `queued` with no cancel
+requested (task contract, cancellation), and keeps them only when the contribution record is
+saved with the task's final outcome. When a cancel lands while the submission is being served,
+before the record is saved, or the record cannot be saved, it deletes the contribution ref and
+sets the member ref back to the head it held before, or deletes it when it had none: the task
+ends `cancelled` and nothing is stored. A withdrawal cancelled before its record likewise sets
+the member ref back and stores nothing.
+
+**Startup recovery.** When the home host starts, before it serves peerbox tasks, it repairs
+what a submission interrupted between its refs and its record can leave, in each peerbox's
+repository: it deletes every contribution ref that names no contribution record, and every
+member ref whose head no record of that person and branch holds goes back to the latest
+recorded submission on that branch (newest by `(submitted_at, contribution_id)`), or is
+deleted when that submission was withdrawn (`superseded`) or there is none. This is besides
+the deletion of contribution refs 30 days after `rejected` or `superseded`.
 
 ### Status and withdraw
 
@@ -316,7 +336,7 @@ the contribution's `runs`.
 
 Review is the home host owner's, through the local API and CLI only. Accepting a
 contribution:
-1. requires it `pending`;
+1. requires it `pending` (409 `not_pending`);
 2. requires the protected head to be an ancestor of the contribution head (409
    `not_fast_forward`: the contributor rebases and submits again);
 3. when the protected branch is checked out in a worktree, requires that worktree clean (409
@@ -324,8 +344,18 @@ contribution:
 4. updates the protected branch from the head read in 2 to the contribution head with a
    compare-and-swap (409 `head_moved` when it changed).
 
-Peerspan never merges. Rejecting records the reason and changes no ref. Both record the
-decision durably; the contributor reads it with `status`.
+Peerspan never merges. Rejecting records the reason and changes no ref, and also requires
+the contribution `pending` (409 `not_pending`). Both record the decision durably; the
+contributor reads it with `status`.
+
+The pending check, the fast-forward (steps 2 to 4) and the durable decision record are one
+step, serialized per peerbox: a withdrawal, the storing of a submission (Submit step 4 and its
+record, which supersedes the contribution it replaces), a gate's decision and other reviews of
+that peerbox's contributions are serialized against it, so whichever comes second sees what the
+first recorded. A review that finds the contribution no longer `pending`, because a withdrawal,
+a replacement submission or another decision got there first, is 409 `not_pending` and changes
+nothing: no ref, no worktree, no record. A withdrawal that comes after a decision fails with
+`decided`, and a submission that comes after one leaves that decision as it is.
 
 ## CLI and local API
 
@@ -345,7 +375,7 @@ decision durably; the contributor reads it with `status`.
 | `peerbox list --peer HOST [--json]` | Submits `list`, following `next` until null, and prints the peerboxes. |
 | `peerbox fetch --peer HOST PEERBOX --repository DIR` | Submits `fetch` with `have` from DIR's refs for that peerbox, verifies as above and sets `refs/peerbox/PEERBOX/BRANCH` in DIR, initializing DIR when absent. |
 | `peerbox submit --peer HOST PEERBOX --repository DIR --branch NAME [--base COMMIT]` | Bundles NAME in DIR, excluding history reachable from `--base` (default: the merge base of NAME and the fetched ref), uploads it and submits. |
-| `peerbox status --peer HOST PEERBOX [CONTRIBUTION] [--before CONTRIBUTION] [--limit N] [--json]` | Submits `status` and prints it. Without a contribution it follows `next` until null or until `--limit` records (default 100) have been printed, newest first; `--before` starts below that contribution. |
+| `peerbox status --peer HOST PEERBOX [CONTRIBUTION] [--before CONTRIBUTION] [--limit N] [--json]` | Submits `status` and prints it. Without a contribution it follows `next` until null or until `--limit` records (default 100) have been printed, newest first; `--before` starts below that contribution. It prints a `next` (with `--json`, the merged object's `next`): when `--limit` cut the records, because the last page held more than were printed or the home host gave a `next`, it is the ID of the last printed contribution, so `--before` with it continues where the output stopped; otherwise null. |
 | `peerbox withdraw --peer HOST PEERBOX CONTRIBUTION` | Submits `withdraw`. |
 | `peerbox run --peer HOST PEERBOX --commit COMMIT [runtime flags] -- COMMAND...` | Submits `run`, with `task run`'s flags except `--workspace` and `--peerfs-workspace`, and follows it as `task run` does, with its exit codes. |
 
@@ -859,7 +889,14 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   nothing; superseding, with a superseded contribution still runnable through its contribution ref
   until 30 days pass (test clock) and `commit_unknown` after; a peer unable to write the protected branch or another member's ref;
 - review: accept fast-forwarding, `not_fast_forward`, `head_moved`, `dirty_worktree`, reject
-  with a reason, and the decision visible through `status`;
+  with a reason, and the decision visible through `status`; an owner's decision with exactly
+  the six keys and no `gate`; accepting or rejecting a contribution already withdrawn,
+  superseded by a replacement, or already decided, each 409 `not_pending` with the protected
+  branch, the refs and the record unchanged;
+- cancellation: a submit cancelled while queued storing nothing, with no contribution ref, the
+  member ref unchanged and no record;
+- CLI `status --limit N` with more records than N printing `next` equal to the last printed
+  contribution's ID, and null when everything was printed;
 - `status` paging: more contributions than fit in one output, several with the same
   `submitted_at` (test clock), read completely and without repeats with `before` and `next`, each record's `runs` cut to 8 with `runs_total`;
 - withdrawal: new fetches and submissions refused; `status` still answering the former
@@ -872,7 +909,9 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
   `max_pending` to 0;
 - invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; a share waiting for the owner's signature kept
 across a restart and completed by `peerbox share --pending`; the pending share kept across a restart of the home host;
-- restarts of both hosts during a fetch and a submit, and records kept;
+- restarts of both hosts during a fetch and a submit, and records kept; after a restart, no
+  contribution ref without a record, and every member ref naming the head of a recorded
+  submission;
 - opening a database of the previous schema version.
 
 `peerbox_agents` (second tier) covers, through the adapter socket and MCP as the runtime
