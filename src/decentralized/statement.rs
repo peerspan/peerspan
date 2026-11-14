@@ -571,14 +571,19 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             exact_parents(kind, p)?;
             let body = access_body(p)?;
             if kind == "policy" {
-                fields(
-                    &body,
-                    if body.contains_key("runtime_rules") {
-                        "format network_id person_public_key version issued_at valid_until rules capability_rules runtime_rules trusted_hosts edits"
-                    } else {
-                        "format network_id person_public_key version issued_at valid_until rules capability_rules trusted_hosts edits"
-                    },
-                )?;
+                // `runtime_rules` and `fs_rules` (PeerFS read contract) are
+                // each present only when not empty.
+                let mut shape = String::from(
+                    "format network_id person_public_key version issued_at valid_until rules capability_rules",
+                );
+                for optional in ["runtime_rules", "fs_rules"] {
+                    if body.contains_key(optional) {
+                        shape.push(' ');
+                        shape.push_str(optional);
+                    }
+                }
+                shape.push_str(" trusted_hosts edits");
+                fields(&body, &shape)?;
                 check(
                     num(&body, "format")? == 2
                         && text(&body, "person_public_key")? == text(issuer, "person_public_key")?,

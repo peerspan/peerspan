@@ -15,6 +15,7 @@ mod decentralized_policy_cli;
 mod decentralized_root_cli;
 mod decentralized_up;
 mod discovery;
+mod fs_cli;
 mod integration;
 mod link_cli;
 mod onboarding_cli;
@@ -374,6 +375,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     }
     if let Some(value) = runtime_cli::command(&command, &socket).await? {
         return Ok(value);
+    }
+    if let cli::Command::Fs(command) = &command {
+        return fs_cli::command(command, &socket).await;
     }
     if let Some(value) = access::top_command(&command, &socket).await? {
         return Ok(value);

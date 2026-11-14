@@ -163,6 +163,8 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/fs/spaces/{space_id}/release", post(release))
         .route("/v1/fs/spaces/{space_id}/activate", post(activate))
         .route("/v1/fs/spaces/{space_id}/host-keys/check", post(host_keys))
+        .route("/v1/fs/spaces/{space_id}/branches/{branch}", get(branch))
+        .route("/v1/fs/shares", get(shares))
         .route(
             "/v1/fs/spaces/{space_id}/sign-commit",
             post(sign).layer(DefaultBodyLimit::max(SIGN_BODY)),
@@ -598,6 +600,87 @@ async fn activate(
         }
         Ok(json!({"registration": current.view,
             "provider": {"state": "verified", "observed_at": observed_at}}))
+    })
+    .await
+}
+/// A registered binding's branch as its running provider reports it, for `fs share`'s
+/// review (PeerFS read contract, section 7). Read-only: the directory must be the pinned
+/// one and the provider must pass activation's identity check; it is never started.
+async fn branch(
+    State(store): State<Arc<Store>>,
+    Extension(op): Extension<Operation>,
+    ids: Result<Path<(String, String)>, PathRejection>,
+    input: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let Path((id, name)) = ids.map_err(|_| invalid())?;
+    if !valid_id(&id, "space", 16) || !crate::policy::peerfs_branch(&name) {
+        return Err(invalid());
+    }
+    no_body(input)?;
+    run(store, op, move |store, op| {
+        let record = {
+            let c = store.connection().map_err(|_| internal())?;
+            op.check()?;
+            load(&c, &id)?
+        };
+        record.current(store, &record.view.binding_id)?;
+        if record.view.state != "registered" {
+            return Err(conflict());
+        }
+        let pinned = directory::open(&record.view.directory, true, op)?;
+        pinned.matches(record.stamp)?;
+        let found = provider::branch(&pinned, &record.view, &name, op)?.ok_or_else(not_found)?;
+        directory::open(&record.view.directory, true, op)?.matches(record.stamp)?;
+        Ok(
+            json!({"space_id": record.view.space_id, "binding_id": record.view.binding_id,
+            "network_id": record.view.network_id, "branch": name, "head": found.head,
+            "commits": found.commits}),
+        )
+    })
+    .await
+}
+/// This host's filesystem rules in its person's current policy of each coordinator-free
+/// network, by network ID, each with `network_id` and the policy it is in.
+async fn shares(
+    State(store): State<Arc<Store>>,
+    Extension(op): Extension<Operation>,
+    input: Result<Bytes, BytesRejection>,
+) -> Result<Json<Vec<Value>>, Error> {
+    no_body(input)?;
+    run(store, op, |store, op| {
+        let c = store.connection().map_err(|_| internal())?;
+        op.check()?;
+        let own = store.identity().id;
+        let mut out = Vec::new();
+        for (network, member) in store
+            .decentralized_own_members(&c)
+            .map_err(|_| internal())?
+        {
+            let Some(person) = member.person_id else {
+                continue;
+            };
+            let Some(key) = store
+                .product_person_key(&c, &network, &person)
+                .map_err(|_| internal())?
+            else {
+                continue;
+            };
+            let Some(policy) = store
+                .product_policy(&c, &network, &key)
+                .map_err(|_| internal())?
+            else {
+                continue;
+            };
+            for rule in policy.fs_rules().iter().filter(|r| r.host == own) {
+                let mut value = serde_json::to_value(rule).map_err(|_| internal())?;
+                value["network_id"] = network.clone().into();
+                value["policy"] =
+                    serde_json::to_value(policy.reference()).map_err(|_| internal())?;
+                out.push(value);
+            }
+        }
+        op.check()?;
+        Ok(out)
     })
     .await
 }

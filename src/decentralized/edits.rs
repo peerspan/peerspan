@@ -128,6 +128,11 @@ fn addition_keys(
             add(format!("runtime rule {}", rule.host), None);
         }
     }
+    for rule in &after.fs_rules {
+        if !before.fs_rules.contains(rule) {
+            add(rule.marker(), None);
+        }
+    }
     for rule in &after.capability_rules {
         let old = before
             .capability_rules
@@ -252,6 +257,16 @@ pub(super) fn merge_delta(
             filtered.runtime_rules.push(old.clone());
         }
     }
+    // Likewise a skipped filesystem rule change, per (host, space, branch).
+    filtered
+        .fs_rules
+        .retain(|rule| before.fs_rules.contains(rule) || !skip.contains(&rule.marker()));
+    for old in &before.fs_rules {
+        if skip.contains(&old.marker()) && !filtered.fs_rules.iter().any(|r| r.key() == old.key()) {
+            filtered.fs_rules.push(old.clone());
+        }
+    }
+    filtered.fs_rules.sort_by(|a, b| a.key().cmp(&b.key()));
     let (content, dropped) = crate::policy_edit::merge(current, before, &filtered, &[], true);
     for key in dropped {
         groups.insert(
@@ -576,6 +591,7 @@ pub(crate) fn reapply_preview(
             rules: Vec::new(),
             capability_rules: Some(Vec::new()),
             runtime_rules: None,
+            fs_rules: None,
             trusted_hosts: Some(Vec::new()),
             edits: Some(Vec::new()),
         });
