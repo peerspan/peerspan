@@ -416,9 +416,10 @@ pub(super) fn pull(
         .map_err(|_| conflict())?;
     let mut reply = send(dir, "POST", "/v1/pull", Some(&body), op)?;
     let status = reply.status;
-    let body = reply.body(MAX_PULL_BODY)?;
+    // A malformed or oversized answer is the provider unavailable (pull contract, section 2).
+    let body = reply.body(MAX_PULL_BODY).map_err(|_| unavailable())?;
     if status == 200 {
-        let answer: PullAnswer = serde_json::from_slice(&body).map_err(|_| conflict())?;
+        let answer: PullAnswer = serde_json::from_slice(&body).map_err(|_| unavailable())?;
         return Ok(Pulled::Done(answer));
     }
     let refusal = serde_json::from_slice::<Refusal>(&body).unwrap_or(Refusal {
