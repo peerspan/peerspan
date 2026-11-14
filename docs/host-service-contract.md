@@ -88,6 +88,43 @@ object over 16 MiB, 429 after the retries), 502 `remote` (any other refusal or a
 malformed batch); otherwise the provider's refusal maps to 502 `remote` for 400,
 403, 404, 409 and 502 (verification failures) and to 503 `unavailable` for
 others.
+PF-3 agent pulls (PeerFS pull contract, section 5; PF-09, PF-10) add the owner
+commands `fs allow-pull AGENT --space LOCAL_SPACE [--max-bytes N]`, `fs deny-pull
+AGENT --space LOCAL_SPACE` and `fs pull-grants [--json]` (AGENT an agent ID, or the
+exact name of an agent on this host), over owner-local routes only: `PUT
+/v1/fs/pull-grants/{agent_id}/{space_id}` with `{max_bytes?}` (default 1 GiB)
+answers the grant `{agent_id,agent_name,space,max_bytes,created_at}` and replaces
+the pair's grant (400 malformed IDs or `max_bytes` 0, 404 no such agent or no
+binding for the space, 409 a released binding or 256 grants already held); `DELETE`
+on the same path answers `{removed}`; `GET /v1/fs/pull-grants` answers `{grants}`
+ordered by agent and space, `agent_name` null for an agent no longer registered.
+Grants are kept only in `fs-pull-grants.json` in the state directory, never in the
+database or signed policy: `{format:1,grants:[{agent_id,space,max_bytes,created_at}]}`,
+written whole (a fresh mode 0600 temporary file, fsync, rename, directory fsync) and
+read strictly (unknown fields, a format other than 1, malformed IDs, `max_bytes` 0, a
+repeated pair or more than 256 grants are malformed). A file that is not a regular
+file owned by the daemon's account with mode 0600, or is malformed, holds no grants:
+agents are refused, and the three owner routes answer 409 `conflict` naming the
+problem until the file is fixed or removed. The adapter router (never the
+owner-local or peer routers) adds `GET /adapter/v1/fs/pull-grants`, the calling
+agent's `{grants:[{space,max_bytes}]}`, and `POST /adapter/v1/fs/pulls` with exactly
+`{peer,space,branch,into}`: after the argument checks (400), the grant for `(agent,
+into)` is read from the file at the call (403 `forbidden` without one), and the pull
+then runs exactly as `POST /v1/fs/pulls` with the destination's network and
+`max_bytes` the grant's, with the same answer and errors. Neither route has a time
+bound; closing the request ends the pull, and a pull already running when its grant
+is withdrawn finishes. An agent's pull records `fs.pulled` with subject
+`<agent_id>/<into>/<tracking>` (the owner's stays `<into>/<tracking>`). The MCP
+tool `fs_pull` `{peer,space,branch,into}` calls that route and answers its JSON, or
+an error result `{status,code,error}`; the adapter lists it in `tools/list` only
+while `GET /adapter/v1/fs/pull-grants` answers a grant, checks again on each
+five-second lease renewal and then sends `notifications/tools/list_changed`
+(claude-channel). The tool call has no time bound in the adapter, the Codex tool
+gateway (whose MCP entry sets `tool_timeout_sec` to 86400) or the Codex MCP
+sidecar, which lists the bridge's tools through the gateway's `POST /tools`; an MCP
+`notifications/cancelled` for the call, or the gateway's caller going away, closes
+the request and ends the pull. OpenCode's plugin registers its tools once, so it
+does not offer `fs_pull`.
 
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated

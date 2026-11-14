@@ -56,6 +56,8 @@ the shared tools with a `peerspan_` prefix: `peerspan_list_destinations`, `peers
 `peerspan_artifact_save` for [task artifacts](../../docs/artifact-contract.md)). A conversation receives no Peerspan authority until an owner
 attaches it. The plugin uses OpenCode's trusted `context.sessionID` and honors
 native tool permission decisions. Model arguments cannot select another session.
+The plugin registers its tools once, when OpenCode loads it, so it does not offer the
+`fs_pull` tool, which other integrations list only while the agent holds a pull grant.
 
 Because the tools use the plugin API rather than MCP, the sidecar reports
 `opencode-plugin-VERSION` (the server version from `/global/health`) as the
