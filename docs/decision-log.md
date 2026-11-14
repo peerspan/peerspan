@@ -15,6 +15,13 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
+  - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
+  - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
+  - [PBX-24: the peerbox suite's lapsed sender and an expired owner policy](#pbx-24-the-peerbox-suites-lapsed-sender-and-an-expired-owner-policy-2026-11-14) (2026-11-14)
+  - [PBX-23: which providers sign an invitation's share automatically](#pbx-23-which-providers-sign-an-invitations-share-automatically-2026-11-14) (2026-11-14)
+  - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
+  - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
   - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
   - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
@@ -72,6 +79,227 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PF-07 to PF-11: pulling a shared PeerFS branch across hosts (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** PeerFS host integration, PF-3: how a reader's host brings a branch shared with it into one of its own PeerFS spaces.
+- **Source:** the owner's answers to five questions after the PF-2 contract amendments merged. The options below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-pull-contract.md](peerfs-pull-contract.md), sections 2 to 5.
+- **Implementing PRs:** none yet.
+
+#### PF-07. How a pull runs
+
+- **Question:** "PF-3: how does a reader's host bring a shared remote branch into its own PeerFS space? PeerFS's own pull already verifies every object's content, kind, hash and signature, keeps its store closed, and writes the tracking reference last; it talks to its source through three calls (space info, branch heads, object fetch)."
+- **Options:**
+  - (a) Host serves a proxy: "For one pull, the reader's host serves those three calls on a private local socket, answering them from the sharing host's peer routes, and asks its own PeerFS to pull from that socket. All verification, resumption and the tracking reference stay in PeerFS's existing pull; the host adds only transport and authorization."
+  - (b) Host imports directly: "The reader's host fetches objects itself and hands them to its PeerFS (objects/receive), then sets the tracking reference. No proxy socket, but the host re-implements the pull's ordering, resumption and reference rules alongside PeerFS's."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** PeerFS's pull needs every object it asks for in one answer, while a PF-2 `objects` answer holds only the leading objects that fit 16 MiB, so the proxy asks again for the rest and answers with one batch. This is a contract choice within PF-07.
+- **Note:** the proxy reports the remote name `<S>:<SPACE>`, so the tracking reference is `<S>:<SPACE>/<BRANCH>` and branches of one name in two spaces S shares do not collide. Raised in review of the contract (#242); also a contract choice within PF-07.
+
+#### PF-08. Where a pulled branch lands
+
+- **Question:** "Where does a pulled branch land on the reader?"
+- **Options:**
+  - (a) An existing local space: "One of the reader's own registered host-backed spaces in the same network, named on the command. The sharing host's commits verify there because its key check uses that network's admission history. The branch arrives as `<sharing host>/<branch>`, as local pulls do."
+  - (b) A new mirror space: "Each remote space gets its own local space, created and bound on first pull. Keeps remote content apart, but every pull would prepare, initialize and activate a space first, and the reader has more spaces to manage."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-09. Who can start a pull
+
+- **Question:** "Who can start a pull in PF-3?"
+- **Options:**
+  - (a) Owner command only: "`peerspan fs pull` run by the reader host's owner; that run is the receiving side's consent. An agent tool to pull, with its own consent rules, comes later."
+  - (b) Owner and agents: "Also expose pulling to the reader's agents now, as a tool. That needs its own consent and quota rules in this contract."
+- **Recommended:** (a).
+- **Chosen:** (b).
+- **Reason given:** none given. PF-10 and PF-11 were asked as a result, as the option said.
+
+#### PF-10. What lets an agent pull
+
+- **Question:** "PF-3 agent pulls: what lets one of the reader host's agents pull a shared branch into a local space?"
+- **Options:**
+  - (a) Owner grants per space: "The owner runs `fs allow-pull AGENT --space LOCAL_SPACE` (and `fs deny-pull`), stored only on this host, never in signed policy. That agent may then pull any branch shared with this host into that space through its MCP tool, with no prompt each time. Withdrawing it stops the next pull."
+  - (b) Approve each pull: "Each agent pull waits for the owner's approval, as capability calls needing approval do. Strongest control, but an agent that pulls often blocks on the owner every time."
+  - (c) Any of the owner's agents: "Every agent registered on this host may pull into any of its registered spaces. Simplest, but any agent can fill any space with remote content."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-11. How much one pull may bring in
+
+- **Question:** "How much may one pull bring in? A shared branch's whole history can be large, and agent pulls would run unattended."
+- **Options:**
+  - (a) Bounded per pull: "Each pull stops before it fetches more than a byte bound (default 1 GiB; the owner command can raise it with --max-bytes, an agent's grant sets its own). Stopping leaves no tracking reference, and a later pull with a larger bound resumes from what was fetched."
+  - (b) No limit: "A pull fetches whatever the branch reaches. Fine for the owner's own use, but an agent pull of a huge branch fills the disk."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the bound is checked on the bytes S has answered, so a pull may exceed it by at most one 16 MiB answer; and since PeerFS keeps only checked blobs from a failed pull, a resumed pull fetches the trees and commits again. Both are contract choices within PF-11.
+- **Note:** a fetch the proxy stops part way is answered with the objects already held for it, so PeerFS keeps the blobs it checks and a pull stopped by its bound resumes from what was fetched, as the chosen option says. The contract first answered such a fetch 507, which discarded them; the implementer found this end to end (PF-3 part 1: with a 30 MiB bound, the rerun fetched 19.9 MB, and 3.3 MB after the change). A contract choice within PF-11.
+- **Note:** the destination provider's pull answer is PeerFS's `PullResponse`, `{remote, branch, head, objects, bytes}`; an answer naming another pull, or not parsing, is 503 like an unavailable provider. Raised in review of the PF-3 suite (#252), whose fake provider had no documented answer to follow. A contract choice within PF-07.
+
+### PF-06: an object larger than an objects answer (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** PeerFS host integration, PF-2: the `objects` peer route's 16 MiB answer bound.
+- **Source:** the implementation in #239 found that the contract's "the leading objects that fit, at least one" cannot hold when the first requested object alone is over 16 MiB. The question put to the owner and its options are quoted below.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-read-contract.md](peerfs-read-contract.md), section 5 (objects batches).
+- **Implementing PRs:** [#239](https://github.com/peerspan/peerspan/pull/239).
+- **Question:** "If the first requested object alone is over 16 MiB (a tree or chunk list of about 500K entries), the answer is 503. That conflicts with the contract's \"at least one\". I'd amend the contract to say so; the alternative is allowing a single over-bound object."
+- **Options:**
+  - (a) Amend the contract: such a request is 503.
+  - (b) Allow one object over the bound in an answer.
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+### PF-03 to PF-05: reading a shared PeerFS branch (2026-11-14)
+
+- **Date:** 2026-11-13 (PF-03) and 2026-11-14 (PF-04, PF-05).
+- **Area:** PeerFS host integration, PF-2: how a branch is shared for reading and how a reader finds it.
+- **Source:** the owner's answers to three questions while the PF-1 pieces were in review. The options below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-read-contract.md](peerfs-read-contract.md), sections 2 and 5.
+- **Implementing PRs:** none yet.
+
+#### PF-03. How the signed `fs.read` permission is represented
+
+- **Question:** "How should the signed `fs.read` permission be represented?"
+- **Options:**
+  - (a) A new policy rule family, `fs_rules`: "Signed in the person's policy and renewed with it. Older hosts refuse it, and the CLI says so before signing. Runtime permissions (`runtime_rules`) and peerboxes (`peerbox_rules`) already work this way. It naturally binds network, owner, serving host, space, branch and recipient, which the plan requires."
+  - (b) A grant action, `fs.read`: "like `message.append` and `task.submit`. Grants are created by hand per recipient, and the plan's requirement for signed context binding fits them less well. Capabilities deliberately refuse grants for the same reason."
+  - (c) Both: "policy rules, plus manual grants for hosts outside the policy (`allow_disconnected`). That's more to specify and test, for a case nobody has asked for yet."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-04. How specific one rule is
+
+- **Question:** "For PF-2's fs_rules (the signed policy rules that let a principal read a branch on one of your hosts), how specific should one rule be?"
+- **Options:**
+  - (a) One branch per rule: "{host, space, branch, principals, actions:[\"fs.read\"], allow_disconnected}. Like peerbox_rules, one resource per rule: sharing and withdrawing a branch touch exactly one rule, and later actions (fs.fork/commit/publish in PF-5) slot into `actions`."
+  - (b) One space per rule: "{host, space, branches:[...], principals, actions, allow_disconnected}. Fewer rules when you share many branches of one space, but withdrawing one branch edits a list, and the review has to show each branch separately."
+  - (c) Whole space: "{host, space, principals, actions, ...}: every branch of the space, including ones created later. Simplest, but it shares branches you haven't seen yet, which the plan's explicit-sharing rule argues against."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-05. How a reader finds what is shared with it
+
+- **Question:** "How does a reader find out which branches are shared with it?"
+- **Options:**
+  - (a) A peer route: "GET /peer/v1/fs/branches lists, to an authenticated peer, only the space/branch/head entries its current fs_rules let it read. Separate from capability listings, as the host plan requires; nothing is revealed to anyone without a rule."
+  - (b) Out of band only: "No listing: the reader must be told the host, space ID and branch name and asks for that branch directly. Reveals nothing even to authorized peers, but every pull needs the names passed along by hand."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the listing leaves heads out, so listing contacts no provider; a separate `head` route answers them. This is a contract choice within PF-05.
+
+### PBX-24: the peerbox suite's lapsed sender and an expired owner policy (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: the `peerbox` suite's `lapsed_sender` and `renewal_keeps_peerbox_rules` cases (test clock).
+- **Source:** the suite author, running the suite on slice C's build (PR #234). `lapsed_sender` moves the clock about 4 days so the sender's grants lapse, which lapses the owner's 24-hour policy too (spec 4.4: no grace; 7.1 and the coordination contract's Expired policies: automatic renewal skips a policy already expired). The case then needed a current owner policy, and `renewal_keeps_peerbox_rules` after it failed with no current policy. The contract's way to revive it, `access renew` (coordination-contract.md lines 520 and 534; launch-contract.md line 103, `policy_expired`), refuses with "you have no policy in this network", while an ordinary `allow` edit from the same expired policy succeeds.
+- **Recorded in:** this log and the `peerbox` suite (this PR).
+- **Contract section:** [coordination-contract.md, Renewal and Commands](coordination-contract.md#renewal); [launch-contract.md, attention item 2](launch-contract.md).
+- **Implementing PRs:** #248 (the suite change), #249 (`access renew` revives an expired policy, e6eac402).
+
+#### PBX-24. Suite or host first
+
+- **Options:** (1) change the suite now: run `renewal_keeps_peerbox_rules` before the 4-day jump, and have `lapsed_sender` revive the owner's policy with `access renew` and require it current, a strict expected failure until the host is fixed; then fix the host. (2) Fix `access renew` in the host first, and change the suite after. (3) Change the suite only, reviving the policy another way and leaving `access renew` as it is.
+- **Recommended:** (1).
+- **Chosen:** (1).
+- **Reason given:** it unblocks slice C, whose suite run otherwise fails `renewal_keeps_peerbox_rules`; the `access renew` contract (coordination-contract.md:520 and 534, launch-contract.md:103) is fixed in the host separately.
+
+#### PBX-24b. Tests in the host fix
+
+- **Options:** (1) keep the Rust unit tests of the expired-head lookup and the implementer-written `renewal` suite case `access_renew_revives_expired_policy` in #249; (2) drop them before merge, as AGENTS.md has implementers add unit tests only when the owner or contract asks and has suite cases written by a separate author.
+- **Recommended:** none; brought to the owner because Codex flagged the AGENTS.md rule on #249.
+- **Chosen:** (1).
+- **Reason given:** "keep the tests".
+
+### PBX-23: which providers sign an invitation's share automatically (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: invitations, step 4 (the home host signing the pending share after admission).
+- **Source:** slice C's implementer (PR #234). The contract said the share waits when "the network's provider for the owner needs the owner's interaction (an SSH person key, for example)"; the suite's hosts all use a device provider with a host-held seed, so the case expecting a wait could not hold, and it was unclear whether only the owner's original person key may sign automatically.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Invitations for new participants](peerbox-contract.md#invitations-for-new-participants).
+- **Implementing PRs:** #234.
+
+#### PBX-23. Which providers sign automatically
+
+- **Options:** (a) Any provider the network selected for the owner that signs without the owner's interaction (a device provider whose seed the home host holds); the share waits for `peerbox share --pending` only for an interactive one (an SSH person key, `sshsig`, or no seed on this host). (b) Only the owner's original person key held on the home host; anything else, a device provider included, waits for the owner.
+- **Recommended:** (a): "it matches the contract's wording, keeps invitations one step for owners whose host can sign, and the provider is one the network already trusts to sign the owner's policy."
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
+
+### PBX-22: a peerbox task's past deadline (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: the code for a new peerbox task whose `deadline` has already passed.
+- **Source:** slice A's implementer (PR #221). The task contract (task-contract.md) says a deadline is "in the future at the receiver" and that validation and error codes are "as for messages", which answers 403 for agent tasks. The peerbox contract named no code, while the `deadline_past_and_expiry` case (#222) expects 400 `invalid` naming `deadline`.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Requests](peerbox-contract.md#requests).
+- **Implementing PRs:** #221 (4c9e471e).
+
+#### PBX-22. The code for a past deadline
+
+- **Options:** (a) 400 `{code: "invalid", field: "deadline"}`, decided before Check 1, like the peerbox task's other field checks. (b) 403, as message-style validation answers for agent tasks.
+- **Recommended:** (a): "a peerbox task is shape-checked field by field with 400 naming the field, and deciding it before Check 1 answers the same whether or not the sender may see the peerbox; it is what the suite and slice A already do."
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation ("go with your recommendations on all three").
+
+### PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: an agent prepares `peerbox create`, `share` or `invite`, and the owner confirms it with one approval before the home host carries it out.
+- **Source:** the owner approved drafting an "agent-proposed, human-confirmed" amendment on 2026-11-13; the options are those of the amendment's [Decisions](peerbox-contract.md#decisions).
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Agent proposals](peerbox-contract.md#agent-proposals).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all six".
+
+#### PBX-16. Where the person approves
+
+- **Options:** (a) "The existing `approvals`, `approve` and `deny` commands, with a `pbp_` ID form." (b) "New `peerbox proposals`, `peerbox approve` and `peerbox decline` commands."
+- **Chosen:** a.
+- **Reason given:** "one place to look, and the terminal rule and its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged."
+
+#### PBX-17. What lets an agent propose
+
+- **Options:** (a) "A credential flag, `peerbox_proposals`, asked at `attach` and default no, like `calls`." (b) "A route action `peerbox.propose` naming this host." (c) "Every credential."
+- **Chosen:** a.
+- **Reason given:** "routes name a peer and cite its policy, and a proposal has neither; (c) puts approval requests in front of people who never chose them."
+
+#### PBX-18. Whom an agent may propose to share with
+
+- **Options:** (a) "`person:` principals that are current members, at most 64." (b) "Every principal a rule accepts, `network` included."
+- **Chosen:** a.
+- **Reason given:** "each person is named and resolved in the review; giving the whole network access stays a deliberate command."
+
+#### PBX-19. How long a proposal waits
+
+- **Options:** (a) "1 hour, fixed." (b) "Chosen by the agent, up to 24 hours." (c) "15 minutes, as a call."
+- **Chosen:** a.
+- **Reason given:** "the person is usually in the session that asked; a longer wait leaves stale requests in the list, and `review_changed` already covers a repository that moved."
+
+#### PBX-20. An explanation from the agent
+
+- **Options:** (a) "None in the record; the agent explains in its session." (b) "A `note` of up to 1,024 bytes, shown quoted and marked as the agent's."
+- **Chosen:** a.
+- **Reason given:** "the agent may be repeating another person's text, and the approval screen should show only what will happen."
+
+#### PBX-21. When the review changes before approval
+
+- **Options:** (a) "Recompute at execution and fail with `review_changed` on any difference." (b) "Show the new facts in the `approve` prompt and execute on them."
+- **Chosen:** a.
+- **Reason given:** "the approval then covers exactly what the person saw; (b) turns the digest into a check of the arguments only."
 
 ### RUN-16: removing a finished task's workspace (2026-11-13)
 

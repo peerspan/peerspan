@@ -14,8 +14,26 @@ pub struct Proof {
 /// Catalogs recently read, by the descriptor, the migration flag and the
 /// exact bytes.
 static READ: super::memo::Memo<Catalog> = super::memo::Memo::new();
+/// Unions recently made, by the descriptor and both catalogs' bytes.
+static UNIONS: super::memo::Memo<Catalog> = super::memo::Memo::new();
+/// A verified catalog. Its contents are shared: a catalog is cloned into
+/// every prior, projection and memo entry, and a large one (big policies)
+/// holds megabytes of decoded objects; a change copies them first.
 #[derive(Clone, Debug)]
-pub struct Catalog {
+pub struct Catalog(Arc<Contents>);
+impl std::ops::Deref for Catalog {
+    type Target = Contents;
+    fn deref(&self) -> &Contents {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Catalog {
+    fn deref_mut(&mut self) -> &mut Contents {
+        Arc::make_mut(&mut self.0)
+    }
+}
+#[derive(Clone, Debug)]
+pub struct Contents {
     pub context_id: String,
     pub bytes: Vec<u8>,
     pub proofs: BTreeMap<String, Proof>,
@@ -54,7 +72,7 @@ impl Catalog {
         version(o)?;
         let context = text(o, "context_id")?;
         check(context == descriptor.context_id())?;
-        let mut result = Self {
+        let mut result = Contents {
             context_id: context.into(),
             bytes: bytes.into(),
             proofs: BTreeMap::new(),
@@ -87,8 +105,10 @@ impl Catalog {
             result.index(descriptor, &proof)?;
             result.proofs.insert(id.into(), proof);
         }
-        Ok(result)
+        Ok(Self(Arc::new(result)))
     }
+}
+impl Contents {
     fn index(&mut self, descriptor: &Descriptor, proof: &Proof) -> Result<()> {
         match proof.kind.as_str() {
             "activation" => {
@@ -137,6 +157,8 @@ impl Catalog {
             .or_insert(statement);
         Ok(())
     }
+}
+impl Catalog {
     /// Resolve original proof bytes inside a retained composite without
     /// fabricating a standalone dec_objects row or changing its source DP.
     pub(crate) fn proof(&self, id: &str) -> Result<&Proof> {
@@ -177,7 +199,21 @@ impl Catalog {
     pub fn get(&self, id: &str) -> Result<&Statement> {
         self.statements.get(id).ok_or_else(|| Error::missing(id))
     }
+    /// Every proof of both catalogs. A pure function of the descriptor and
+    /// the two catalogs' bytes, rebuilt (re-encoding every object) whenever
+    /// a stored and a received catalog are combined, so identical inputs
+    /// reuse the union made last time.
     pub fn union(descriptor: &Descriptor, prior: &Self, candidate: &Self) -> Result<Self> {
+        let encoded = serde_json::to_vec(descriptor).map_err(|_| Error::new("internal"))?;
+        let key = super::memo::key([encoded.as_slice(), &prior.bytes, &candidate.bytes]);
+        if let Some(hit) = UNIONS.get(&key) {
+            return Ok(hit);
+        }
+        let union = Self::union_of(descriptor, prior, candidate)?;
+        UNIONS.put(key, &union, union.bytes.len());
+        Ok(union)
+    }
+    fn union_of(descriptor: &Descriptor, prior: &Self, candidate: &Self) -> Result<Self> {
         check(prior.context_id == candidate.context_id)?;
         let mut proofs = prior.proofs.clone();
         for (id, p) in &candidate.proofs {

@@ -118,6 +118,13 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub run: Option<crate::runtime_task::RunSpec>,
+    /// A peerbox task's operation (peerbox contract).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub peerbox: Option<crate::peerbox_task::PeerboxOp>,
     pub deadline: String,
     pub input: String,
     #[serde(
@@ -146,6 +153,12 @@ impl TaskRequest {
     /// Whether the host's runtime, not an agent, receives this task.
     pub fn is_runtime(&self) -> bool {
         self.executor.as_deref() == Some(crate::runtime_task::EXECUTOR)
+    }
+    /// Whether this is a peerbox task's `run`, which the host's runtime
+    /// runs (peerbox contract, Runs).
+    pub fn is_peerbox_run(&self) -> bool {
+        self.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+            && self.peerbox.as_ref().is_some_and(|p| p.op == "run")
     }
     pub(crate) fn authz(&self) -> Authz<'_> {
         Authz {
@@ -292,6 +305,7 @@ pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
         || r.origin.as_ref().is_some_and(|o| !o.valid())
         || !valid_id(&r.target_agent_id, "agent", 16)
         || r.run.is_some()
+        || r.peerbox.is_some()
         || r.input.is_empty()
         || r.input.len() > MAX_TEXT
     {
@@ -336,11 +350,12 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
 /// The stored record of a received task: the status record plus what the
 /// authorization checked at acceptance allowed, which is never served: the
 /// artifact bound and whether the agent may pass the task on.
-const INTERNAL_KEYS: [&str; 4] = [
+const INTERNAL_KEYS: [&str; 5] = [
     "max_artifact_bytes",
     "delegable",
     "runtime",
     "runtime_agent",
+    "peerbox_run",
 ];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
@@ -543,6 +558,11 @@ pub(crate) fn expire(
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
+    // A peerbox run's entry on its contribution ends with it (peerbox
+    // contract, Peerboxes and contributions: `runs`).
+    if request.is_peerbox_run() {
+        crate::peerbox::update_run(tx, sender, &status.task_id, "expired", None)?;
+    }
     Ok(true)
 }
 /// The rejection reason when authorization lapses before an agent accepts.
@@ -580,6 +600,9 @@ impl Store {
             None | Some("agent") => {}
             Some(crate::runtime_task::EXECUTOR) => {
                 return crate::runtime_task::accept(self, sender, r);
+            }
+            Some(crate::peerbox_task::EXECUTOR) => {
+                return crate::peerbox_task::accept(self, sender, r);
             }
             Some(_) => return Err(Error::Invalid("executor".into())),
         }
@@ -714,7 +737,9 @@ impl Store {
         let tx = connection.transaction()?;
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
-        let run = request.is_runtime() || crate::runtime_task::is_agent_task(&tx, sender, id)?;
+        let run = request.is_runtime()
+            || request.is_peerbox_run()
+            || crate::runtime_task::is_agent_task(&tx, sender, id)?;
         let mut children = Vec::new();
         if !status.cancel_requested && !is_final(&status.state) {
             record(
@@ -729,6 +754,11 @@ impl Store {
             children = crate::task_outbound::cancel_children(&tx, sender, id)?;
             if run {
                 crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
+            }
+            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+                && !request.is_peerbox_run()
+            {
+                crate::peerbox_task::cancel_requested(&tx, sender, &mut status)?;
             }
         }
         tx.commit()?;
@@ -1253,6 +1283,11 @@ async fn submit(
     {
         crate::runtime_task::check_fields(&value)?;
     }
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body)
+        && value.get("executor").and_then(|e| e.as_str()) == Some(crate::peerbox_task::EXECUTOR)
+    {
+        crate::peerbox_task::check_fields(&value)?;
+    }
     let request = decode(Ok(body))?;
     Ok(Json(
         blocking(store, move |s| s.accept_task(&sender, request)).await?,
@@ -1447,6 +1482,7 @@ pub(crate) mod tests {
         TaskRequest {
             executor: None,
             run: None,
+            peerbox: None,
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,

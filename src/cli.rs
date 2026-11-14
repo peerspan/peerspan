@@ -561,6 +561,9 @@ pub enum Command {
     /// Let your machines run commands in this host's runtime
     #[command(subcommand)]
     Runtime(RuntimeCommand),
+    /// Serve a Git repository to people in your network, and use theirs
+    #[command(subcommand)]
+    Peerbox(PeerboxCommand),
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
@@ -703,6 +706,242 @@ pub enum SourcesCommand {
         host: Option<String>,
         #[arg(long)]
         all: bool,
+    },
+}
+/// A peerbox action of `peerbox share`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+pub enum PeerboxAction {
+    Read,
+    Submit,
+    Run,
+}
+impl PeerboxAction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Read => "peerbox.read",
+            Self::Submit => "peerbox.submit",
+            Self::Run => "peerbox.run",
+        }
+    }
+}
+#[derive(Debug, Subcommand)]
+pub enum PeerboxCommand {
+    /// Create a peerbox for a branch of a local repository
+    Create {
+        #[arg(long, value_name = "PATH")]
+        repository: PathBuf,
+        /// The protected branch
+        #[arg(long, value_name = "NAME")]
+        branch: String,
+        #[arg(long, value_name = "TEXT")]
+        title: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Create without asking to confirm the disclosure
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Give principals exactly these actions and bounds on a peerbox
+    Share {
+        #[arg(required_unless_present = "pending")]
+        peerbox: Option<String>,
+        /// person:PERSON, group:NAME, network, or agent:HOST/AGENT; repeat
+        #[arg(
+            long = "for",
+            value_name = "PRINCIPAL",
+            required_unless_present = "pending"
+        )]
+        principals: Vec<String>,
+        /// Instead, sign the rule of a peerbox invite's pending share whose
+        /// person was admitted
+        #[arg(
+            long,
+            value_name = "INVITATION_ID",
+            conflicts_with_all = ["peerbox", "principals", "actions", "max_bundle_bytes", "max_pending", "allow_disconnected"]
+        )]
+        pending: Option<String>,
+        /// read, submit or run; repeat; default read
+        #[arg(long = "action", value_name = "ACTION")]
+        actions: Vec<PeerboxAction>,
+        /// Bytes per fetched or submitted bundle; default 104857600
+        #[arg(long, value_name = "N")]
+        max_bundle_bytes: Option<i64>,
+        /// Pending contributions per person; default 4 with submit
+        #[arg(long, value_name = "N")]
+        max_pending: Option<i64>,
+        #[arg(long)]
+        allow_disconnected: bool,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove principals, or everyone, from a peerbox's rules
+    Unshare {
+        peerbox: String,
+        #[arg(long = "for", value_name = "PRINCIPAL")]
+        principals: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Delete a peerbox: its rules, its record and its peerbox refs
+    Delete {
+        peerbox: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show peerbox records, their rules and pending counts
+    Show {
+        peerbox: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List a peer host's peerboxes you may read
+    List {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fetch a peer's peerbox into a local repository
+    Fetch {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        #[arg(long, value_name = "DIR")]
+        repository: PathBuf,
+    },
+    /// Invite a new person into the peerbox's network with access to it;
+    /// prints a private psb1- code
+    Invite {
+        #[arg(required_unless_present_any = ["list", "cancel"])]
+        peerbox: Option<String>,
+        /// The new member's label
+        #[arg(value_name = "LABEL", required_unless_present_any = ["list", "cancel"])]
+        label: Option<String>,
+        /// read, submit or run; repeat; default read
+        #[arg(long = "action", value_name = "ACTION")]
+        actions: Vec<PeerboxAction>,
+        /// Bytes per fetched or submitted bundle; default 104857600
+        #[arg(long, value_name = "N")]
+        max_bundle_bytes: Option<i64>,
+        /// Pending contributions per person; default 4 with submit
+        #[arg(long, value_name = "N")]
+        max_pending: Option<i64>,
+        /// How long the invite lasts, 60 seconds to 24 hours (for example 2h); default 1h
+        #[arg(long, value_name = "DURATION", conflicts_with = "expires_at")]
+        expires_in: Option<String>,
+        /// When the invite expires (RFC 3339)
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Show the pending shares
+        #[arg(long, conflicts_with_all = ["peerbox", "label", "cancel"])]
+        list: bool,
+        /// Delete a pending share; the network invite stays
+        #[arg(long, value_name = "INVITATION_ID", conflicts_with_all = ["peerbox", "label"])]
+        cancel: Option<String>,
+    },
+    /// Join a network from a private psb1- peerbox code, then wait for the
+    /// peerbox and fetch it
+    Join {
+        /// Codes given as arguments are refused; use a private input below
+        #[arg(value_name = "CODE", hide = true)]
+        code: Option<String>,
+        #[command(flatten)]
+        invitation: crate::decentralized_onboarding_cli::InvitationInput,
+        /// Fetch the peerbox into this repository once it is shared
+        #[arg(long, value_name = "DIR")]
+        repository: Option<PathBuf>,
+        /// The label your new person key is saved under; default the invite's
+        #[arg(long = "as", value_name = "LABEL")]
+        label: Option<String>,
+        /// Person key: an OpenSSH public key (select an ssh-agent identity) or
+        /// unencrypted private key file
+        #[arg(long, alias = "person-key-file", value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Run a command on a peerbox's exact commit on its home host
+    Run {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        #[arg(long, value_name = "COMMIT")]
+        commit: String,
+        /// none, output (the default), or changes
+        #[arg(long, value_name = "WHAT")]
+        results: Option<String>,
+        #[arg(long, value_name = "N")]
+        cpus: Option<i64>,
+        #[arg(long, value_name = "N")]
+        memory_mib: Option<i64>,
+        /// The run's time limit, such as 90s, 10m or 2h
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+        /// An environment variable; repeat for each
+        #[arg(long = "env", value_name = "NAME=VALUE")]
+        env: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        cwd: Option<String>,
+        /// The purpose shown to the host's owner; default the command line
+        #[arg(long, value_name = "TEXT")]
+        input: Option<String>,
+        /// RFC3339 time by which the run must start; default one hour
+        #[arg(long, value_name = "TIME")]
+        deadline: Option<String>,
+        /// Print the local record instead of following the run
+        #[arg(long)]
+        detach: bool,
+        #[arg(value_name = "COMMAND", last = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Submit a branch of a local repository to a peer's peerbox
+    Submit {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        #[arg(long, value_name = "DIR")]
+        repository: PathBuf,
+        #[arg(long, value_name = "NAME")]
+        branch: String,
+        /// Leave out history reachable from this commit; default: the merge
+        /// base of the branch and the fetched peerbox ref
+        #[arg(long, value_name = "COMMIT")]
+        base: Option<String>,
+    },
+    /// Show your contributions to a peer's peerbox, newest first
+    Status {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        contribution: Option<String>,
+        /// Start below this contribution
+        #[arg(long, value_name = "CONTRIBUTION")]
+        before: Option<String>,
+        /// Print at most this many contributions; default 100
+        #[arg(long, value_name = "N", default_value_t = 100)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Withdraw a pending contribution
+    Withdraw {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        contribution: String,
+    },
+    /// List pending contributions, or accept or reject one
+    Review {
+        /// A peerbox (list its pending contributions) or a contribution
+        /// (with --accept or --reject)
+        target: Option<String>,
+        #[arg(long, conflicts_with = "reject")]
+        accept: bool,
+        #[arg(long)]
+        reject: bool,
+        #[arg(long, value_name = "TEXT")]
+        reason: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -2070,7 +2309,8 @@ impl Command {
             )
             | Self::Runtime(
                 RuntimeCommand::Enable { network, .. } | RuntimeCommand::Disable { network, .. },
-            ) => Some(network),
+            )
+            | Self::Peerbox(PeerboxCommand::Create { network, .. }) => Some(network),
             Self::Network(
                 NetworkCommand::Persons { id }
                 | NetworkCommand::Members { id }
@@ -2161,6 +2401,12 @@ impl Command {
                 ..
             })
             | Self::Runtime(RuntimeCommand::Show { json })
+            | Self::Peerbox(
+                PeerboxCommand::Show { json, .. }
+                | PeerboxCommand::List { json, .. }
+                | PeerboxCommand::Status { json, .. }
+                | PeerboxCommand::Review { json, .. },
+            )
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
             _ => return global,
@@ -2216,6 +2462,7 @@ impl Command {
                 | AccessCommand::Renew { .. },
             )
             | Self::Runtime(RuntimeCommand::Enable { .. } | RuntimeCommand::Disable { .. })
+            | Self::Peerbox(_)
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }

@@ -10426,3 +10426,40 @@ fatal handling. No exception is converted into readiness or a retry by this
 addition. The first main failure remains unattributed until a genuine failing
 observation or independently established cause identifies it. A later passing
 run does not classify or erase the first failure.
+
+### Join historical progress publication phase
+
+The section49 own-request prerequisite settles publication only before the
+`published_progress_exact_read_only_snapshot_cli_bounds_and_owner_routes`
+baseline. The `published_progress_historical_replacement_restart_cancel_and_idle_expiry`
+case (onboarding15 verification2) calls the same pure progress check right
+after approval on two fresh published joins: `progress-history`, and
+`progress-cancel` before its public cancel. The genuine own-endpoint
+acknowledgment can still land inside that whole-state window. Under load it
+failed once in CI and in3 of4 direct runs on main binaries, at the unchanged
+guard. That is the same asynchronous ordinary publication, not a new product
+difference.
+
+Every fresh published join gets the settled publication phase before its first
+pure whole-state baseline. Extend ONLY the existing join prerequisite launcher
+`conformance/slim/join_onboarding_prerequisite.py` from one literal case to these
+two literal cases. In the historical case, wrap the original decide call in the
+same way: invoke it once unchanged, then, before returning its identical result
+and before ANY following progress, prepare, restart, clock advance or cancel,
+observe that exact saved requester request with the unchanged witness, through
+one read-only SQLite snapshot per observation for at most5 real seconds. The
+witness stays as specified in section49: unfinished request, no owner/selection/
+commit stages, one saved own request frame, a nonempty own participant endpoint
+set, and a durable acknowledgment of that frame at every own participant
+endpoint. The offline inviter need not acknowledge. Both decide calls in this
+case approve, so each must satisfy the witness; anything else fails the
+prerequisite, never a skip or a filtered pass.
+
+No API call, send, sync, resume, clock write, DB/file mutation, fabricated ACK,
+stopped/disabled worker, changed product timing, or changed original action/
+assertion/comparison/timeout. Restore decide and Suite.case in finally and keep
+every other case, the strict DB/schema/files/home guards and the verdict exact.
+CI keeps running join_onboarding only through this launcher; the job count is
+unchanged. `published_progress_real_owner_admin_and_local_application_transitions`
+has no pure baseline (`pure=False`) and stays unwrapped. This is a test-harness
+clarification under section49, not an owner decision, so no decision-log entry.

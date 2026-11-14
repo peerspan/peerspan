@@ -72,6 +72,8 @@ pub struct Store {
     /// Wakes the runtime task worker when a runtime task arrives, its
     /// inputs are stored, or its cancellation is requested.
     pub(crate) runtime_wake: tokio::sync::Notify,
+    /// Wakes the peerbox task worker (peerbox contract).
+    pub(crate) peerbox_wake: tokio::sync::Notify,
     /// Wakes every runtime task follower when a cancellation is requested.
     pub(crate) runtime_cancel: tokio::sync::Notify,
     /// The peer socket's bound address while listening. Candidates are
@@ -311,6 +313,9 @@ impl Store {
         if !described {
             tx.execute_batch(DESCRIPTIONS)?;
         }
+        if version < 32 {
+            tx.execute_batch(crate::peerbox::SCHEMA)?;
+        }
         if version < 33 {
             tx.execute_batch(crate::peerfs::SCHEMA)?;
         }
@@ -324,7 +329,7 @@ impl Store {
         // 29 is runtime tasks (runtime task contract): new record fields only.
         // 30 is conversations C7: the agent_descriptions table.
         // 31 is runtime agents (runtime agent contract): new record fields only.
-        // 32 is peerboxes (peerbox contract), reserved for #221, which merges first.
+        // 32 is peerboxes (peerbox contract): the peerbox tables.
         // 33 is PF-1(a): explicit local PeerFS bindings and typed host signing.
         tx.execute_batch("PRAGMA user_version = 33;")?;
         if version < 23
@@ -418,6 +423,7 @@ impl Store {
             peer_transport: Mutex::new(None),
             relay_wake: tokio::sync::Notify::new(),
             runtime_wake: tokio::sync::Notify::new(),
+            peerbox_wake: tokio::sync::Notify::new(),
             runtime_cancel: tokio::sync::Notify::new(),
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
