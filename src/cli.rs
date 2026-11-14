@@ -561,6 +561,9 @@ pub enum Command {
     /// Let your machines run commands in this host's runtime
     #[command(subcommand)]
     Runtime(RuntimeCommand),
+    /// Share a branch of a PeerFS space on this host for reading
+    #[command(subcommand)]
+    Fs(FsCommand),
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
@@ -755,6 +758,57 @@ pub enum RuntimeCommand {
     /// Show the switch, the runtime's report, and this host's runtime rule
     Show {
         /// Print the JSON object (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FsCommand {
+    /// Let principals read one branch of a registered space on this host, its whole history
+    Share {
+        /// The space ID (space_...), registered on this host
+        #[arg(value_name = "SPACE")]
+        space: String,
+        /// The branch
+        #[arg(value_name = "BRANCH")]
+        branch: String,
+        /// Who may read: person:PERSON, group:NAME, or network; repeat for each
+        #[arg(long = "with", value_name = "PRINCIPAL", required = true, num_args = 1..)]
+        with: Vec<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Readers whose membership lapsed still match while the policy is current
+        #[arg(long)]
+        allow_disconnected: bool,
+        /// Confirm without asking
+        #[arg(long)]
+        yes: bool,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Stop sharing a branch; bytes already fetched stay with the reader
+    Unshare {
+        #[arg(value_name = "SPACE")]
+        space: String,
+        #[arg(value_name = "BRANCH")]
+        branch: String,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Confirm without asking
+        #[arg(long)]
+        yes: bool,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// This host's shared branches, from the current policy
+    Shares {
+        /// Only this network's
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Print the JSON array (the default output)
         #[arg(long)]
         json: bool,
     },
@@ -2070,7 +2124,10 @@ impl Command {
             )
             | Self::Runtime(
                 RuntimeCommand::Enable { network, .. } | RuntimeCommand::Disable { network, .. },
-            ) => Some(network),
+            )
+            | Self::Fs(FsCommand::Share { network, .. } | FsCommand::Unshare { network, .. }) => {
+                Some(network)
+            }
             Self::Network(
                 NetworkCommand::Persons { id }
                 | NetworkCommand::Members { id }
@@ -2161,6 +2218,7 @@ impl Command {
                 ..
             })
             | Self::Runtime(RuntimeCommand::Show { json })
+            | Self::Fs(FsCommand::Shares { json, .. })
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
             _ => return global,
@@ -2216,6 +2274,7 @@ impl Command {
                 | AccessCommand::Renew { .. },
             )
             | Self::Runtime(RuntimeCommand::Enable { .. } | RuntimeCommand::Disable { .. })
+            | Self::Fs(_)
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }

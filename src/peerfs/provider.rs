@@ -27,11 +27,13 @@ const MAX_BODY: usize = 8 << 10;
 
 /// Verifies the provider serving `view`'s space in the pinned directory `dir`.
 pub(super) fn probe(dir: &Pinned, view: &View, op: &Operation) -> Result<(), Error> {
-    op.check()?;
-    check_socket(dir)?;
-    let stream = connect(dir, op)?;
-    check_peer(&stream, dir.stamp.uid)?;
-    let identity = request_identity(stream, op)?;
+    let (status, body) = get(dir, "/v1/host-bridge", MAX_BODY, op)?;
+    if status != 200 {
+        // A file-key provider has no bridge identity (404): incompatible, not unavailable.
+        return Err(conflict());
+    }
+    // A struct refuses unknown and duplicated fields, which a generic value would not.
+    let identity: Identity = serde_json::from_slice(&body).map_err(|_| conflict())?;
     let matches = identity.format == 1
         && identity.protocol == "peerfs-host-v1"
         && identity.space_id == view.space_id
@@ -169,9 +171,87 @@ fn check_peer(stream: &UnixStream, uid: u32) -> Result<(), Error> {
     Ok(())
 }
 
-/// Sends `GET /v1/host-bridge` and returns its identity, refusing anything but a bounded
-/// 200 with exactly one identity object.
-fn request_identity(mut stream: UnixStream, op: &Operation) -> Result<Identity, Error> {
+/// A branch as the provider reports it: its head and the number of commits in its
+/// history (`GET /v1/branches/{name}/log`, first parents, newest first).
+pub(super) struct Branch {
+    pub head: String,
+    pub commits: usize,
+}
+/// The largest branch list accepted.
+const MAX_BRANCHES: usize = 1 << 20;
+/// The largest history accepted.
+const MAX_LOG: usize = 16 << 20;
+
+/// One entry of `GET /v1/branches`.
+#[derive(Deserialize)]
+struct BranchInfo {
+    name: String,
+}
+/// One entry of a branch's log; only its ID is read.
+#[derive(Deserialize)]
+struct CommitInfo {
+    id: String,
+}
+
+/// Reads branch `name` from the provider serving `view`'s space, after the activation
+/// probe: its head and history length, or `None` when the space has no such branch.
+/// Read-only; the provider is never started.
+pub(super) fn branch(
+    dir: &Pinned,
+    view: &View,
+    name: &str,
+    op: &Operation,
+) -> Result<Option<Branch>, Error> {
+    probe(dir, view, op)?;
+    let (status, body) = get(dir, "/v1/branches", MAX_BRANCHES, op)?;
+    if status != 200 {
+        return Err(unavailable());
+    }
+    let branches: Vec<BranchInfo> = serde_json::from_slice(&body).map_err(|_| conflict())?;
+    if !branches.iter().any(|b| b.name == name) {
+        return Ok(None);
+    }
+    let (status, body) = get(
+        dir,
+        &format!("/v1/branches/{}/log", segment(name)),
+        MAX_LOG,
+        op,
+    )?;
+    match status {
+        200 => {}
+        404 => return Ok(None),
+        _ => return Err(unavailable()),
+    }
+    let log: Vec<CommitInfo> = serde_json::from_slice(&body).map_err(|_| conflict())?;
+    // The branch may have moved since the list: its head is the log's newest commit.
+    let head = log.first().ok_or_else(conflict)?.id.clone();
+    op.check()?;
+    Ok(Some(Branch {
+        head,
+        commits: log.len(),
+    }))
+}
+
+/// A path segment, percent-encoded except for unreserved bytes.
+fn segment(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Sends `GET path` over a new checked connection to the provider's socket and returns
+/// the status and a body of at most `max` bytes. Chunked bodies are refused.
+fn get(dir: &Pinned, path: &str, max: usize, op: &Operation) -> Result<(u16, Vec<u8>), Error> {
+    op.check()?;
+    check_socket(dir)?;
+    let mut stream = connect(dir, op)?;
+    check_peer(&stream, dir.stamp.uid)?;
     let left = || {
         op.0.at
             .checked_duration_since(Instant::now())
@@ -182,7 +262,10 @@ fn request_identity(mut stream: UnixStream, op: &Operation) -> Result<Identity, 
         .set_write_timeout(Some(left()?))
         .map_err(|_| unavailable())?;
     stream
-        .write_all(b"GET /v1/host-bridge HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
         .map_err(|_| unavailable())?;
     let mut response = Vec::new();
     let mut buf = [0u8; 4096];
@@ -194,7 +277,7 @@ fn request_identity(mut stream: UnixStream, op: &Operation) -> Result<Identity, 
             Ok(0) => break,
             Ok(n) => {
                 response.extend_from_slice(&buf[..n]);
-                if response.len() > MAX_BODY + 4096 {
+                if response.len() > max + 4096 {
                     return Err(conflict());
                 }
             }
@@ -208,10 +291,12 @@ fn request_identity(mut stream: UnixStream, op: &Operation) -> Result<Identity, 
         .ok_or_else(conflict)?;
     let head = std::str::from_utf8(&response[..split]).map_err(|_| conflict())?;
     let mut lines = head.split("\r\n");
-    if lines.next().and_then(|line| line.get(..12)) != Some("HTTP/1.1 200") {
-        // A file-key provider has no bridge identity (404): incompatible, not unavailable.
-        return Err(conflict());
-    }
+    let status = lines
+        .next()
+        .and_then(|line| line.strip_prefix("HTTP/1.1 "))
+        .and_then(|rest| rest.get(..3))
+        .and_then(|code| code.parse::<u16>().ok())
+        .ok_or_else(conflict)?;
     let mut body = &response[split + 4..];
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
@@ -222,15 +307,14 @@ fn request_identity(mut stream: UnixStream, op: &Operation) -> Result<Identity, 
         }
         if name.eq_ignore_ascii_case("content-length") {
             let length: usize = value.trim().parse().map_err(|_| conflict())?;
-            if length > MAX_BODY || body.len() < length {
+            if length > max || body.len() < length {
                 return Err(conflict());
             }
             body = &body[..length];
         }
     }
-    if body.len() > MAX_BODY {
+    if body.len() > max {
         return Err(conflict());
     }
-    // A struct refuses unknown and duplicated fields, which a generic value would not.
-    serde_json::from_slice(body).map_err(|_| conflict())
+    Ok((status, body.to_vec()))
 }
