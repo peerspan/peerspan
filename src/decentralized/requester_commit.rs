@@ -976,19 +976,27 @@ fn verify_complete(
     Ok(full)
 }
 fn components(context: &str, rows: Vec<Value>) -> Result<Vec<Vec<u8>>> {
+    // A component's encoded length is that of the component with no objects
+    // plus each object's own encoding and the commas between them, so each
+    // row is measured once instead of encoding every growing prefix again
+    // (which, for a megabyte catalog, encoded hundreds of megabytes).
+    let empty = bytes(&json!({"format":1,"context_id":context,"objects":[]}))?.len();
+    let length = |sum: usize, count: usize| empty + sum + count.saturating_sub(1);
     let mut result = Vec::new();
     let mut objects = Vec::new();
+    let mut sum = 0;
     for value in rows {
-        let mut next = objects.clone();
-        next.push(value.clone());
-        if bytes(&json!({"format":1,"context_id":context,"objects":next}))?.len() > 2 << 20 {
+        let size = bytes(&value)?.len();
+        if length(sum + size, objects.len() + 1) > 2 << 20 {
             require(!objects.is_empty(), "quota_exceeded")?;
             result.push(bytes(
                 &json!({"format":1,"context_id":context,"objects":objects}),
             )?);
             objects = Vec::new();
+            sum = 0;
         }
         objects.push(value);
+        sum += size;
     }
     if !objects.is_empty() {
         let raw = bytes(&json!({"format":1,"context_id":context,"objects":objects}))?;

@@ -520,6 +520,11 @@ pub fn read_cap(secret: &[u8; 16]) -> String {
     ]))
 }
 
+/// Frames read recently, by their bytes and window.
+static FRAMES: super::memo::Memo<Frame> = super::memo::Memo::sized(1024);
+/// Frame plaintexts recently opened and checked (all but the time checks),
+/// by the frame's associated data, ciphertext and secret.
+static OPENED: super::memo::Memo<Vec<u8>> = super::memo::Memo::sized(1024);
 #[derive(Clone, Debug)]
 pub struct Frame {
     pub body: Vec<u8>,
@@ -567,6 +572,18 @@ impl Frame {
         Self::read_in(raw, Window::Request)
     }
     pub fn read_in(raw: &[u8], window: Window) -> Result<Self> {
+        // Reading is a pure function of the bytes and the window, and every
+        // request load and frame budget rereads each stored frame, which can
+        // carry a megabyte catalog.
+        let key = super::memo::key([raw, format!("{window:?}").as_bytes()]);
+        if let Some(hit) = FRAMES.get(&key) {
+            return Ok(hit);
+        }
+        let frame = Self::read_checked(raw, window)?;
+        FRAMES.put(key, &frame, raw.len());
+        Ok(frame)
+    }
+    fn read_checked(raw: &[u8], window: Window) -> Result<Self> {
         let v = parse(raw, MAX_FRAME_POST)?;
         let o = object(&v)?;
         fields(
@@ -703,15 +720,52 @@ impl Frame {
         parse(&self.open_bytes(secret, now)?, MAX_FRAME_PLAIN)
     }
     pub fn open_bytes(&self, secret: &[u8; 16], now: &str) -> Result<Vec<u8>> {
-        let mut ciphertext = self.ciphertext.clone();
-        let plain = self
-            .key(secret)?
-            .open_in_place(self.nonce(), aead::Aad::from(self.ad()), &mut ciphertext)
-            .map_err(|_| Error::new("invalid"))?;
-        self.validate_plain(plain, now)?;
-        Ok(plain.to_vec())
+        // Decryption and the checks that do not depend on the time are a
+        // pure function of the frame and the secret; frames are opened again
+        // on every pass, so those reuse the result of the last opening.
+        let key = super::memo::key([self.ad().as_slice(), &self.ciphertext, secret]);
+        let plain = match OPENED.get(&key) {
+            Some(plain) => plain,
+            None => {
+                let mut ciphertext = self.ciphertext.clone();
+                let plain = self
+                    .key(secret)?
+                    .open_in_place(self.nonce(), aead::Aad::from(self.ad()), &mut ciphertext)
+                    .map_err(|_| Error::new("invalid"))?
+                    .to_vec();
+                self.validate_untimed(&plain)?;
+                OPENED.put(key, &plain, plain.len());
+                plain
+            }
+        };
+        self.validate_timed(&plain, now)?;
+        Ok(plain)
     }
-    fn validate_plain(&self, raw: &[u8], now: &str) -> Result<Value> {
+    fn validate_plain(&self, raw: &[u8], now: &str) -> Result<()> {
+        self.validate_untimed(raw)?;
+        self.validate_timed(raw, now)
+    }
+    /// The checks of a frame's plaintext at `now`, after `validate_untimed`
+    /// passed: an invite's return pairing token, or the contacts.
+    fn validate_timed(&self, raw: &[u8], now: &str) -> Result<()> {
+        if ident(&self.request_id, "di_") {
+            let value = parse(raw, MAX_FRAME_PLAIN)?;
+            let raw = b64(text(object(&value)?, "packet_base64")?, 32 << 10)?;
+            PairingToken::read(&format!("psl2-{}", URL_SAFE_NO_PAD.encode(&raw)), now)?;
+            return Ok(());
+        }
+        contacts(
+            &super::catalog::raw_field(raw, "contacts")?,
+            now,
+            None,
+            None,
+            false,
+        )?;
+        Ok(())
+    }
+    /// Every check of a frame's plaintext that does not depend on the time,
+    /// in order; `validate_timed` makes the rest.
+    fn validate_untimed(&self, raw: &[u8]) -> Result<()> {
         let value = parse(raw, MAX_FRAME_PLAIN)?;
         let p = object(&value)?;
         fields(p, "packet_base64 catalog_base64 contacts")?;
@@ -722,9 +776,8 @@ impl Frame {
             // An invite's return frame carries the request code's JSON
             // object (DEC-Q3, wire section 10.1).
             check(self.role == "request" && catalog == "-")?;
-            let raw = b64(packet, 32 << 10)?;
-            PairingToken::read(&format!("psl2-{}", URL_SAFE_NO_PAD.encode(&raw)), now)?;
-            return Ok(value);
+            b64(packet, 32 << 10)?;
+            return Ok(());
         }
         if packet != "-" {
             let packet = Packet::read(&b64(packet, MAX_OBJECT)?)?;
@@ -767,13 +820,6 @@ impl Frame {
                 check(super::statement::proof_id(text(entry, "kind")?, &body) == id)?;
             }
         }
-        contacts(
-            &super::catalog::raw_field(raw, "contacts")?,
-            now,
-            None,
-            None,
-            false,
-        )?;
-        Ok(value)
+        Ok(())
     }
 }

@@ -590,14 +590,24 @@ fn load_key(
     cap: Option<&[u8]>,
 ) -> Option<(super::memo::Key, Vec<Option<String>>)> {
     use sha2::{Digest, Sha256};
+    // One extraction of every field, so SQLite parses the record (which
+    // can hold a megabyte catalog) once rather than once per field.
+    let paths = INTENT_FIELDS.map(|field| format!("$.{field}"));
+    let extracted: String = c
+        .prepare_cached("SELECT json_extract(?1,?2,?3,?4,?5)")
+        .ok()?
+        .query_row(
+            rusqlite::params![raw, paths[0], paths[1], paths[2], paths[3]],
+            |r| r.get(0),
+        )
+        .ok()?;
     let mut named = Vec::new();
-    for field in INTENT_FIELDS {
-        let value: Option<String> = c
-            .prepare_cached("SELECT json_extract(?1,?2)")
-            .ok()?
-            .query_row(rusqlite::params![raw, format!("$.{field}")], |r| r.get(0))
-            .ok()?;
-        named.push(value);
+    for value in serde_json::from_str::<Vec<Value>>(&extracted).ok()? {
+        named.push(match value {
+            Value::Null => None,
+            Value::String(id) => Some(id),
+            _ => return None,
+        });
     }
     let mut hash = Sha256::new();
     for part in [

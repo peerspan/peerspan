@@ -427,6 +427,10 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
             )
         })
         .collect::<BTreeMap<_, _>>();
+    let stored = all
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
     for frame in incoming {
         frame.valid_at(&now)?;
         let plain = frame.open_bytes(&secret, &now)?;
@@ -516,7 +520,12 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
     });
     p.record.carrier_endpoints.dedup();
     let mut inserted = 0;
-    for frame in all.values() {
+    // Stored frames are already rows; inserting them again does nothing,
+    // but would encode each (up to megabytes) for the conflict check.
+    for (key, frame) in &all {
+        if stored.contains(key) {
+            continue;
+        }
         inserted+=tx.execute("INSERT INTO dec_frames(request_id,role,writer_key,frame_id,record) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id,role,writer_key,frame_id) DO NOTHING",rusqlite::params![id,frame.role,frame.writer_host_public_key,frame.frame_id,json!({"frame_base64":encode(&frame.body)}).to_string()]).map_err(|_|Error::new("internal"))?;
     }
     requests::save(&tx, &p)?;
