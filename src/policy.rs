@@ -1970,6 +1970,41 @@ mod tests {
         "person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2";
     const POLICY_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI7LAL0jJtpQWmoMSHjIs49S3ZgRu1H8/I7LHRJ/N58B81ZTDeV854NluBUedCUW8GgzjOOTHLEM5pfE/iGPog8=";
 
+    /// The public PF-2 vectors (PeerFS read contract, section 2), which the contract
+    /// requires every host implementation to reproduce.
+    #[test]
+    fn peerfs_read_policy_vectors() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../docs/vectors/peerfs-read-policy.json")).unwrap();
+        for case in vectors["positive"].as_array().unwrap() {
+            let text = case["body"].as_str().unwrap();
+            let body: PolicyBody = serde_json::from_str(text).unwrap();
+            body.check_decentralized_shape().unwrap();
+            assert_eq!(
+                serde_json::to_string(&body).unwrap(),
+                text,
+                "{}",
+                case["name"]
+            );
+            // Its content set again, as edits and renewal do, keeps the same bytes.
+            let mut again = body.clone();
+            again.set_content(body.content());
+            assert_eq!(
+                serde_json::to_string(&again).unwrap(),
+                text,
+                "{}",
+                case["name"]
+            );
+        }
+        for case in vectors["negative"].as_array().unwrap() {
+            let text = case["body"].as_str().unwrap();
+            let refused = serde_json::from_str::<PolicyBody>(text)
+                .map_err(|e| e.to_string())
+                .and_then(|b| b.check_decentralized_shape().map_err(|e| e.to_string()));
+            assert!(refused.is_err(), "{} was accepted", case["name"]);
+        }
+    }
+
     fn owner() -> PersonSigner {
         PersonSigner::File(ed25519_dalek::SigningKey::from_bytes(
             &STANDARD.decode(PERSON_SEED).unwrap().try_into().unwrap(),
