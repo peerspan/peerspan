@@ -34,7 +34,7 @@ this order:
 | `host` | The serving host: `host_` and 64 lowercase hex digits. A host honours only rules naming itself. |
 | `space` | The logical space: `space_` and 32 lowercase hex digits, as in a PF-1 binding. |
 | `branch` | A PeerFS branch name: 1 to 255 bytes of UTF-8, not `.` or `..`, without `/` or NUL. |
-| `principals` | 1 to 64, as for rules (`person:`, `group:`, `network`), distinct, in ascending byte order. |
+| `principals` | 1 to 64, as for rules (`person:`, `group:`, `network` and `agent:HOST/AGENT`), distinct, in ascending byte order. |
 | `actions` | Exactly `["fs.read"]`. Other actions are reserved for PF-5 and are `invalid` until a contract defines them. |
 | `allow_disconnected` | `true` or `false`, as for capability rules: with `true`, a reader whose membership lapsed still matches while the policy is current. |
 
