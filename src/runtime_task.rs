@@ -657,7 +657,9 @@ pub(crate) fn cancel_requested(
 ) -> Result<(), Error> {
     if status.state == "queued" && !internal(tx, sender, &status.task_id)?.dispatched {
         record(tx, sender, status, "cancelled", None, None, None)?;
-        crate::peerbox::update_run(tx, &status.task_id, "cancelled", None)?;
+        if is_peerbox_run(tx, sender, &status.task_id)? {
+            crate::peerbox::update_run(tx, sender, &status.task_id, "cancelled", None)?;
+        }
     }
     Ok(())
 }
@@ -823,7 +825,7 @@ fn finish(
             .as_deref()
             .and_then(|o| serde_json::from_str::<Value>(o).ok())
             .and_then(|v| v["exit_code"].as_i64());
-        crate::peerbox::update_run(&tx, task_id, kind, exit_code)?;
+        crate::peerbox::update_run(&tx, sender, task_id, kind, exit_code)?;
     }
     // A runtime agent's final event records `task.run_exited` itself.
     if !t.agent && kind != "rejected" && kind != "cancelled" && status.state == "running" {
@@ -1223,7 +1225,7 @@ async fn pass(
                         _ => crate::task::LAPSED.into(),
                     };
                     if peerbox {
-                        crate::peerbox::update_run(&tx, &id, "rejected", None)?;
+                        crate::peerbox::update_run(&tx, &sender, &id, "rejected", None)?;
                     }
                     record(
                         &tx,
@@ -1581,7 +1583,7 @@ fn apply(
                 t.internal.started = true;
                 record(&tx, sender, &mut t.status, "accepted", None, None, None)?;
                 if t.peerbox {
-                    crate::peerbox::update_run(&tx, id, "running", None)?;
+                    crate::peerbox::update_run(&tx, sender, id, "running", None)?;
                 }
                 // A runtime agent's `accepted` records `task.run_started` itself.
                 if !t.agent {

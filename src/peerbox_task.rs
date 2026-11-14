@@ -1660,7 +1660,14 @@ fn prepare_locked(
     let created_at = received(&tx, sender, &request.task_id)?
         .map(|(_, status)| status.created_at)
         .unwrap_or_else(now);
-    crate::peerbox::record_run(&tx, &rec.peerbox_id, commit, &request.task_id, &created_at)?;
+    crate::peerbox::record_run(
+        &tx,
+        &rec.peerbox_id,
+        commit,
+        sender,
+        &request.task_id,
+        &created_at,
+    )?;
     crate::runtime_task::peerbox_run_ready(&tx, sender, &request.task_id, path)?;
     tx.commit()?;
     store.runtime_wake.notify_one();

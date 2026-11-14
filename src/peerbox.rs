@@ -958,41 +958,48 @@ impl<W: std::io::Write> std::io::Write for Counted<W> {
 }
 
 /// Records a run on every contribution of the peerbox whose head is
-/// `commit` (Peerboxes and contributions: `runs`, oldest first).
+/// `commit` (Peerboxes and contributions: `runs`, oldest first), with its
+/// task's identity: the sender and the task ID (task contract).
 pub(crate) fn record_run(
     conn: &Connection,
     peerbox: &str,
     commit: &str,
+    sender: &str,
     task_id: &str,
     created_at: &str,
 ) -> Result<(), Error> {
-    let run =
-        json!({"task_id": task_id, "state": "queued", "exit_code": null, "created_at": created_at});
+    let run = json!({"task_id": task_id, "state": "queued", "exit_code": null, "created_at": created_at, "sender": sender});
     conn.execute(
         "UPDATE peerbox_contributions SET record = json_set(record, '$.runs', json_insert(COALESCE(json_extract(record, '$.runs'), json('[]')), '$[#]', json(?1))) WHERE peerbox_id = ?2 AND json_extract(record, '$.head') = ?3",
         params![run.to_string(), peerbox, commit],
     )?;
     Ok(())
 }
-/// Updates a recorded run's state and exit code.
+/// Updates the state and exit code of the run of the received task
+/// (`sender`, `task_id`): a task ID alone names no run, since senders
+/// choose their task IDs.
 pub(crate) fn update_run(
     conn: &Connection,
+    sender: &str,
     task_id: &str,
     state: &str,
     exit_code: Option<i64>,
 ) -> Result<(), Error> {
     let rows: Vec<(String, String)> = {
         let mut statement = conn.prepare(
-            "SELECT contribution_id, record FROM peerbox_contributions WHERE EXISTS (SELECT 1 FROM json_each(record, '$.runs') WHERE json_extract(value, '$.task_id') = ?1)",
+            "SELECT contribution_id, record FROM peerbox_contributions WHERE EXISTS (SELECT 1 FROM json_each(record, '$.runs') WHERE json_extract(value, '$.task_id') = ?1 AND json_extract(value, '$.sender') = ?2)",
         )?;
         statement
-            .query_map([task_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map([task_id, sender], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?
     };
     for (id, raw) in rows {
         let mut record: Value = serde_json::from_str(&raw)?;
         if let Some(runs) = record["runs"].as_array_mut() {
-            for run in runs.iter_mut().filter(|r| r["task_id"] == task_id) {
+            for run in runs
+                .iter_mut()
+                .filter(|r| r["task_id"] == task_id && r["sender"] == sender)
+            {
                 run["state"] = json!(state);
                 run["exit_code"] = json!(exit_code);
             }
