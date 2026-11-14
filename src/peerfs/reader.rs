@@ -1,11 +1,12 @@
 //! The reader side of discovery (PeerFS read contract, section 7): the owner-local route
-//! `fs branches --peer HOST` uses to ask another host what it shares with this one.
+//! `fs branches --peer HOST` uses to ask another host what it shares with this one, and
+//! that `fs pull` checks before it fetches anything.
 use super::{coded, invalid, not_found, unavailable};
 use crate::{
     api::blocking,
     decentralized,
     model::Error,
-    peer_store::valid_id,
+    peer_store::{Peer, valid_id},
     policy::{PolicyRef, peerfs_branch},
     store::Store,
 };
@@ -44,11 +45,11 @@ struct Answer {
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct AnswerEntry {
-    host: String,
-    space: String,
-    branch: String,
-    policy: PolicyRef,
+pub(super) struct AnswerEntry {
+    pub host: String,
+    pub space: String,
+    pub branch: String,
+    pub policy: PolicyRef,
 }
 
 fn bad_gateway(message: &'static str) -> Error {
@@ -72,10 +73,25 @@ async fn ask_branches(
     {
         return Err(invalid());
     }
+    let (_, branches) = discover(&store, &host, &network).await?;
+    Ok(Json(
+        json!({"host": host, "network": network, "branches": branches}),
+    ))
+}
+
+/// Asks `host` what it shares with this host in `network` and checks the answer's exact
+/// shape: the host's dial target and its entries. 400 for this host itself, 404 for an
+/// unknown host, 503 without an answer, 502 for a refusal (with `peer_status`) or a
+/// malformed answer.
+pub(super) async fn discover(
+    store: &Arc<Store>,
+    host: &str,
+    network: &str,
+) -> Result<(Peer, Vec<AnswerEntry>), Error> {
     if host == store.identity().id {
         return Err(invalid());
     }
-    let lookup = host.clone();
+    let lookup = host.to_owned();
     let target = blocking(store.clone(), move |s| s.dial_target(&lookup))
         .await
         .map_err(|e| match e {
@@ -117,7 +133,5 @@ async fn ask_branches(
     if !valid {
         return Err(bad_gateway("the host's answer is not a branch listing"));
     }
-    Ok(Json(
-        json!({"host": host, "network": network, "branches": answer.branches}),
-    ))
+    Ok((target, answer.branches))
 }

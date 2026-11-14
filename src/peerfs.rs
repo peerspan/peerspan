@@ -3,6 +3,7 @@
 mod commit;
 mod directory;
 mod provider;
+mod pull;
 mod read;
 mod reader;
 
@@ -177,6 +178,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .layer(DefaultBodyLimit::max(BODY))
         .layer(middleware::from_fn(bounded))
         .merge(reader::local_routes())
+        .merge(pull::local_routes())
 }
 fn body(input: Result<Bytes, BytesRejection>) -> Result<Bytes, Error> {
     input.map_err(|error| {
