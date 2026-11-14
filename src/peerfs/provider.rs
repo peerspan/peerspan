@@ -414,9 +414,10 @@ pub(super) fn pull(
     probe(dir, view, op)?;
     let body = serde_json::to_vec(&serde_json::json!({"from": from, "branch": branch}))
         .map_err(|_| conflict())?;
-    let mut reply = send(dir, "POST", "/v1/pull", Some(&body), op)?;
+    // The identity probe above keeps its own refusals. From here, a provider that closes
+    // early or answers malformed headers or body is unavailable (pull contract, section 2).
+    let mut reply = send(dir, "POST", "/v1/pull", Some(&body), op).map_err(|_| unavailable())?;
     let status = reply.status;
-    // A malformed or oversized answer is the provider unavailable (pull contract, section 2).
     let body = reply.body(MAX_PULL_BODY).map_err(|_| unavailable())?;
     if status == 200 {
         let answer: PullAnswer = serde_json::from_slice(&body).map_err(|_| unavailable())?;
