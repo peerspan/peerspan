@@ -74,7 +74,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `join_onboarding`: exact recipient public-key/publication consent, atomic
   ordinary join-request creation, replay/privacy and additive schema27 (section12).
   Its launcher observes genuine own-request publication before the unchanged
-  section15 strict read-only progress baseline (section49).
+  section15 strict read-only progress baselines of both pure progress cases
+  (section49; Join historical progress publication phase).
 
 - `owner_onboarding`: exact new-original owner review, ordinary-intent atomic
   approval, rollback/history and consent boundaries (guided session contract section16).
@@ -95,6 +96,9 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
   contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until
   implemented.
+- `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
+  proposal MCP tools and `approve` on a pseudo-terminal (peerbox contract, Agent proposals; PBX-16 to PBX-21), with
+  `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until implemented.
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

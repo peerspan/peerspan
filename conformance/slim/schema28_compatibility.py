@@ -10,9 +10,12 @@ CONVERSATION_TABLES = ('conversation_notifications', 'conversation_targets',
                        'conversation_messages', 'conversations')
 
 
-# Schemas30 (conversations C7) and31 (PF-1(a)) add these tables; a synthetic
-# older state drops them too, so migration sees only the intended old history.
-NEWER_TABLES = ('agent_descriptions', 'peerfs_bindings')
+# Schema 30 (conversations C7) adds agent_descriptions and schema 32 (the
+# peerbox contract, Persistence) adds the three peerbox tables; a synthetic
+# older state drops them too (as it does schema 33's peerfs_bindings, PF-1(a)), so the migration creates them from a real
+# older state.
+PEERBOX_TABLES = ('peerboxes', 'peerbox_contributions', 'peerbox_pending_shares')
+NEWER_TABLES = ('agent_descriptions',) + PEERBOX_TABLES + ('peerfs_bindings',)
 
 
 def drop_conversations(db):
