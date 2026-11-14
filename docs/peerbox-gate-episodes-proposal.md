@@ -4,8 +4,8 @@ Status: **proposed on 2026-11-14.** Nothing is decided or implemented. It extend
 [gate proposal](peerbox-gate-proposal.md) and the
 [peerbox contract's Gates section](peerbox-contract.md#gates) (PBX-9 to PBX-15), and needs a
 change to the [runtime task contract](runtime-task-contract.md) and to the separate Peerspan
-runtime (decision 2). Decisions 6 to 8 apply to every gate, not only to reinforcement
-learning.
+runtime (decision 2). Decisions 7 to 9 apply to every gate, not only to reinforcement
+learning. The story uses a real, off-the-shelf game server as the environment.
 
 Peerboxes are meant for two kinds of collaboration: coding agents improving a program, and
 people's agents improving a policy that acts in an environment (reinforcement learning,
@@ -43,35 +43,48 @@ first.
 
 ## Story
 
-Alice runs a voxel treasure-run environment: a grid world with mineable blocks, ladders,
-slippery ice that sometimes slides a step further, three items and an exit, generated from a
-seed. She creates a peerbox for the bot's repository and sets an **episode gate**:
+Alice runs a treasure run in a 3D sandbox game. Her **environment** is the game's own server
+with a small plugin of hers, all in the gate's checker snapshot with her own copy of the
+server, booted
+in a Java image. For each evaluation the plugin derives 60 arenas from the evaluation's
+secret: terrain to dig through or climb, water, drops, three marked items and an exit. It lets
+up to 10 bots in at once, one per arena, counts each run's game ticks on the server from spawn
+until the bot stands on the exit holding all three items, and enforces the game's movement
+rules on every move a client sends. When the arenas are done it prints a `PEERBOX-GATE` line
+with each arena's ticks.
 
-- the **environment**: her own server in the checker's VM. For each evaluation it derives
-  200 fresh episode seeds from the evaluation's secret, plays them against whatever
-  connects, and prints a `PEERBOX-GATE` line with each episode's ticks;
-- the **candidate command**: `./bot --connect /run/peerbox-gate/env.sock`;
-- the **comparison**: paired by episode, lower is better, promoted when the gain is at least
-  3% with 95% confidence.
+She creates a peerbox for the bot's repository, a bot on an open-source client library, and sets an **episode
+gate**:
 
-Readers see that the gate exists, its command, its comparison and its **commitment**, a
-digest of Alice's environment and settings that she can open after the challenge.
+- the **candidate command**: `node bot.js --host 127.0.0.1 --port 7000 --bots 10`, in a Node
+  image with the challenge's dependencies;
+- the **link**: port 7000, so the bot connects to the server as it would on any machine;
+- the **comparison**: paired by arena, lower is better, promoted when the gain is at least 3%
+  with 95% confidence.
 
-Bob's agent replaces greedy pathfinding with an ordering search over the three items. In his
-evaluation, `main` and his bot play the same 200 episodes; his bot needs 6.8% fewer ticks on
-average, with a 95% lower bound of 4.1%, and is promoted. Carol's agent submits five times
-in a row, tuning against each score it gets back. It learns nothing about the episodes: each
-evaluation draws 200 new ones. A change that hardcodes routes for the public seeds in the
-repository fails on every fresh episode. Neither of them sees a seed or an observation;
-each sees the verdict, the gain, its bound and the reason.
+Readers see that the gate exists, its command, its images, its comparison and its
+**commitment**, a digest of Alice's environment and settings that she can open after the
+challenge.
 
-After the challenge closes, Alice publishes her environment, the gate's salt and the
-evaluations' secrets. Anyone can check them against the commitment and the digests recorded
-with each decision, and replay any evaluation.
+Bob's agent replaces the baseline's walk-to-nearest with an ordering search over the three
+items and digs through stone where that is shorter than walking round. In his evaluation,
+`main` and his bot play the same 60 arenas; his bot needs 6.8% fewer ticks on average, with a
+95% lower bound of 4.1%, and is promoted. Carol's agent submits five times in a row, tuning
+against each score it gets back. It learns nothing about the arenas: each evaluation draws 60
+new ones. A change that sends position packets faster than a player can move is refused by the
+server's movement checks and finishes no arena. Neither of them sees an arena or an
+observation; each sees the verdict, the gain, its bound and the reason.
 
-The same gate takes a real game server as the environment and an off-the-shelf bot library
-as the candidate: the environment scores the episode live, so the server's nondeterminism no
-longer matters. The cost is the server's start-up in every measurement.
+After the challenge closes, Alice publishes her plugin, the gate's salt and the evaluations'
+secrets. Anyone can check them against the commitment and the digests recorded with each
+decision, and replay any evaluation on their own server. Alice keeps her replays, recorded
+by the plugin, for the video.
+
+The server's nondeterminism (tick timing, chunk loading, physics) does not matter: the
+environment scores each episode live, on the server, rather than replaying it. What a real
+game costs is time. The game runs at 20 ticks a second, so a 30-second arena is 30
+seconds of wall time, and the server's start takes about as long again. Ten bots at once bring
+60 arenas to about four minutes a measurement, and an evaluation with one repeat to under ten.
 
 ## Design sketch
 
@@ -84,28 +97,56 @@ The gate record gains `mode`:
   `.peerbox-gate/out/`, and the checker loads it and runs the environment itself. The
   checker's loader is then the trust boundary: a format that can execute code on load
   (Python pickle, for example) puts candidate code in the checker. The gate guide says so.
-- `outputs` with a **generator** (decision 6): for an action trace, the candidate needs
+- `outputs` with a **generator** (decision 7): for an action trace, the candidate needs
   fresh inputs to plan from, not a fixed snapshot; the generator produces them.
-- `episode`: the candidate run and the **environment run** start together and are linked by
-  one byte stream. The environment run's workspace is the checker snapshot and the
+- `episode`: the candidate run and the **environment run** start together and are joined by
+  a link port. The environment run's workspace is the checker snapshot and the
   evaluation's secret; it gets no candidate tree or outputs. Its last stdout line is the
   `PEERBOX-GATE` result, with the same rules as a check run's.
 
 ### The link
 
-The runtime starts the two runs as a **linked pair** and connects them with one
-bidirectional, ordered byte stream, a Unix stream socket at `/run/peerbox-gate/env.sock` in
-each guest: the environment listens, the candidate connects. Nothing else changes about the
-guests: no network, no other path out. The stream carries at most `link_bytes` in each
-direction (default 64 MiB); the runtime closes it on that bound, on either run's exit, or at
-the timeout. The protocol on it is the owner's; Peerspan never parses it.
+The runtime starts the two runs as a **linked pair** and joins them with a **link port**, a
+TCP port on loopback in both guests: the environment listens on `127.0.0.1:PORT` in its
+guest, and every connection the candidate opens to `127.0.0.1:PORT` in its own guest reaches
+it. Nothing else changes about the guests: no network, no other path out. Clients and servers
+that speak TCP, such as a game server and its bot library, work unchanged.
+
+Underneath, the runtime already gives each guest one vsock port mapped to a Unix socket on the
+host, for its own agent channel. A link adds one more mapping in each VM, connecting in the
+candidate's and listening in the environment's, and the runtime splices each connection from
+one to the other; guest init forwards the loopback port to the vsock port on each side.
+
+The link takes at most `link_connections` connections at once (default 16) and carries at
+most `link_bytes` in each direction over the pair's life (default 256 MiB); a connection
+beyond the first bound is refused, and the second bound closes every connection. Both runs'
+exits and the timeout close it too. The protocol on it is the owner's; Peerspan never parses
+it.
 
 The runtime reports linked-pair support and `max_concurrent_runs` of at least 2 in
 `GET /v1/runtime`; `peerbox gate set --mode episode` is refused with `runtime_unsupported`
 otherwise.
 
 The environment must treat every byte from the link as hostile, as a parser of submitted
-files must. The gate guide says so.
+files must. That includes the game's own rules: a game server that trusts its clients'
+positions lets a candidate fly or teleport to the exit, so the environment enforces movement,
+reach and inventory on the server side. The gate guide says so.
+
+### Images
+
+A gate's runs may name OCI images, as runtime agents' runs do
+([runtime agent contract](runtime-agent-contract.md)): `--image REF` for candidate runs and
+`--checker-image REF` for environment, check and generator runs, each a reference with a
+digest (`name@sha256:...`), so that the commitment covers what ran. A Java image for a game
+server and a Node image for its bots, or one image of the owner's with the challenge's
+dependencies installed, means a contribution carries only its own code, within the bundle
+limit. A gate naming an image needs a runtime that reports `images` true (otherwise
+`runtime_unsupported`); the runtime pulls the image on the home host, so the guests still need
+no network.
+
+Proprietary files, such as a game's server, belong in the checker snapshot, which never
+leaves the home host. Their license is the owner's to follow; Peerspan neither ships nor
+fetches them.
 
 ### Fresh episodes for every evaluation
 
@@ -155,7 +196,8 @@ mean_gain_percent, lower_bound_percent}`; the samples themselves stay with the o
 
 At `peerbox gate set` the home host draws a 32-byte **salt** and computes the gate's
 **commitment**, SHA-256 of a fixed domain string, the salt, the inputs and checker snapshot
-digests, and the commands, mode, comparison and bounds in a canonical encoding. The public
+digests, the image references, and the commands, mode, comparison, link and bounds in a
+canonical encoding. The public
 summary gains `commitment`; every decision's public result gains `secret_sha256`, the
 SHA-256 of that evaluation's secret. The salt and the secrets are in `gate show --json` for
 the owner only. Publishing them, and the snapshots, is the owner's choice, made outside
@@ -174,19 +216,22 @@ the episode. Failures keep today's attribution:
 
 - the environment run fails, times out, or ends without a valid line: `check_failed`, as a
   check run does today. During a frontier measurement this pauses the gate with
-  `frontier_failed`; during a candidate measurement it rejects the candidate (decision 5);
+  `frontier_failed`; during a candidate measurement it rejects the candidate (decision 6);
 - the candidate run fails or exits early: the environment decides, from what it saw, how
   that episode scores; the candidate run's exit code does not reject on its own;
-- either side exceeds `link_bytes`: the link closes and the environment decides.
+- either side exceeds `link_bytes`: the link closes and the environment decides; a connection
+  beyond `link_connections` is refused and the episodes go on.
 
 ### Bounds and configuration
 
 Both modes gain separate bounds for the owner's side, `--checker-cpus` and
 `--checker-memory-mib`, defaulting to the candidate's: an environment such as a game server
 needs more memory than the policy. One timeout covers a linked pair. `peerbox gate set` gains
-`--mode outputs|episode`, `--generator JSON_ARGV`, `--compare worst_best|paired` and
-`--link-bytes N`. The public summary gains `mode`, `compare` and `commitment`; never the
-generator command, the salt or a secret.
+`--mode outputs|episode`, `--generator JSON_ARGV`, `--compare worst_best|paired`, `--image
+REF`, `--checker-image REF`, `--link-port N`, `--link-connections N` and `--link-bytes N`. A
+real-time environment needs a longer timeout than the default 15 minutes, up to what the
+runtime reports. The public summary gains `mode`, `compare`, `image`, `link_port` and
+`commitment`; never the checker image, the generator command, the salt or a secret.
 
 ### Training
 
@@ -218,28 +263,45 @@ environment it does not need.
 
 ### 2. Where the link lives
 
-**Recommendation.** (a) In the runtime: it starts the pair and bridges one stream socket
-between the guests (for example over vsock). Latency is local, so episodes of thousands of
-steps work, and the guests still have no network.
+**Recommendation.** (a) In the runtime: it starts the pair and splices connections between
+the guests over vsock. The runtime already maps one vsock port per guest to a Unix socket on
+the host for its agent channel (`krun_vsock_device_add_unix_port`, which takes a listen
+flag), so a link is one more mapping on each side. Latency is local, so episodes of thousands
+of steps work, and the guests still have no network.
 
 **Not chosen.** (b) The home host relays through the run events route and a new input route:
 no VM-to-VM path in the runtime, but the events route is a long poll of up to 25 seconds,
 far too slow for an episode, and stdin is outside the runtime contract. (c) A private network
 between the two guests: lets TCP clients connect unchanged, but it is a much larger surface
-(addresses, DNS, ports) and ends "the guest has no network". A TCP client reaches the socket
-through a small forwarder in the candidate's repository.
+(addresses, DNS, ports) and ends "the guest has no network".
 
 ### 3. The shape of the link
 
-**Recommendation.** (a) One ordered byte stream with a byte bound each way; the owner's
-environment defines the protocol. Protocols differ by environment, and anything Peerspan
-defined would be wrong for most of them.
+**Recommendation.** (a) A loopback TCP port in both guests, with up to `link_connections`
+connections at once and a byte bound each way; the owner's environment defines the protocol.
+Game servers, simulators and their client libraries speak TCP and open several connections
+(one per bot, or a reconnect after a death or a kick), and protocols differ by environment,
+so anything Peerspan defined would be wrong for most of them.
 
-**Not chosen.** (b) Framed observation and action messages with a gate-defined schema: lets
+**Not chosen.** (b) One Unix stream socket in each guest: simpler to bound, but every TCP
+client needs a forwarder, and one connection cannot carry several bots or a reconnect. (c)
+Framed observation and action messages with a gate-defined schema: lets
 the host count steps and bound messages, but makes Peerspan a reinforcement learning
 framework.
 
-### 4. The score of an episode
+### 4. Images for the gate's runs
+
+**Recommendation.** (a) A candidate image and a checker image, each pinned by digest and
+covered by the commitment, as runtime agents' runs already name images. A game server needs
+Java and its bots need Node with their libraries, which neither the runtime's minimal image
+nor a contribution within the bundle limit can carry.
+
+**Not chosen.** (b) The runtime's own image, with runtimes and dependencies in the inputs and
+checker snapshots: works with no contract change, but every owner rebuilds a toolchain inside
+a snapshot, and the snapshot sizes grow with it. (c) Tags without digests: an image could
+change under a gate version, which the commitment exists to rule out.
+
+### 5. The score of an episode
 
 **Recommendation.** (a) Only the environment's score (`score: checker`); `time` is refused
 in `episode` mode.
@@ -247,7 +309,7 @@ in `episode` mode.
 **Not chosen.** (b) Allow `time` as the candidate run's `duration_ms`: the environment paces
 the episode, so the time measures the environment as much as the policy.
 
-### 5. Attributing an environment failure
+### 6. Attributing an environment failure
 
 **Recommendation.** (a) As for a check run today: on the frontier it pauses the gate; on a
 candidate it rejects with `check_failed`. The candidate's bytes may have crashed the
@@ -257,7 +319,7 @@ environment, and a gate that let a crash pass would promote it.
 fragile environment, but lets one hostile contribution stop the gate for everyone until the
 owner acts.
 
-### 6. How often the held-out episodes change
+### 7. How often the held-out episodes change
 
 **Recommendation.** (a) A new secret for every evaluation, shared by its frontier and
 candidate measurements, with an optional generator for candidates' inputs. Every verdict is
@@ -269,7 +331,7 @@ stable, but every rejected submission between two promotions queries the same ep
 which is exactly how an agent climbs a holdout. (c) A fixed holdout, as today: simplest, and
 an agent with enough submissions overfits it.
 
-### 7. What readers can check about the gate
+### 8. What readers can check about the gate
 
 **Recommendation.** (a) A salted commitment to the snapshots and settings in the public
 summary, and each evaluation's secret digest in its decision; the owner may publish the salt,
@@ -279,7 +341,7 @@ the secrets and the snapshots later, and anyone can then verify and replay.
 holdout lets a contributor confirm a guess of its contents. (c) Nothing beyond the version,
 as today: contributors cannot tell whether the holdout changed under them.
 
-### 8. Comparing noisy scores
+### 9. Comparing noisy scores
 
 **Recommendation.** (a) Add `compare: paired`: per-episode samples paired by the shared
 secret, promoted on a one-sided 95% lower confidence bound of the gain. Keep `worst_best` as
@@ -294,7 +356,7 @@ gates would change behavior.
 ## Verification sketch
 
 The fake runtime gains linked pairs: it runs both scripted sides, connects them through a
-real socket pair and enforces `link_bytes`. Cases for a `peerbox_gate` suite:
+real loopback port and enforces `link_connections` and `link_bytes`. Cases for a `peerbox_gate` suite:
 
 - an episode gate promoting with the environment's score and moving the frontier; `time`
   refused with `episode`; `gate set --mode episode` refused when the runtime reports no
@@ -304,7 +366,13 @@ real socket pair and enforces `link_bytes`. Cases for a `peerbox_gate` suite:
   `.peerbox-gate/inputs/`;
 - a candidate that prints its own `PEERBOX-GATE` line changing nothing;
 - the environment failing on the frontier pausing the gate and on a candidate rejecting it; a
-  candidate exceeding `link_bytes` closing the link and the environment deciding;
+  candidate exceeding `link_bytes` closing the link and the environment deciding; a
+  connection beyond `link_connections` refused while the others go on;
+- several candidate connections reaching the environment's listener on the link port, and
+  nothing else reachable from either guest;
+- a gate naming an image refused on a runtime that reports `images` false, and a reference
+  without a digest refused; both images in the runs' requests; the checker image never in the
+  public summary;
 - the same secret in every owner-side run of one evaluation and a different one in the next;
   `secret_sha256` in each decision matching the owner's `gate show`;
 - generator outputs under `.peerbox-gate/inputs/` as the candidate's inputs, the rest under
@@ -318,5 +386,5 @@ real socket pair and enforces `link_bytes`. Cases for a `peerbox_gate` suite:
   generator, the salt or a secret;
 - the checker-side bounds applied to the environment, check and generator runs.
 
-A live run with the real runtime, a stochastic voxel environment and two people's agents
-records the experience, as the gate proposal's live run does.
+A live run with the real runtime, the game environment of the story and two people's
+agents records the experience, as the gate proposal's live run does.
