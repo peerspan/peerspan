@@ -496,6 +496,50 @@ fn prerequisites(file: &Path) -> Result<Vec<String>, Failure> {
         .collect())
 }
 
+/// Indexes the pack after `file`'s header into `stage` with `git
+/// index-pack --strict`, which checks each object of the pack (and that
+/// what they name exists) with the raised checks as errors.
+fn index_pack(git: &Git, stage: &Path, file: &Path) -> Result<(), Failure> {
+    use std::io::{BufRead, Seek, SeekFrom};
+    let invalid = |m: &str| Failure::new("bundle_invalid", m.to_owned());
+    let internal = |e: std::io::Error| Failure::new("internal", e.to_string());
+    let mut f = std::fs::File::open(file).map_err(internal)?;
+    // The header ends with its first empty line.
+    let mut offset = 0u64;
+    {
+        let mut reader = std::io::BufReader::new((&f).take(1 << 20));
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let n = reader.read_until(b'\n', &mut line).map_err(internal)?;
+            if n == 0 || !line.ends_with(b"\n") {
+                return Err(invalid("the bundle has no header"));
+            }
+            offset += n as u64;
+            if line == b"\n" {
+                break;
+            }
+        }
+    }
+    f.seek(SeekFrom::Start(offset)).map_err(internal)?;
+    let strict = format!(
+        "--strict={}",
+        FSCK_RAISED.map(|id| format!("{id}=error")).join(",")
+    );
+    let out = git
+        .command(stage)
+        .args(["index-pack", "--stdin", "--fix-thin", &strict])
+        .stdin(Stdio::from(f))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| Failure::new("internal", format!("git: {e}")))?;
+    if !out.status.success() {
+        return Err(Failure::new("bundle_invalid", stderr_of(&out)));
+    }
+    Ok(())
+}
+
 /// What a submission stores once its bundle passed every check.
 pub(crate) struct Verified {
     pub head: String,
@@ -578,22 +622,14 @@ pub(crate) fn verify(
         &["bundle", "verify", "-q", &file_text],
         "bundle_invalid",
     )?;
-    run(
-        git,
-        &stage,
-        &strict_fetch(file, &format!("+{wanted}:{STAGED}")),
-        "bundle_invalid",
-    )?;
-    // Git applies no fsck to a fetch from a bundle file before 2.46: check
-    // what the bundle brought explicitly, with the raised checks.
-    let mut fsck: Vec<String> = Vec::new();
-    for id in FSCK_RAISED {
-        fsck.push("-c".into());
-        fsck.push(format!("fsck.{id}=error"));
-    }
-    fsck.extend(["fsck", "--strict", "--no-dangling", "--no-progress"].map(str::to_owned));
-    fsck.push(head.clone());
-    run(git, &stage, &fsck, "bundle_invalid")?;
+    // The bundle's pack is indexed into the quarantine with Git's fsck
+    // checks on every object it holds, the raised ones as errors. Only
+    // those objects are checked: the home repository's own objects, seen
+    // through the alternates, are not (a fetch from a bundle file applies
+    // no fsck before Git 2.46, and `git fsck` there would check the whole
+    // repository).
+    index_pack(git, &stage, file)?;
+    git.text(&stage, &["update-ref", STAGED, &head], "bundle_invalid")?;
     let quarantine = stage;
     if git.head_of(&quarantine, STAGED)?.as_deref() != Some(head.as_str()) {
         return Err(Failure::new(
