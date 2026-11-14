@@ -368,6 +368,70 @@ pub(super) fn fetch(
     Ok(Fetched::Batch(batch))
 }
 
+/// What a provider's `POST /v1/pull` did.
+pub(super) enum Pulled {
+    /// The pull completed: the tracking reference `<remote>/<branch>` is at `head`.
+    Done(PullAnswer),
+    /// The provider refused or failed the pull, with its status, code and message.
+    Refused {
+        status: u16,
+        code: String,
+        message: String,
+    },
+}
+/// A provider's pull answer: exactly these fields, each once.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PullAnswer {
+    pub remote: String,
+    pub branch: String,
+    pub head: String,
+    // Read for the answer's shape; the host reports what its proxy served.
+    #[serde(rename = "objects")]
+    _objects: u64,
+    #[serde(rename = "bytes")]
+    _bytes: u64,
+}
+/// A provider's error body.
+#[derive(Deserialize)]
+struct Refusal {
+    code: String,
+    error: String,
+}
+/// The largest pull answer or error body accepted.
+const MAX_PULL_BODY: usize = 64 << 10;
+
+/// Has the provider serving `view`'s space pull `branch` from the PeerFS server at the
+/// socket `from` (`POST /v1/pull`), after the activation probe. The provider's answer
+/// arrives when its pull ends, so `op` bounds it, not this call.
+pub(super) fn pull(
+    dir: &Pinned,
+    view: &View,
+    from: &str,
+    branch: &str,
+    op: &Operation,
+) -> Result<Pulled, Error> {
+    probe(dir, view, op)?;
+    let body = serde_json::to_vec(&serde_json::json!({"from": from, "branch": branch}))
+        .map_err(|_| conflict())?;
+    let mut reply = send(dir, "POST", "/v1/pull", Some(&body), op)?;
+    let status = reply.status;
+    let body = reply.body(MAX_PULL_BODY)?;
+    if status == 200 {
+        let answer: PullAnswer = serde_json::from_slice(&body).map_err(|_| conflict())?;
+        return Ok(Pulled::Done(answer));
+    }
+    let refusal = serde_json::from_slice::<Refusal>(&body).unwrap_or(Refusal {
+        code: String::new(),
+        error: String::new(),
+    });
+    Ok(Pulled::Refused {
+        status,
+        code: refusal.code,
+        message: refusal.error,
+    })
+}
+
 /// Appends `value` as PeerFS encodes integers: unsigned LEB128.
 fn varint(out: &mut Vec<u8>, mut value: u64) {
     loop {
@@ -388,7 +452,7 @@ fn varint_len(value: u64) -> usize {
 }
 
 /// A path segment, percent-encoded except for unreserved bytes.
-fn segment(text: &str) -> String {
+pub(super) fn segment(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
@@ -574,22 +638,85 @@ impl Reply<'_> {
 
     /// One unsigned LEB128 integer, canonical as PeerFS encodes it.
     fn varint(&mut self, consumed: &mut usize) -> Result<u64, Error> {
-        let mut value: u64 = 0;
-        for shift in (0..64).step_by(7) {
+        read_varint(|| {
             let mut byte = [0u8; 1];
             self.exact(&mut byte, consumed)?;
-            let low = u64::from(byte[0] & 0x7f);
-            if shift == 63 && low > 1 {
+            Ok(byte[0])
+        })
+    }
+}
+
+/// One unsigned LEB128 integer read a byte at a time by `next`, canonical as PeerFS
+/// encodes it: no trailing zero byte, no bits past 64.
+fn read_varint(mut next: impl FnMut() -> Result<u8, Error>) -> Result<u64, Error> {
+    let mut value: u64 = 0;
+    for shift in (0..64).step_by(7) {
+        let byte = next()?;
+        let low = u64::from(byte & 0x7f);
+        if shift == 63 && low > 1 {
+            return Err(conflict());
+        }
+        value |= low << shift;
+        if byte & 0x80 == 0 {
+            if byte == 0 && shift > 0 {
                 return Err(conflict());
             }
-            value |= low << shift;
-            if byte[0] & 0x80 == 0 {
-                if byte[0] == 0 && shift > 0 {
-                    return Err(conflict());
-                }
-                return Ok(value);
-            }
+            return Ok(value);
         }
-        Err(conflict())
     }
+    Err(conflict())
+}
+
+/// Splits a complete PeerFS object batch another host sent into the byte ranges of its
+/// entries (each an object's ID, kind, length and bytes, as encoded), which must be the
+/// leading objects of `wanted`, in order, at least one; `None` when the batch is anything
+/// else.
+pub(super) fn split_batch(
+    data: &[u8],
+    wanted: &[[u8; OBJECT_ID]],
+) -> Option<Vec<std::ops::Range<usize>>> {
+    let mut at = 0usize;
+    let count = usize::try_from(slice_varint(data, &mut at)?).ok()?;
+    if count == 0 || count > wanted.len() {
+        return None;
+    }
+    let mut entries = Vec::with_capacity(count);
+    for id in &wanted[..count] {
+        let start = at;
+        if data.get(at..at + OBJECT_ID)? != id {
+            return None;
+        }
+        at += OBJECT_ID;
+        if !(1..=4).contains(data.get(at)?) {
+            return None;
+        }
+        at += 1;
+        let length = usize::try_from(slice_varint(data, &mut at)?).ok()?;
+        let end = at.checked_add(length).filter(|end| *end <= data.len())?;
+        at = end;
+        entries.push(start..end);
+    }
+    (at == data.len()).then_some(entries)
+}
+
+/// One canonical varint of `data` at `*at`, advancing past it.
+fn slice_varint(data: &[u8], at: &mut usize) -> Option<u64> {
+    read_varint(|| {
+        let byte = *data.get(*at).ok_or_else(conflict)?;
+        *at += 1;
+        Ok(byte)
+    })
+    .ok()
+}
+
+/// A PeerFS object batch of `entries`, each already encoded, as [`split_batch`] finds
+/// them.
+pub(super) fn join_batch(entries: &[&[u8]]) -> Vec<u8> {
+    let size: usize = entries.iter().map(|e| e.len()).sum();
+    let mut batch = Vec::with_capacity(varint_len(entries.len() as u64) + size);
+    varint(&mut batch, entries.len() as u64);
+    for entry in entries {
+        batch.extend_from_slice(entry);
+    }
+    batch
 }
