@@ -77,6 +77,9 @@ pub struct SubmitTask {
     pub executor: Option<String>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub run: Option<crate::runtime_task::RunSpec>,
+    /// `peerbox` for a peerbox task, with its operation (peerbox contract).
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub peerbox: Option<crate::peerbox_task::PeerboxOp>,
     /// Absent, null, or empty, one hour from now.
     #[serde(default)]
     pub deadline: Option<String>,
@@ -493,12 +496,13 @@ impl Store {
         addressed: Option<crate::directory::Addressed>,
     ) -> Result<OutboundTask, Error> {
         let explicit_grant = r.grant_id.is_some();
-        let runtime = match r.executor.as_deref() {
-            None | Some("agent") => false,
-            Some(crate::runtime_task::EXECUTOR) => true,
+        let (runtime, peerbox) = match r.executor.as_deref() {
+            None | Some("agent") => (false, false),
+            Some(crate::runtime_task::EXECUTOR) => (true, false),
+            Some(crate::peerbox_task::EXECUTOR) => (false, true),
             Some(_) => return Err(Error::Invalid("executor".into())),
         };
-        if runtime
+        if (runtime || peerbox)
             && (explicit_grant
                 || r.parent.is_some()
                 || r.delegation_depth != 0
@@ -546,6 +550,7 @@ impl Store {
         let mut request = TaskRequest {
             executor: r.executor.clone(),
             run: r.run.clone(),
+            peerbox: r.peerbox.clone(),
             task_id: if r.task_id.is_empty() {
                 new_id("task")?
             } else {
@@ -583,6 +588,8 @@ impl Store {
         }
         if runtime {
             crate::runtime_task::validate(&request)?;
+        } else if peerbox {
+            crate::peerbox_task::validate(&request)?;
         } else {
             validate_task(&request)?;
         }
@@ -603,7 +610,7 @@ impl Store {
                     Ok(_) => unreachable!("a grant was cited above"),
                 },
                 // A runtime task always cites the host owner's policy.
-                None if runtime => crate::policy::Citation::Policy(Box::new(
+                None if runtime || peerbox => crate::policy::Citation::Policy(Box::new(
                     self.cited_policy(&conn, &r.peer_host_id)?,
                 )),
                 None => self.citation(&conn, &r.peer_host_id)?,
@@ -1081,6 +1088,7 @@ impl Store {
         let request = TaskRequest {
             executor: Some(crate::runtime_task::EXECUTOR.into()),
             run: Some(run),
+            peerbox: None,
             task_id: r.task_id,
             grant_id: None,
             policy: Some(cited.reference()),
@@ -1196,6 +1204,7 @@ impl Store {
         let mut request = TaskRequest {
             executor: None,
             run: None,
+            peerbox: None,
             task_id,
             grant_id: grant,
             policy,
@@ -2477,6 +2486,7 @@ mod tests {
         SubmitTask {
             executor: None,
             run: None,
+            peerbox: None,
             peer_host_id: peer.into(),
             task_id: task.into(),
             grant_id: Some(format!("grant_{}", "1".repeat(32))),

@@ -335,6 +335,33 @@ pub(crate) fn merge(
             out.runtime_rules.retain(|r| r.host != br.host);
         }
     }
+    // Peerbox rules, keyed by (host, peerbox, principal): each is one unit
+    // with its actions and bounds, and a concurrent withdrawal wins over a
+    // change (peerbox contract, Renewal and edits).
+    for ou in crate::policy::peerbox_units(&o.peerbox_rules) {
+        let principal = &ou.principals[0];
+        let bu = crate::policy::peerbox_unit(&b.peerbox_rules, &ou.host, &ou.peerbox, principal);
+        if bu.as_ref() == Some(&ou) || !additions {
+            continue;
+        }
+        let name = crate::policy::peerbox_addition_key(&ou);
+        if m.skip.contains(&name) {
+            continue;
+        }
+        let here =
+            crate::policy::peerbox_unit(&out.peerbox_rules, &ou.host, &ou.peerbox, principal);
+        match here {
+            None if bu.is_some() => m.dropped.push(name),
+            _ => crate::policy::peerbox_put(&mut out.peerbox_rules, &ou),
+        }
+    }
+    for bu in crate::policy::peerbox_units(&b.peerbox_rules) {
+        let principal = &bu.principals[0];
+        if crate::policy::peerbox_unit(&o.peerbox_rules, &bu.host, &bu.peerbox, principal).is_none()
+        {
+            crate::policy::peerbox_remove(&mut out.peerbox_rules, &bu.host, &bu.peerbox, principal);
+        }
+    }
     (out, m.dropped)
 }
 

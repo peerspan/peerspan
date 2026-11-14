@@ -92,6 +92,7 @@ impl Fixture {
         TaskRequest {
             executor: None,
             run: None,
+            peerbox: None,
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,
@@ -518,6 +519,7 @@ fn submitters_attach_uploads_and_fetch_results() {
     let submit = |artifacts: Option<Vec<ArtifactEntry>>| SubmitTask {
         executor: None,
         run: None,
+        peerbox: None,
         peer_host_id: peer.clone(),
         task_id: format!("task_{}", "a".repeat(32)),
         grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -759,6 +761,7 @@ fn restart_discards_partial_files_and_resumes_fetches() {
         let r = TaskRequest {
             executor: None,
             run: None,
+            peerbox: None,
             task_id: format!("task_{}", "1".repeat(32)),
             grant_id: Some(grant.id),
             policy: None,
@@ -809,7 +812,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 31);
+    assert_eq!(version, 32);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",
@@ -895,6 +898,7 @@ async fn receivers_fetch_inputs_over_quic_and_reject_corruption() {
         .prepare_task(SubmitTask {
             executor: None,
             run: None,
+            peerbox: None,
             peer_host_id: receiver.identity().id,
             task_id: String::new(),
             grant_id: Some(grant.id.clone()),

@@ -436,6 +436,45 @@ fn signature_roles(kind: &str, p: &Obj) -> Result<Vec<String>> {
     roles.sort();
     Ok(roles)
 }
+/// Whether every rule of a policy body's `peerbox_rules` has its keys in
+/// the contract's order, read from the body's exact bytes.
+fn peerbox_rule_order(raw: &[u8]) -> bool {
+    struct Keys(Vec<String>);
+    impl<'de> serde::Deserialize<'de> for Keys {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+            struct V;
+            impl<'de> serde::de::Visitor<'de> for V {
+                type Value = Keys;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a peerbox rule")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut a: A,
+                ) -> std::result::Result<Keys, A::Error> {
+                    let mut keys = Vec::new();
+                    while let Some(k) = a.next_key::<String>()? {
+                        a.next_value::<serde::de::IgnoredAny>()?;
+                        keys.push(k);
+                    }
+                    Ok(Keys(keys))
+                }
+            }
+            d.deserialize_map(V)
+        }
+    }
+    #[derive(serde::Deserialize)]
+    struct Body {
+        peerbox_rules: Vec<Keys>,
+    }
+    serde_json::from_slice::<Body>(raw).is_ok_and(|b| {
+        b.peerbox_rules.iter().all(|k| {
+            k.0.iter()
+                .map(String::as_str)
+                .eq(crate::policy::PEERBOX_RULE_KEYS)
+        })
+    })
+}
 pub(crate) fn access_body(p: &Obj) -> Result<Obj> {
     Ok(object(&parse(
         &b64(text(p, "body_base64")?, MAX_PAYLOAD)?,
@@ -571,14 +610,26 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             exact_parents(kind, p)?;
             let body = access_body(p)?;
             if kind == "policy" {
-                fields(
-                    &body,
-                    if body.contains_key("runtime_rules") {
-                        "format network_id person_public_key version issued_at valid_until rules capability_rules runtime_rules trusted_hosts edits"
-                    } else {
-                        "format network_id person_public_key version issued_at valid_until rules capability_rules trusted_hosts edits"
-                    },
-                )?;
+                let mut shape = String::from(
+                    "format network_id person_public_key version issued_at valid_until rules capability_rules",
+                );
+                for optional in ["runtime_rules", "peerbox_rules"] {
+                    if body.contains_key(optional) {
+                        shape.push(' ');
+                        shape.push_str(optional);
+                    }
+                }
+                shape.push_str(" trusted_hosts edits");
+                fields(&body, &shape)?;
+                if body.contains_key("peerbox_rules") {
+                    // Each peerbox rule has exactly its keys, in order
+                    // (peerbox contract, Policy body), which the parsed
+                    // object no longer shows.
+                    check(peerbox_rule_order(&b64(
+                        text(p, "body_base64")?,
+                        MAX_PAYLOAD,
+                    )?))?;
+                }
                 check(
                     num(&body, "format")? == 2
                         && text(&body, "person_public_key")? == text(issuer, "person_public_key")?,

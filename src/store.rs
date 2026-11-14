@@ -72,6 +72,8 @@ pub struct Store {
     /// Wakes the runtime task worker when a runtime task arrives, its
     /// inputs are stored, or its cancellation is requested.
     pub(crate) runtime_wake: tokio::sync::Notify,
+    /// Wakes the peerbox task worker (peerbox contract).
+    pub(crate) peerbox_wake: tokio::sync::Notify,
     /// Wakes every runtime task follower when a cancellation is requested.
     pub(crate) runtime_cancel: tokio::sync::Notify,
     /// The peer socket's bound address while listening. Candidates are
@@ -183,7 +185,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=31).contains(&version) {
+        if !(0..=32).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -308,6 +310,9 @@ impl Store {
         if !described {
             tx.execute_batch(DESCRIPTIONS)?;
         }
+        if version < 32 {
+            tx.execute_batch(crate::peerbox::SCHEMA)?;
+        }
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;
         crate::onboarding::check_schema(&tx)?;
@@ -317,7 +322,8 @@ impl Store {
         // 29 is runtime tasks (runtime task contract): new record fields only.
         // 30 is conversations C7: the agent_descriptions table.
         // 31 is runtime agents (runtime agent contract): new record fields only.
-        tx.execute_batch("PRAGMA user_version = 31;")?;
+        // 32 is peerboxes (peerbox contract): the peerbox tables.
+        tx.execute_batch("PRAGMA user_version = 32;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")
@@ -408,6 +414,7 @@ impl Store {
             peer_transport: Mutex::new(None),
             relay_wake: tokio::sync::Notify::new(),
             runtime_wake: tokio::sync::Notify::new(),
+            peerbox_wake: tokio::sync::Notify::new(),
             runtime_cancel: tokio::sync::Notify::new(),
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),

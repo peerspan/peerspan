@@ -561,6 +561,9 @@ pub enum Command {
     /// Let your machines run commands in this host's runtime
     #[command(subcommand)]
     Runtime(RuntimeCommand),
+    /// Serve a Git repository to people in your network, and use theirs
+    #[command(subcommand)]
+    Peerbox(PeerboxCommand),
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
@@ -703,6 +706,96 @@ pub enum SourcesCommand {
         host: Option<String>,
         #[arg(long)]
         all: bool,
+    },
+}
+/// A peerbox action of `peerbox share`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+pub enum PeerboxAction {
+    Read,
+    Submit,
+    Run,
+}
+impl PeerboxAction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Read => "peerbox.read",
+            Self::Submit => "peerbox.submit",
+            Self::Run => "peerbox.run",
+        }
+    }
+}
+#[derive(Debug, Subcommand)]
+pub enum PeerboxCommand {
+    /// Create a peerbox for a branch of a local repository
+    Create {
+        #[arg(long, value_name = "PATH")]
+        repository: PathBuf,
+        /// The protected branch
+        #[arg(long, value_name = "NAME")]
+        branch: String,
+        #[arg(long, value_name = "TEXT")]
+        title: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Create without asking to confirm the disclosure
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Give principals exactly these actions and bounds on a peerbox
+    Share {
+        peerbox: String,
+        /// person:PERSON, group:NAME, network, or agent:HOST/AGENT; repeat
+        #[arg(long = "for", value_name = "PRINCIPAL", required = true)]
+        principals: Vec<String>,
+        /// read, submit or run; repeat; default read
+        #[arg(long = "action", value_name = "ACTION")]
+        actions: Vec<PeerboxAction>,
+        /// Bytes per fetched or submitted bundle; default 104857600
+        #[arg(long, value_name = "N")]
+        max_bundle_bytes: Option<i64>,
+        /// Pending contributions per person; default 4 with submit
+        #[arg(long, value_name = "N")]
+        max_pending: Option<i64>,
+        #[arg(long)]
+        allow_disconnected: bool,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove principals, or everyone, from a peerbox's rules
+    Unshare {
+        peerbox: String,
+        #[arg(long = "for", value_name = "PRINCIPAL")]
+        principals: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Delete a peerbox: its rules, its record and its peerbox refs
+    Delete {
+        peerbox: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show peerbox records, their rules and pending counts
+    Show {
+        peerbox: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List a peer host's peerboxes you may read
+    List {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fetch a peer's peerbox into a local repository
+    Fetch {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        #[arg(long, value_name = "DIR")]
+        repository: PathBuf,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -2070,7 +2163,8 @@ impl Command {
             )
             | Self::Runtime(
                 RuntimeCommand::Enable { network, .. } | RuntimeCommand::Disable { network, .. },
-            ) => Some(network),
+            )
+            | Self::Peerbox(PeerboxCommand::Create { network, .. }) => Some(network),
             Self::Network(
                 NetworkCommand::Persons { id }
                 | NetworkCommand::Members { id }
@@ -2161,6 +2255,9 @@ impl Command {
                 ..
             })
             | Self::Runtime(RuntimeCommand::Show { json })
+            | Self::Peerbox(
+                PeerboxCommand::Show { json, .. } | PeerboxCommand::List { json, .. },
+            )
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
             _ => return global,
@@ -2216,6 +2313,7 @@ impl Command {
                 | AccessCommand::Renew { .. },
             )
             | Self::Runtime(RuntimeCommand::Enable { .. } | RuntimeCommand::Disable { .. })
+            | Self::Peerbox(_)
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }

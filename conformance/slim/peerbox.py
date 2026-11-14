@@ -42,8 +42,8 @@ MAIN_SCHEMA = 31  # the schema version on main when this suite was written; the 
 DAY, HOUR = 86400, 3600
 
 
-def case(name, spec):
-    return suite.case(name, spec, known=REASON)
+def case(name, spec, known=REASON):
+    return suite.case(name, spec, known=known)
 
 
 def pbx():
@@ -141,7 +141,7 @@ def _():
 
 # Create (peerbox CLI and local API: peerbox create).
 
-@case("create_disclosure", "peerbox CLI: create shows what a read discloses, refuses by default, --yes")
+@case("create_disclosure", "peerbox CLI: create shows what a read discloses, refuses by default, --yes", known=None)
 def _():
     a, repo = need("a", "repo")
     argv = ["peerbox", "create", "--repository", repo, "--branch", "main", "--title", "Alice's project"]
@@ -163,7 +163,7 @@ def _():
 # The policy body (peerbox Peerbox rules, Policy body).
 
 @case("share_and_policy_body", "peerbox Policy body (key order, admitted by the owner's other host and another "
-                               "person's host); CLI share defaults")
+                               "person's host); CLI share defaults", known=None)
 def _():
     a, a2, b = need("a", "a2", "b")
     share(pbx(), state["bob_p"], actions=("read", "submit"), extra=("--max-pending", "2", "--max-bundle-bytes",
@@ -188,7 +188,7 @@ def _():
 
 
 @case("policy_body_refusals", "peerbox Policy body (Reading): empty, unknown or missing key, a principal in two "
-                              "rules of one peerbox, submit without read, max_pending against submit, ranges")
+                              "rules of one peerbox, submit without read, max_pending against submit, ranges", known=None)
 def _():
     a, b = need("a", "b")
     good = pbx_rules()
@@ -229,7 +229,7 @@ def _():
 # Authorization and requests (peerbox Requests, Checks).
 
 @case("unknown_unreadable_and_invalid", "peerbox Checks 1 (404 unknown for an unknown and an unreadable peerbox); "
-                                        "Requests (400 invalid naming the field; grant, target_agent_id, branch)")
+                                        "Requests (400 invalid naming the field; grant, target_agent_id, branch)", known=None)
 def _():
     b, main = need("b", "main")
     for label, op in (("unknown", {"op": "fetch", "peerbox_id": "pbx_" + os.urandom(16).hex()}),
@@ -264,7 +264,7 @@ def _():
 
 
 @case("list_readable_and_paging", "peerbox Results (list entries, ascending, whole entries within 65,536 bytes, "
-                                  "after and next); CLI list follows next")
+                                  "after and next); CLI list follows next", known=None)
 def _():
     a, b, c = need("a", "b", "c")
     with ThreadPoolExecutor(8) as pool:
@@ -302,7 +302,7 @@ def _():
 # Fetch (peerbox Fetch).
 
 @case("fetch_bundle", "peerbox Fetch: one ref at the protected head, digest and size, verifies, nothing outside "
-                      "main; CLI fetch sets refs/peerbox/PEERBOX/BRANCH")
+                      "main; CLI fetch sets refs/peerbox/PEERBOX/BRANCH", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     value, last, task_id = op_ok({"op": "fetch", "peerbox_id": pbx()})
@@ -327,7 +327,7 @@ def _():
 
 
 @case("fetch_have_and_repeat", "peerbox Fetch: have shortens the bundle, a have outside main changes nothing, the "
-                               "head in have gives no artifact and changes no ref")
+                               "head in have gives no artifact and changes no ref", known=None)
 def _():
     a, b, main, clone = need("a", "b", "main", "bob_clone")
     value, last, task_id = op_ok({"op": "fetch", "peerbox_id": pbx(), "have": [state["main_parent"]]})
@@ -351,7 +351,7 @@ def _():
 
 
 @case("fetch_sha256", "peerbox Peerboxes and contributions (commit IDs: 64 hex digits for SHA-256, any other "
-                      "length 400 invalid); Fetch (a version 3 bundle for a SHA-256 repository); CLI fetch")
+                      "length 400 invalid); Fetch (a version 3 bundle for a SHA-256 repository); CLI fetch", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     owner = sha256_repo(suite.work / "alice-sha256")
@@ -379,7 +379,7 @@ def _():
               f"peerbox fetch into {label}: exit {result.code} {result.json} {tail(result.stderr)}")
 
 
-@case("fetch_too_large", "peerbox Fetch: a bundle over max_bundle_bytes fails too_large with its size (PBX-3)")
+@case("fetch_too_large", "peerbox Fetch: a bundle over max_bundle_bytes fails too_large with its size (PBX-3)", known=None)
 def _():
     c, full = need("c", "full_size")
     check(full > 400, f"fixture: main's bundle has {full} bytes, not over carol's bound of 400")
@@ -411,7 +411,7 @@ def _():
     state["first"] = record
 
 
-@case("submit_refused_403", "peerbox Checks 2 and 3: submit without peerbox.submit, a bundle over max_bundle_bytes")
+@case("submit_refused_403", "peerbox Checks 2 and 3: submit without peerbox.submit, a bundle over max_bundle_bytes", known=None)
 def _():
     b, c, main = need("b", "c", "main")
     small = upload_bundle(c, b"# v2 git bundle\n\n")
@@ -805,7 +805,7 @@ def _():
 
 
 @case("open_previous_schema", "peerbox Persistence: a schema-31 database opens, keeps its data, moves to the next "
-                              "version, and holds peerboxes")
+                              "version, and holds peerboxes", known=None)
 def _():
     """A real schema-31 state (DEC-OWN9, as schema28_compatibility.py does for conversations): alice2's state, made by
     the binary under test, with every table that schema 31 does not have dropped and the version set back. The
@@ -869,7 +869,7 @@ def _():
 
 
 @case("renewal_keeps_peerbox_rules", "peerbox Policy body (Renewal and edits): automatic renewal copies "
-                                     "peerbox_rules; test clock")
+                                     "peerbox_rules; test clock", known=None)
 def _():
     a, = need("a")
     version, before = policy_version(a, state["alice_public"]), pbx_rules()
