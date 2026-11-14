@@ -615,6 +615,22 @@ def _():
     pure(h, lambda: check_key(h, released, h.id, h.public_key, status=409))
 
 
+@suite.case("host_keys_directory_fences", "PF-1 sections2/7: public or replaced pinned root is 409")
+def _():
+    h, _ = fixture()
+    registration = prepare()
+    directory = Path(registration["directory"])
+    def fenced():
+        directory.chmod(0o755)
+        check_key(h, registration, h.id, h.public_key, status=409)
+        directory.chmod(0o700)
+        check_key(h, registration, h.id, h.public_key, True)  # same inode, privacy restored
+        directory.rename(directory.with_name(directory.name + "-original"))
+        directory.mkdir(mode=0o700)
+        check_key(h, registration, h.id, h.public_key, status=409)  # new inode stays refused
+    pure(h, fenced)
+
+
 @suite.case("host_keys_admitted_history", "PF-1 sections6/8: admitted remote host, other context, removal, expiry")
 def _():
     h, net = fixture()
