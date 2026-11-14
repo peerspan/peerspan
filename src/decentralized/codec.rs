@@ -140,7 +140,10 @@ pub fn text<'a>(o: &'a Obj, name: &str) -> Result<&'a str> {
         .get(name)
         .and_then(Value::as_str)
         .ok_or_else(|| Error::new("invalid"))?;
-    check(!value.contains(['\r', '\n', '\0']))?;
+    // Byte searches (memchr) rather than a per-character pattern scan: base64
+    // payload fields are large, and these are single-byte ASCII characters.
+    let bytes = value.as_bytes();
+    check(!(bytes.contains(&b'\r') || bytes.contains(&b'\n') || bytes.contains(&0)))?;
     Ok(value)
 }
 pub fn num(o: &Obj, name: &str) -> Result<u64> {

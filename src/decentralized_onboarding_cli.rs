@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs::OpenOptions,
-    io::{self, IsTerminal, Read},
+    io::{self, BufRead, IsTerminal, Read},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
@@ -56,10 +56,18 @@ impl InvitationInput {
             raw
         } else if self.invite_stdin {
             let mut raw = String::new();
-            io::stdin()
-                .lock()
-                .take((MAX_TOKEN + 2) as u64)
-                .read_to_string(&mut raw)?;
+            if io::stdin().is_terminal() {
+                // A terminal gives one line; later lines answer prompts.
+                io::stdin()
+                    .lock()
+                    .take((MAX_TOKEN + 2) as u64)
+                    .read_line(&mut raw)?;
+            } else {
+                io::stdin()
+                    .lock()
+                    .take((MAX_TOKEN + 2) as u64)
+                    .read_to_string(&mut raw)?;
+            }
             raw
         } else {
             crate::up::prompt_bounded("Private introduction (hidden)", "", true, MAX_TOKEN).await?
@@ -79,7 +87,23 @@ pub(crate) async fn create_join(
     token: &str,
     person_key: &Option<PathBuf>,
 ) -> Result<Value> {
+    create_join_as(local, token, person_key, None).await
+}
+/// `create_join`, with the label a new person key is saved under (`peerbox
+/// join --as`). A `psb1-` peerbox code is shown and its inner invite used
+/// (peerbox contract, Invitations for new participants 2).
+pub(crate) async fn create_join_as(
+    local: &Local<'_>,
+    token: &str,
+    person_key: &Option<PathBuf>,
+    label: Option<&str>,
+) -> Result<Value> {
+    let (inner, peerbox) = crate::peerbox_cli::unwrap_code(token)?;
+    let token = inner.as_str();
     let intro = Invitation::read_token(token, &local_decision_time()?)?;
+    if let Some(code) = &peerbox {
+        crate::peerbox_cli::review_code(local, code, &intro.descriptor.network_id).await?;
+    }
     let genesis = STANDARD.decode(&intro.descriptor.genesis_root_public_key)?;
     eprintln!(
         "Introduction: network {} ({}), context {}, genesis fingerprint SHA256:{}, inviter host {}, proposed member {}, person-key pin {}. An administrator must approve this exact machine.",
@@ -139,7 +163,7 @@ pub(crate) async fn create_join(
     eprintln!("Selected original person: {person}");
     // Persist before a request can escape; a daemon failure cannot lose the key
     // or make a later retry silently choose a different original identity.
-    choice.save(&intro.member)?;
+    choice.save(label.unwrap_or(&intro.member))?;
     let v = local
         .post(
             "/v2/link/requests".into(),
@@ -203,6 +227,27 @@ pub(crate) async fn create_join(
     Ok(approved)
 }
 
+/// `join` up to its link view, for `peerbox join`: the request, this
+/// machine's approvals and, at a terminal, the guided stages to the commit.
+/// Returns the view and whether it is final for the caller.
+pub(crate) async fn join_view(
+    socket: &Path,
+    token: &str,
+    person_key: &Option<PathBuf>,
+    label: Option<&str>,
+) -> Result<Value> {
+    let v = create_join_as(&Local(socket), token, person_key, label).await?;
+    if declined_owner_approval(&v) {
+        return Ok(v);
+    }
+    crate::decentralized_link_cli::guide_join(
+        socket,
+        v,
+        io::stdin().is_terminal(),
+        Some(person_key.clone()),
+    )
+    .await
+}
 /// Whether a new person's own join request is still waiting for its owner
 /// approval on this machine after `create_join` (declined, or no terminal).
 pub(crate) fn declined_owner_approval(v: &Value) -> bool {
@@ -270,6 +315,27 @@ async fn invite(
         person_key.is_none() && !host_only,
         "an invite grants no authority; the joining machine is approved explicitly"
     );
+    let v = mint_invite(local, network, member, expires_at, expires_in).await?;
+    eprintln!(
+        "This private invite grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
+    );
+    if crate::output::json() {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{}", crate::output::invite(&v, member));
+    }
+    Ok(())
+}
+/// Creates a network invite as `invite` does (spec 8.1): the daemon's
+/// `{network_id, context_id, invitation_id, invitation, expires_at}`,
+/// checked against the reviewed network and member.
+pub(crate) async fn mint_invite(
+    local: &Local<'_>,
+    network: &Option<String>,
+    member: &str,
+    expires_at: &Option<String>,
+    expires_in: &Option<String>,
+) -> Result<Value> {
     ensure!(
         expires_at.is_none() || expires_in.is_none(),
         "--expires-at and --expires-in are mutually exclusive"
@@ -338,15 +404,7 @@ async fn invite(
             && v["expires_at"] == intro.expires_at,
         "the introduction changed the reviewed network/member pins"
     );
-    eprintln!(
-        "This private invite grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
-    );
-    if crate::output::json() {
-        println!("{}", serde_json::to_string_pretty(&v)?);
-    } else {
-        println!("{}", crate::output::invite(&v, member));
-    }
-    Ok(())
+    Ok(v)
 }
 
 pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool> {

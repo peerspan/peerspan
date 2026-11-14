@@ -24,6 +24,7 @@ mod onboarding_identity_create;
 mod onboarding_owner_finalization_sign;
 mod onboarding_owner_sign;
 mod output;
+mod peerbox_cli;
 mod runtime_cli;
 mod service;
 mod sign_in_cli;
@@ -327,6 +328,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let code = task_run::run(&command, &directory).await?;
         std::process::exit(code);
     }
+    if let cli::Command::Peerbox(cli::PeerboxCommand::Run { .. }) = &command {
+        let code = peerbox_cli::run(&command, &directory).await?;
+        std::process::exit(code);
+    }
     // A send the receiver refused fails after printing its record (MSG-1);
     // `unknown` is stored and retried, so it still exits 0 (MSG-2).
     let sends = matches!(
@@ -374,6 +379,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
         return Ok(value);
     }
     if let Some(value) = runtime_cli::command(&command, &socket).await? {
+        return Ok(value);
+    }
+    if let Some(value) = peerbox_cli::command(&command, directory).await? {
         return Ok(value);
     }
     if let cli::Command::Fs(command) = &command {
@@ -1340,6 +1348,9 @@ async fn run_daemon(
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let runtime_tasks = peerspan_host::runtime_task::worker(store.clone(), peer_shutdown.clone());
+    let peerbox_tasks = peerspan_host::peerbox_task::worker(store.clone(), peer_shutdown.clone());
+    let peerbox_invites =
+        peerspan_host::peerbox_invite::worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
@@ -1378,6 +1389,14 @@ async fn run_daemon(
         },
         async {
             expiry.await;
+            Ok(())
+        },
+        async {
+            peerbox_tasks.await;
+            Ok(())
+        },
+        async {
+            peerbox_invites.await;
             Ok(())
         },
         async {

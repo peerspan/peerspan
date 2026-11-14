@@ -27,6 +27,8 @@ from onboarding_bundle import safe_members, sha256_file, verify_checksum
 
 GUIDED = frozenset({'onboarding_project_flows', 'onboarding_adapter_flows',
                     'onboarding_invitation_flows', 'onboarding_join_flows'})
+# Schema 32 (peerbox contract, Persistence) adds these, empty after an upgrade.
+PEERBOX = frozenset({'peerboxes', 'peerbox_contributions', 'peerbox_pending_shares'})
 CONVERSATIONS = frozenset({'conversations', 'conversation_messages', 'conversation_targets',
                           'conversation_invites', 'conversation_roster_outbound',
                           'conversation_notifications', 'conversation_reads', 'conversation_events'})
@@ -181,8 +183,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema31 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema31')
+                raise CheckFailure('old binary did not refuse schema33 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema33')
         finally:
             self.process = None
             PROCESSES.discard(process)
@@ -363,8 +365,9 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 33 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
-                'installed upgrade did not create schema31 with both complete table histories')
+        require(upgraded['version'] == 33 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
+                and all(upgraded['tables'][name] == () for name in PEERBOX - original['tables'].keys()),
+                'installed upgrade did not create schema33 with the complete table histories and empty peerbox tables')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
         host.binary = old_binary
