@@ -62,8 +62,9 @@ for each refused shape above, which every host implementation reproduces.
 
 ## 3. Authorization, at every request
 
-The serving host S answers a read request from an authenticated peer R about
-`(space, branch)` only when all of these hold, checked in this order at each request:
+The serving host S answers a `head` or `objects` request from an authenticated peer R about
+`(space, branch)` only when all of these hold, checked in this order at each request. Discovery
+is narrower (section 5): it applies step 2 and the binding's state, and contacts no provider.
 
 1. **A live, registered binding.** S holds a PF-1 binding for `space` in state `registered`,
    its pinned directory is unchanged, and the provider answers activation's identity check
@@ -96,9 +97,19 @@ routers. Bodies and results have exactly the stated fields.
 
 | Route | Request | Answer |
 | --- | --- | --- |
-| `GET /peer/v1/fs/branches` | No body. | `{branches:[{host, space, branch, policy:{person_id, version}}]}`: every `(space, branch)` on S that R's current matching rules let it read, sorted by `(space, branch)`, at most 64. No heads: listing contacts no provider. |
+| `GET /peer/v1/fs/branches?network=ID` | No body. `network` is required: a network ID. | `{network, branches:[{host, space, branch, policy:{person_id, version}}]}`: every `(space, branch)` in that network that R may read on S, sorted by `(space, branch)`. |
 | `POST /peer/v1/fs/spaces/{space}/branches/{branch}/head` | `{policy:{person_id, version}}` | `{host, space, branch, head}`, where `head` is the branch's current commit, read from the provider. |
 | `POST /peer/v1/fs/spaces/{space}/branches/{branch}/objects` | `{policy:{person_id, version}, ids:[ID, …]}`: 1 to 256 distinct object IDs | `application/octet-stream`: the objects, in the PeerFS object batch encoding of `peerfs pull`, in request order, with an exact `Content-Length`. |
+
+**Discovery** lists, for the named network, each rule in the current policy of S's person P
+that names S, `fs.read` and a principal matching R (step 2 of section 3, with
+`allow_disconnected` as there), whose space has a binding on S in that network in state
+`registered`. It applies step 2 and the binding's state only: it contacts no provider, checks no
+directory, and does not say whether the branch exists or the provider is running, which `head`
+answers. Each host's bindings belong to its own person, so in one network only P's policy can
+name S, and the answer has at most 64 entries. A reader that shares several networks with S asks
+once for each. A network R does not share with S, or one with no matching rule, answers an
+empty list, so the listing reveals no membership.
 
 **What a branch reaches.** An object is readable when the branch's **current** head reaches it:
 the head commit, its parents and their history, and from each commit its tree, the trees and
@@ -157,8 +168,10 @@ is not needed, and genuine hosts in a shared network:
   `invalid`; renewal and an unrelated edit keep the rules; an older host refuses the policy.
 - **Share and unshare:** the review's fields; a space without a registered binding refused;
   `fs shares` after each.
-- **Discovery:** R sees exactly its rules' branches; a peer without a rule sees none; no
-  provider contact while listing.
+- **Discovery:** R sees exactly its rules' branches in the named network; a peer without a rule,
+  a network it does not share, and a missing or malformed `network` (400) behave as specified;
+  a prepared or released binding is not listed; a stopped provider's registered branch is still
+  listed, with no provider contact; two networks are listed separately.
 - **Head and objects:** the head matches the provider; a batch of reached objects returns them
   in order and verifies; an unreached object, a snapshot reached only through `predecessor`, an
   object of another space and a malformed ID refuse the whole batch; the 256-ID and 16 MiB bounds
