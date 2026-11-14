@@ -120,7 +120,7 @@ fn load(store: &Store) -> Result<Vec<Grant>, String> {
             valid_id(&g.agent_id, "agent", 16)
                 && valid_id(&g.space, "space", 16)
                 && g.max_bytes > 0
-                && crate::decentralized::codec::stamp(&g.created_at).is_ok()
+                && chrono::DateTime::parse_from_rfc3339(&g.created_at).is_ok()
                 && pairs.insert((g.agent_id.clone(), g.space.clone()))
         });
     if !valid {
