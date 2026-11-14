@@ -1018,8 +1018,7 @@ def _():
 
 
 @case("lapsed_sender", "peerbox Checks 1: a sender whose grants lapsed (test clock), refused without "
-                       "allow_disconnected and accepted with it",
-      known="access renew does not revive an expired policy (PBX-24)")
+                       "allow_disconnected and accepted with it", known=None)
 def _():
     a, f = need("a", "f")
     clock.set(need("fay_offset")[0] + 4 * DAY + 2 * HOUR)

@@ -205,7 +205,7 @@ Contents:
 - **Source:** the suite author, running the suite on slice C's build (PR #234). `lapsed_sender` moves the clock about 4 days so the sender's grants lapse, which lapses the owner's 24-hour policy too (spec 4.4: no grace; 7.1 and the coordination contract's Expired policies: automatic renewal skips a policy already expired). The case then needed a current owner policy, and `renewal_keeps_peerbox_rules` after it failed with no current policy. The contract's way to revive it, `access renew` (coordination-contract.md lines 520 and 534; launch-contract.md line 103, `policy_expired`), refuses with "you have no policy in this network", while an ordinary `allow` edit from the same expired policy succeeds.
 - **Recorded in:** this log and the `peerbox` suite (this PR).
 - **Contract section:** [coordination-contract.md, Renewal and Commands](coordination-contract.md#renewal); [launch-contract.md, attention item 2](launch-contract.md).
-- **Implementing PRs:** none yet (the host fix to `access renew`).
+- **Implementing PRs:** #248 (the suite change), #249 (`access renew` revives an expired policy, e6eac402).
 
 #### PBX-24. Suite or host first
 
@@ -213,6 +213,13 @@ Contents:
 - **Recommended:** (1).
 - **Chosen:** (1).
 - **Reason given:** it unblocks slice C, whose suite run otherwise fails `renewal_keeps_peerbox_rules`; the `access renew` contract (coordination-contract.md:520 and 534, launch-contract.md:103) is fixed in the host separately.
+
+#### PBX-24b. Tests in the host fix
+
+- **Options:** (1) keep the Rust unit tests of the expired-head lookup and the implementer-written `renewal` suite case `access_renew_revives_expired_policy` in #249; (2) drop them before merge, as AGENTS.md has implementers add unit tests only when the owner or contract asks and has suite cases written by a separate author.
+- **Recommended:** none; brought to the owner because Codex flagged the AGENTS.md rule on #249.
+- **Chosen:** (1).
+- **Reason given:** "keep the tests".
 
 ### PBX-23: which providers sign an invitation's share automatically (2026-11-14)
 
