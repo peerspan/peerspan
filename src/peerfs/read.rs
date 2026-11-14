@@ -345,9 +345,16 @@ async fn objects(
     })?;
     // The request may outlast the transport's usual serve bound; OBJECTS_BOUND bounds
     // it here, and the transport bounds a stalled transfer of the answer.
-    if let Some(Extension(long)) = long {
-        long.allow();
-    }
+    // Over the transport the slot is kept until the answer is delivered to the
+    // reader, not only until Hyper takes the body.
+    let slot = match long {
+        Some(Extension(long)) => {
+            long.allow();
+            long.keep_until_delivered(slot);
+            None
+        }
+        None => Some(slot),
+    };
     let (op, _cancel) = operation(OBJECTS_BOUND);
     let batch = within(store, op, move |store, op| {
         let record = authorize(store, op, &sender, &space, &branch, &request.policy)?;
@@ -412,10 +419,11 @@ impl Drop for Slot {
     }
 }
 
-/// A complete answer body that keeps its request's [`Slot`] until it is sent or dropped.
+/// A complete answer body that keeps its request's [`Slot`], when the transport does
+/// not keep it, until the body is sent or dropped.
 struct Held {
     data: Option<Bytes>,
-    _slot: Slot,
+    _slot: Option<Slot>,
 }
 impl axum::body::HttpBody for Held {
     type Data = Bytes;
