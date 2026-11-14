@@ -2,9 +2,11 @@
 
 Status: accepted local contract, merged in [#121](https://github.com/peerspan/peerspan/pull/121),
 following the boundary plan in [#116](https://github.com/peerspan/peerspan/pull/116).
-The first implementation slice is PF-1(a): preparation, lookup/list, release and
-typed commit signing. Provider activation, fresh PeerFS host-backed initialization
-and historical HostKeys remain subsequent PF-1 pieces. Remote read
+Implemented in three pieces: PF-1(a), preparation, lookup/list, release and typed
+commit signing ([#123](https://github.com/peerspan/peerspan/pull/123)); PF-1(b), fresh
+PeerFS host-backed initialization and provider identity
+([peerfs#3](https://github.com/peerspan/peerfs/pull/3)); and PF-1(c), activation and
+historical HostKeys, here and in [peerfs#4](https://github.com/peerspan/peerfs/pull/4). Remote read
 authorization, object serving and cross-host pull remain PF-2/PF-3 in the
 [delivery plan](peerfs-host-contract.md). No filesystem grant is created here.
 
