@@ -97,6 +97,7 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question.
 - **Note:** PeerFS's pull needs every object it asks for in one answer, while a PF-2 `objects` answer holds only the leading objects that fit 16 MiB, so the proxy asks again for the rest and answers with one batch. This is a contract choice within PF-07.
+- **Note:** the proxy reports the remote name `<S>:<SPACE>`, so the tracking reference is `<S>:<SPACE>/<BRANCH>` and branches of one name in two spaces S shares do not collide. Raised in review of the contract (#242); also a contract choice within PF-07.
 
 #### PF-08. Where a pulled branch lands
 
