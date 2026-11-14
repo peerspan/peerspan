@@ -761,8 +761,9 @@ pub fn sweep(store: &Store, now: DateTime<Utc>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Deletes contribution refs that no record names, left by a submission
-/// interrupted between storing its refs and its record.
+/// Deletes contribution refs that no record names, and repairs member
+/// refs naming an unrecorded head, both left by a submission interrupted
+/// between storing its refs and its record.
 pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
     let records = super::records(&*store.connection()?)?;
     if records.is_empty() {
@@ -787,8 +788,74 @@ pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
                 let _ = git.delete_ref(&repo, name, None);
             }
         }
+        // A member ref naming a head no record of that person and branch
+        // holds goes back to the latest recorded submission there, or
+        // away when that one was withdrawn (or there is none).
+        let prefix = format!("refs/peerbox/{}/members/", rec.peerbox_id);
+        let Ok(listed) = git.text(
+            &repo,
+            &["for-each-ref", "--format=%(refname) %(objectname)", &prefix],
+            "unavailable",
+        ) else {
+            continue;
+        };
+        let contributions = of_peerbox(&*store.connection()?, &rec.peerbox_id)?;
+        for line in listed.lines() {
+            let Some((name, head)) = line.split_once(' ') else {
+                continue;
+            };
+            let Some((person, branch)) = name
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.split_once('/'))
+            else {
+                continue;
+            };
+            let mine: Vec<&Contribution> = contributions
+                .iter()
+                .filter(|c| {
+                    c.contributor.person_id.as_deref() == Some(person) && c.branch == branch
+                })
+                .collect();
+            if mine.iter().any(|c| c.head == head) {
+                continue;
+            }
+            // Newest first: the latest recorded submission on that branch.
+            match mine.first() {
+                Some(latest) if latest.state != SUPERSEDED => {
+                    let _ = git.text(
+                        &repo,
+                        &["update-ref", name, &latest.head, head],
+                        "unavailable",
+                    );
+                }
+                _ => {
+                    let _ = git.delete_ref(&repo, name, Some(head));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// Runs `f` holding `peerbox`'s lock. Every change to a peerbox's
+/// contributions and their refs (review, withdrawal, storing a
+/// submission) holds it from its state check to its durable record, so
+/// two of them never interleave.
+pub(crate) fn with_lock<T>(peerbox: &str, f: impl FnOnce() -> T) -> T {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex, OnceLock},
+    };
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let lock = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(peerbox.to_owned())
+        .or_default()
+        .clone();
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    f()
 }
 
 // ---------------------------------------------------------------------
@@ -862,13 +929,29 @@ impl Store {
                 "reason is at most {MAX_REASON} bytes"
             )));
         }
-        let (c, rec, by) = {
+        let (peerbox, rec, by) = {
             let conn = self.connection()?;
             let c = load(&conn, id)?.ok_or(Error::NotFound)?;
             let rec = record(&conn, &c.peerbox_id)?.ok_or(Error::NotFound)?;
             let by = self.owner_person(&conn, &rec.network_id)?;
-            (c, rec, by)
+            (c.peerbox_id, rec, by)
         };
+        // The pending check, the Git changes and the decision hold the
+        // peerbox's lock, as every change to its contributions does: a
+        // competing review, withdrawal or replacement waits, then finds the
+        // contribution no longer pending.
+        with_lock(&peerbox, || self.decide_locked(id, accept, reason, rec, by))
+    }
+
+    fn decide_locked(
+        &self,
+        id: &str,
+        accept: bool,
+        reason: String,
+        rec: Record,
+        by: Option<String>,
+    ) -> Result<Value, Error> {
+        let c = load(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
         if c.state != PENDING {
             return Err(conflict(
                 "not_pending",
@@ -894,6 +977,12 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let mut c = load(&tx, id)?.ok_or(Error::NotFound)?;
+        if c.state != PENDING {
+            return Err(conflict(
+                "not_pending",
+                format!("the contribution is {}, not pending", c.state),
+            ));
+        }
         c.state = if accept { ACCEPTED } else { REJECTED }.into();
         c.decision = Some(Decision {
             decision: c.state.clone(),
