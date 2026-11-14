@@ -462,6 +462,32 @@ export const tools = [
   }
 ];
 
+// fs_pull (PeerFS pull contract, section 5) is offered only while the owner has
+// allowed this agent to pull into at least one space (fs allow-pull), so it is
+// not in tools; listTools adds it.
+export const fsPullTool = {
+  name: 'fs_pull',
+  description:
+    'Pull a PeerFS branch that another host shares with this host into a space on this host that the person allowed you to pull into (peerspan fs allow-pull). peer is the sharing host\'s ID, space the shared space\'s ID on that host, branch the shared branch, into the space here. Every object and signature is checked, and the branch arrives as the tracking reference peer:space/branch, written only when its whole history is present. Returns {peer, space, branch, into, tracking, head, objects, bytes} when the pull ends; a pull has no time bound, but its bytes are bounded by your grant (too_large). Errors carry status and code: 403 forbidden (no grant for into), 404 not_found (not shared with this host, or no such space), 409 conflict (into not registered in the share\'s network, or this branch already being pulled into it), 502 remote (the sharing host\'s answer failed a check), 503 unavailable (the sharing host or into\'s provider unavailable), 507 too_large (the bound reached; nothing referenced, and a rerun does not fetch the blobs already held).',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      peer: { type: 'string', pattern: '^host_[0-9a-f]{64}$', description: 'The sharing host\'s ID.' },
+      space: { type: 'string', pattern: '^space_[0-9a-f]{32}$', description: 'The shared space\'s ID on that host.' },
+      branch: {
+        type: 'string',
+        pattern: '^(?!\\.{1,2}$)[^/\\u0000]+$',
+        minLength: 1,
+        maxLength: 255,
+        description: 'The shared branch.'
+      },
+      into: { type: 'string', pattern: '^space_[0-9a-f]{32}$', description: 'The space on this host to pull into.' }
+    },
+    required: ['peer', 'space', 'branch', 'into']
+  }
+};
+
 const conversationRefusals = {
   not_participant: 'This agent is not in that conversation.',
   conflict: 'This message_id was already used with different content.',
@@ -778,7 +804,7 @@ function tarHeader(name, kind, mode, size, link) {
 }
 
 function validArguments(name, args) {
-  const definition = tools.find((tool) => tool.name === name);
+  const definition = [...tools, fsPullTool].find((tool) => tool.name === name);
   if (!definition || !args || typeof args !== 'object' || Array.isArray(args)) return false;
   const { properties, required = [] } = definition.inputSchema;
   if (Object.keys(args).some((key) => !(key in properties))) return false;
@@ -964,7 +990,7 @@ export class AdapterError extends Error {
 class AttachmentChanged extends Error {}
 
 export function adapterClient(socketPath, token, instanceId) {
-  return async (method, path, body) =>
+  return async (method, path, body, { signal } = {}) =>
     new Promise((resolveResult, reject) => {
       const encoded = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
       const request = http.request(
@@ -978,16 +1004,25 @@ export function adapterClient(socketPath, token, instanceId) {
             ...(instanceId && { 'X-Peerspan-Instance': instanceId }),
             ...(encoded && { 'Content-Type': 'application/json', 'Content-Length': encoded.length })
           },
-          signal: AbortSignal.timeout(
-            // The daemon holds a capability call until it is final or its
-            // wait ends. A send by address may wait for directory refreshes
-            // first, and capability listing queries other hosts.
-            method === 'POST' && path === '/adapter/v1/calls'
-              ? 50000
-              : ['/adapter/v1/send', '/adapter/v1/delegations', '/adapter/v1/capabilities'].includes(path)
-                ? 30000
-                : 5000
-          )
+          // A pull (fs_pull) has no time bound and ends when its tool call is
+          // cancelled, which closes this request.
+          signal: AbortSignal.any([
+            ...(method === 'POST' && path === '/adapter/v1/fs/pulls'
+              ? []
+              : [
+                  AbortSignal.timeout(
+                    // The daemon holds a capability call until it is final or its
+                    // wait ends. A send by address may wait for directory refreshes
+                    // first, and capability listing queries other hosts.
+                    method === 'POST' && path === '/adapter/v1/calls'
+                      ? 50000
+                      : ['/adapter/v1/send', '/adapter/v1/delegations', '/adapter/v1/capabilities'].includes(path)
+                        ? 30000
+                        : 5000
+                  )
+                ]),
+            ...(signal ? [signal] : [])
+          ])
         },
         (response) => {
           const chunks = [];
@@ -1155,6 +1190,9 @@ export function createAdapter({
   protocolVersion = () => undefined,
   // The command that attaches a fresh session, named in the disconnected event.
   reattach = 'peerspan attach HARNESS',
+  // Called when fs_pull starts or stops being offered (the harness's
+  // notifications/tools/list_changed).
+  toolsChanged = () => {},
   log = (message) => process.stderr.write(`${message}\n`)
 }) {
   if (!/^adapter_[0-9a-f]{32}$/.test(adapterId) || !/^session_[0-9a-f]{32}$/.test(sessionId))
@@ -1224,10 +1262,10 @@ export function createAdapter({
       await connecting;
     }
   }
-  async function scopedCall(method, path, body) {
+  async function scopedCall(method, path, body, options) {
     await ensureConnection();
     try {
-      return await call(method, path, body);
+      return await call(method, path, body, options);
     } catch (error) {
       if (!error.status || error.status >= 500 || error.status === 403) connected = false;
       throw error;
@@ -1254,7 +1292,63 @@ export function createAdapter({
       : error.status === 507
         ? 'the Peerspan host has no artifact storage left'
         : error.message;
-  async function callTool(name, args) {
+  // Whether the last tools listing offered fs_pull.
+  let pullOffered = false;
+  // Whether this agent holds a pull grant now; false when the host cannot say.
+  async function pullGranted() {
+    try {
+      const answer = await scopedCall('GET', '/adapter/v1/fs/pull-grants');
+      return Array.isArray(answer?.grants) && answer.grants.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  // The tools offered now: fs_pull only while this agent has a pull grant.
+  async function listTools() {
+    pullOffered = await pullGranted();
+    return pullOffered ? [...tools, fsPullTool] : tools;
+  }
+  // Tells the harness when a grant's arrival or withdrawal changes the tools.
+  async function checkTools() {
+    if ((await pullGranted()) !== pullOffered) {
+      pullOffered = !pullOffered;
+      try {
+        await toolsChanged();
+      } catch {}
+    }
+  }
+  async function callTool(name, args, { signal } = {}) {
+    if (name === 'fs_pull') {
+      if (!validArguments(name, args))
+        return errorResult({
+          status: 400,
+          code: 'invalid',
+          error: 'Invalid fs_pull arguments: give peer (host_...), space and into (space_...) and branch.'
+        });
+      try {
+        return textResult(
+          await scopedCall(
+            'POST',
+            '/adapter/v1/fs/pulls',
+            { peer: args.peer, space: args.space, branch: args.branch, into: args.into },
+            { signal }
+          )
+        );
+      } catch (error) {
+        if (signal?.aborted)
+          return errorResult({ code: 'cancelled', error: 'The pull was cancelled; nothing was referenced.' });
+        return errorResult({
+          ...(error.status && { status: error.status }),
+          code: error.code ?? null,
+          error:
+            typeof error.detail?.error === 'string'
+              ? error.detail.error
+              : typeof error.detail?.message === 'string'
+                ? error.detail.message
+                : error.message
+        });
+      }
+    }
     if (name === 'peerspan_ready') {
       if (!validArguments(name, args) || args.nonce !== nonce)
         return errorResult('Invalid nonce: give the meta.nonce of the latest kind=hello event.');
@@ -1801,6 +1895,7 @@ export function createAdapter({
       void ensureConnection().catch(() => {
         connected = false;
       });
+      void checkTools();
     }, leaseRenewMs);
     polling = (async () => {
       let backoff = 250;
@@ -2075,6 +2170,7 @@ export function createAdapter({
   }
   return {
     tools,
+    listTools,
     callTool,
     start,
     stop: async () => {
