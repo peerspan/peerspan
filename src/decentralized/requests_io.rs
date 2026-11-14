@@ -665,6 +665,10 @@ pub(crate) async fn approver_worker(
                 let Ok(p) = requests::load(&c, &id) else {
                     continue;
                 };
+                // An ended request is never due; skip its intent checks.
+                if p.record.terminal != "-" {
+                    continue;
+                }
                 // Kept until the request ends, so a finalization whose frame
                 // was not yet retained or published is retried after a crash.
                 // Approved work on an approving host, and every unfinished
@@ -681,10 +685,9 @@ pub(crate) async fn approver_worker(
                                 && intent.record.approved
                                 && intent.record.terminal == "-"
                         });
-                if p.record.terminal == "-"
-                    && (approved_owner
-                        || approved_administrator
-                        || requester && p.record.commit_packet_base64 == "-")
+                if (approved_owner
+                    || approved_administrator
+                    || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
                     due.push(id);

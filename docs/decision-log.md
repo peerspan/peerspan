@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
   - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
@@ -74,6 +75,45 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PF-03 to PF-05: reading a shared PeerFS branch (2026-11-14)
+
+- **Date:** 2026-11-13 (PF-03) and 2026-11-14 (PF-04, PF-05).
+- **Area:** PeerFS host integration, PF-2: how a branch is shared for reading and how a reader finds it.
+- **Source:** the owner's answers to three questions while the PF-1 pieces were in review. The options below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-read-contract.md](peerfs-read-contract.md), sections 2 and 5.
+- **Implementing PRs:** none yet.
+
+#### PF-03. How the signed `fs.read` permission is represented
+
+- **Question:** "How should the signed `fs.read` permission be represented?"
+- **Options:**
+  - (a) A new policy rule family, `fs_rules`: "Signed in the person's policy and renewed with it. Older hosts refuse it, and the CLI says so before signing. Runtime permissions (`runtime_rules`) and peerboxes (`peerbox_rules`) already work this way. It naturally binds network, owner, serving host, space, branch and recipient, which the plan requires."
+  - (b) A grant action, `fs.read`: "like `message.append` and `task.submit`. Grants are created by hand per recipient, and the plan's requirement for signed context binding fits them less well. Capabilities deliberately refuse grants for the same reason."
+  - (c) Both: "policy rules, plus manual grants for hosts outside the policy (`allow_disconnected`). That's more to specify and test, for a case nobody has asked for yet."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-04. How specific one rule is
+
+- **Question:** "For PF-2's fs_rules (the signed policy rules that let a principal read a branch on one of your hosts), how specific should one rule be?"
+- **Options:**
+  - (a) One branch per rule: "{host, space, branch, principals, actions:[\"fs.read\"], allow_disconnected}. Like peerbox_rules, one resource per rule: sharing and withdrawing a branch touch exactly one rule, and later actions (fs.fork/commit/publish in PF-5) slot into `actions`."
+  - (b) One space per rule: "{host, space, branches:[...], principals, actions, allow_disconnected}. Fewer rules when you share many branches of one space, but withdrawing one branch edits a list, and the review has to show each branch separately."
+  - (c) Whole space: "{host, space, principals, actions, ...}: every branch of the space, including ones created later. Simplest, but it shares branches you haven't seen yet, which the plan's explicit-sharing rule argues against."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-05. How a reader finds what is shared with it
+
+- **Question:** "How does a reader find out which branches are shared with it?"
+- **Options:**
+  - (a) A peer route: "GET /peer/v1/fs/branches lists, to an authenticated peer, only the space/branch/head entries its current fs_rules let it read. Separate from capability listings, as the host plan requires; nothing is revealed to anyone without a rule."
+  - (b) Out of band only: "No listing: the reader must be told the host, space ID and branch name and asks for that branch directly. Reveals nothing even to authorized peers, but every pull needs the names passed along by hand."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the listing leaves heads out, so listing contacts no provider; a separate `head` route answers them. This is a contract choice within PF-05.
 
 ### PBX-22: a peerbox task's past deadline (2026-11-14)
 
