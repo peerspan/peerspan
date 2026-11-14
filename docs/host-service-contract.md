@@ -53,6 +53,41 @@ branches --peer HOST [--network ID] [--json]` uses owner-local `GET
 host, 503 no answer, 502 a refusal, with `peer_status`, or a malformed
 answer). `peerspan-peer-probe --raw-body` prints a response body as
 `body_base64`.
+PF-3 (PeerFS pull contract, sections 2 to 4 and 6) adds, on a reader, `fs pull
+--peer HOST --space SPACE --branch BRANCH --into LOCAL_SPACE [--network ID]
+[--max-bytes N] [--json]`, which uses owner-local `POST /v1/fs/pulls` with
+`{peer,space,branch,into,network?,max_bytes?}` (never on the peer router) and has
+no overall time bound; dropping the request ends the pull. In order: `into` must
+have a `registered` binding on this host (404 none, 409 prepared or released,
+in a network other than a given `network`, or a changed directory), its provider
+passing activation's identity check (503 unreachable, 409 another provider); HOST's
+discovery in the binding's network must list `(space, branch)` (404 otherwise or an
+unknown host, 503 no answer, 502 a refusal or malformed answer); at most one pull
+per `(into, HOST, space, branch)` runs (409). The head is asked once from HOST's
+`head` route citing the discovered policy. The host then serves, in a fresh mode
+0700 directory `pull-<16 hex>` of its state directory, a mode 0600 socket `s.sock`
+accepting only connections whose `SO_PEERCRED` user is the daemon's, with exactly
+`GET /v1/space` (`{path:"peerspan:HOST/SPACE",host:"HOST:SPACE",objects:0,key}`,
+`key` HOST's public key), `GET /v1/branches` (`[{name:BRANCH,head}]` at the
+selected head) and `POST /v1/objects/fetch` with exactly `{ids}` (1 to 256
+distinct IDs; 400 otherwise), answered by asking HOST's `objects` route again for
+the IDs not yet returned and then with one PeerFS object batch of all of them in
+the order asked; every other request is 404. Each `head` request is bounded to 10
+seconds and each `objects` request to 90 (HOST's 30 plus a 16 MiB transfer); a
+429 is asked again up to 10 times, 500 ms apart. Once the bytes of HOST's
+`objects` answers exceed `max_bytes` (default 1 GiB) the proxy contacts HOST no
+more and answers 507 `too_large`. The directory is removed however the pull
+ends. The binding's provider is asked `POST /v1/pull {from: <socket path>,
+branch}`; the answer is `{peer,space,branch,into,tracking,head,objects,bytes}`
+with `tracking` `HOST:SPACE/BRANCH`, `objects` the objects the proxy served and
+`bytes` the bytes of HOST's `objects` answers, and the activity `fs.pulled` with
+subject `<into>/<tracking>` is recorded. A failure the proxy saw decides the
+status: 507 `too_large`, HOST's 404 `not_found` (a withdrawn share or a target
+the branch no longer reaches), 503 `unavailable` (no answer, 503 including an
+object over 16 MiB, 429 after the retries), 502 `remote` (any other refusal or a
+malformed batch); otherwise the provider's refusal maps to 502 `remote` for 400,
+403, 404, 409 and 502 (verification failures) and to 503 `unavailable` for
+others.
 
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated
