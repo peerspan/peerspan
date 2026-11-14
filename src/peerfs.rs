@@ -631,12 +631,25 @@ async fn host_keys(
             json!({"host_id": request.host_id, "public_key": request.public_key,
                 "recognized": recognized})
         };
+        let first = {
+            let c = store.connection().map_err(|_| internal())?;
+            op.check()?;
+            let record = load(&c, &id)?;
+            record.current(store, &request.binding_id)?;
+            record
+        };
+        // As for signing and activation, a binding whose directory was replaced or made
+        // public is refused. Filesystem IO first, with no transaction held.
+        directory::open(&first.view.directory, true, op)?.matches(first.stamp)?;
         let c = store.connection().map_err(|_| internal())?;
         op.check()?;
         // One read view of the binding and the retained authority.
         let tx = c.unchecked_transaction().map_err(db)?;
         let record = load(&tx, &id)?;
         record.current(store, &request.binding_id)?;
+        if record.stamp.device != first.stamp.device || record.stamp.inode != first.stamp.inode {
+            return Err(conflict());
+        }
         if !hashes {
             return Ok(answer(false));
         }
