@@ -68,8 +68,8 @@ challenge.
 
 Bob's agent replaces the baseline's walk-to-nearest with an ordering search over the three
 items and digs through stone where that is shorter than walking round. In his evaluation,
-`main` and his bot play the same 60 arenas; his bot needs 6.8% fewer ticks on average, with a
-95% lower bound of 4.1%, and is promoted. Carol's agent submits five times in a row, tuning
+`main` and his bot play the same 60 arenas; his bot needs 6.8% fewer ticks on average, and with
+95% confidence at least 1.1 points more than the 3% margin, so it is promoted. Carol's agent submits five times in a row, tuning
 against each score it gets back. It learns nothing about the arenas: each evaluation draws 60
 new ones. A change that sends position packets faster than a player can move is refused by the
 server's movement checks and finishes no arena. Neither of them sees an arena or an
@@ -184,19 +184,28 @@ every repeat. Repeats are therefore not new episodes, and are never pooled as if
 counting a repeated episode again would shrink the bound without testing anything new. The
 home host first averages each episode over the repeats, giving one frontier score *f*ᵢ and
 one candidate score *c*ᵢ per episode. With *d*ᵢ = *f*ᵢ − *c*ᵢ for `lower` (*c*ᵢ − *f*ᵢ for
-`higher`), the candidate is promoted when
+`higher`), each episode's **margin-adjusted gain** is
 
-    mean(d) − 1.645 · sd(d) / √n  ≥  (min_gain / 100) · mean(f)
+    eᵢ = dᵢ − (min_gain / 100) · fᵢ
+
+and the candidate is promoted when
+
+    mean(e) − 1.645 · sd(e) / √n  ≥  0
 
 with `sd` the sample standard deviation and *n* the number of episodes, not of measurements:
-a one-sided 95% lower bound on the gain clears the margin. Repeats only reduce the noise
+a one-sided 95% lower bound on the gain beyond the margin is above zero. The margin is
+subtracted per episode, not compared with `mean(f)` afterwards, so that the bound accounts
+for the frontier's own variation and its covariance with the gain; a margin against a
+frontier mean treated as exact would promote too often. Repeats only reduce the noise
 within each episode; more episodes per measurement are what tighten the bound. The same rule
 holds for an environment that ignores the secret and replays a fixed set. Pairing removes the
 variance that comes from the episodes themselves, so far fewer episodes are needed than for
 two independent means. A measurement whose sample count differs from the evaluation's first
 frontier measurement is `check_failed`: on a frontier measurement it pauses the gate, on a
 candidate's it rejects the candidate. Failing the bound is `below_margin`. The public result
-gains `{episodes, mean_gain_percent, lower_bound_percent}`; the samples themselves stay with the owner.
+gains `{episodes, mean_gain_percent, margin_bound_percent}`: the mean of *d* and the lower
+bound of mean(*e*), each as a percentage of mean(*f*), the second at least 0 on a promotion.
+The samples themselves stay with the owner.
 
 ### Commitment
 
@@ -350,9 +359,9 @@ as today: contributors cannot tell whether the holdout changed under them.
 ### 9. Comparing noisy scores
 
 **Recommendation.** (a) Add `compare: paired`: per-episode samples paired by the shared
-secret, promoted on a one-sided 95% lower confidence bound of the gain. Keep `worst_best` as
-the default for timing. Pairing on the same episodes makes a few hundred episodes enough for
-most environments.
+secret, promoted when a one-sided 95% lower confidence bound of the gain beyond the margin,
+taken per episode, is above zero. Keep `worst_best` as the default for timing. Pairing on
+the same episodes makes a few hundred episodes enough for most environments.
 
 **Not chosen.** (b) Raise the repeat limit and keep worst against best: needs a VM pair per
 sample and still states no confidence. (c) Replace `worst_best` with the bound everywhere: a
@@ -385,10 +394,11 @@ real loopback port and enforces `link_connections` and `link_bytes`. Cases for a
   `.peerbox-gate/generated/` for the check run only; a failing generator pausing the gate with
   `generator_failed`;
 - `paired`: a promotion and a `below_margin` at known samples on both sides of the bound, for
-  each direction; fewer than 30 or mismatched sample counts as `check_failed`; with
+  each direction; a case where the gain beats the margin against `mean(f)` taken as exact
+  but not per episode, rejected; fewer than 30 or mismatched sample counts as `check_failed`; with
   `repeats` above 1, each episode averaged over the repeats and *n* the episode count, so
   identical repeats leave the bound unchanged; the public result's `episodes`,
-  `mean_gain_percent` and `lower_bound_percent`;
+  `mean_gain_percent` and `margin_bound_percent`;
 - the commitment recomputed from the salt and settings, unchanged across evaluations, changed
   by `gate set`; `mode`, `compare` and `commitment` in the public summary, and never the
   generator, the salt or a secret;
