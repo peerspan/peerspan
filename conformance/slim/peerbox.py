@@ -785,7 +785,7 @@ def _():
 
 
 @case("withdrawal", "peerbox Withdrawal and Checks 1: fetch and submit refused, status kept for the former "
-                    "contributor's own records, 404 unknown for a former reader who never submitted")
+                    "contributor's own records, 404 unknown for a former reader who never submitted", known=None)
 def _():
     b, d, main = need("b", "d", "main")
     unshare(pbx(), state["bob_p"])
