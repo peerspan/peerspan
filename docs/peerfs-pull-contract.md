@@ -70,10 +70,15 @@ binding is in another network (PF-08). Objects and signatures that fail any chec
 ## 4. Bounds and interruption (PF-11)
 
 - **Bytes.** The proxy counts the bytes of S's `objects` answers. Once the count exceeds the
-  pull's byte bound, the proxy contacts S no more and answers the fetch 507, and the pull fails
-  with `too_large`; so a pull fetches at most its bound plus one S answer (16 MiB). The bound is
-  1 GiB by default; `fs pull --max-bytes N` sets it for the owner, and an agent's grant sets its
-  own (section 5).
+  pull's byte bound, the proxy contacts S no more and the pull fails with `too_large`; so a pull
+  fetches at most its bound plus one S answer (16 MiB). The bound is 1 GiB by default;
+  `fs pull --max-bytes N` sets it for the owner, and an agent's grant sets its own (section 5).
+- **A fetch stopped part way.** When the proxy stops in the middle of a fetch (the byte bound
+  reached, or S failing or refusing), it answers that fetch with the objects it already holds for
+  it, in the order asked, or 507, 503, 404 or 502 when it holds none. PeerFS then fails on the
+  first missing object, having kept the blobs it checked before it, so a rerun does not fetch
+  them again. The pull's outcome is the proxy's reason for stopping, not PeerFS's report of a
+  missing object.
 - **Large objects.** An object larger than an `objects` answer cannot be pulled: S answers 503
   (PF-06), and the pull fails with `unavailable`.
 - **No partial reference.** A pull that fails, for any reason, writes no tracking reference.
