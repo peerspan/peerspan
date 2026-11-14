@@ -129,7 +129,9 @@ reached by the current head (404, naming none), so a batch cannot be used to pro
 objects exist. S asks its provider for the batch with the `within` option (section 6). The
 answer is at most 16 MiB, streamed past the peer router's 1 MiB default as task artifacts are;
 an object that would take the answer past 16 MiB is left for the next request, and the answer
-then holds the leading objects that fit, at least one. R verifies each object's identity and
+then holds the leading objects that fit. When the first requested object alone is over
+16 MiB, the request is 503, since no answer within the bound can hold it (PF-06); such an object
+would be a tree or chunk list of about half a million entries. R verifies each object's identity and
 kind as PeerFS pull already does.
 
 **Bounds.** At most 4 concurrent `objects` requests per reader host; more are 429. Each request
