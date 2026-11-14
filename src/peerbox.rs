@@ -209,18 +209,23 @@ impl Git {
     }
     /// Whether `repo` is a Git repository whose top level or Git directory
     /// is exactly `repo`.
+    /// A bare repository has only its Git directory: `--show-toplevel`
+    /// fails there, so each is asked separately.
     pub fn is_repository(&self, repo: &FsPath) -> Result<bool, Failure> {
-        let out = self.output(
-            repo,
-            &["rev-parse", "--absolute-git-dir", "--show-toplevel"],
-        )?;
-        if !out.status.success() {
+        let Some(given) = std::fs::canonicalize(repo).ok() else {
             return Ok(false);
+        };
+        for query in ["--absolute-git-dir", "--show-toplevel"] {
+            let out = self.output(repo, &["rev-parse", query])?;
+            if out.status.success()
+                && String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .any(|line| std::fs::canonicalize(line).ok().as_ref() == Some(&given))
+            {
+                return Ok(true);
+            }
         }
-        let given = std::fs::canonicalize(repo).ok();
-        Ok(String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .any(|line| std::fs::canonicalize(line).ok() == given))
+        Ok(false)
     }
     /// Creates a bundle of `refs/heads/BRANCH` at `out`, without history
     /// reachable from `exclude`. Returns the head the bundle holds.

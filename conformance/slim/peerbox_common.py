@@ -62,11 +62,17 @@ def git(cwd, *args, input=None, ok=True):
     return p if not ok else p.stdout.decode(errors="replace").strip()
 
 
-def init_repo(path, branch="main"):
+def init_repo(path, branch="main", object_format=None):
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
-    git(path, "init", "-q", "-b", branch)
+    git(path, "init", "-q", "-b", branch, *([f"--object-format={object_format}"] if object_format else []))
     return path
+
+
+def bundle_format(data):
+    """The object format a bundle's header declares: `sha256` for a v3 bundle with `@object-format=sha256`."""
+    header = data.partition(b"\n\n")[0]
+    return "sha256" if b"\n@object-format=sha256\n" in header + b"\n" else "sha1"
 
 
 def commit_files(repo, files, message):
@@ -160,7 +166,7 @@ def unbundle(data, work, have_repo=None):
     if have_repo:
         git(work, "clone", "-q", "--mirror", have_repo, repo)
     else:
-        git(work, "init", "-q", "--bare", repo)
+        git(work, "init", "-q", "--bare", f"--object-format={bundle_format(data)}", repo)
     git(repo, "bundle", "verify", "-q", path)
     git(repo, "-c", "transfer.fsckObjects=true", "fetch", "-q", path, "+refs/heads/*:refs/fetched/*")
     return repo
