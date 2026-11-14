@@ -262,7 +262,9 @@ pub(super) async fn run(
         Ok(provider::Pulled::Done(answer)) => answer,
     };
     if answer.remote != tracking_remote || answer.branch != request.branch || answer.head != head {
-        return Err(remote(
+        return Err(message(
+            503,
+            "unavailable",
             "the destination's provider reported another pull than the one asked",
         ));
     }
