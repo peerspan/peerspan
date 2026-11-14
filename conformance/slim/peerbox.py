@@ -21,9 +21,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-from harness import (Suite, attention, check, create_network, join_new_person, link_machine, members, rfc3339,
+from harness import (Suite, attention, check, create_network, join_new_person, link_machine, members, peer, rfc3339,
                      ssh_key, wait_for)
-from runtime_common import (bind, learn, need, policy_statement, policy_version, refused,
+from runtime_common import (bind, learn, need, new_task_id, policy_statement, policy_version, refused,
                             run_side_by_side, sign_policy, state)
 from peerbox_fixtures import (SCHEMA_TABLES, V3_HEADER, base_error_bundles, commit_on, head_mover, hostile_bundles,
                               oversized, owner_repo, paging_bundles, predecessor, requires, self_check, sha256_clone,
@@ -263,15 +263,7 @@ def _():
     check(not wrong, f"want 400 invalid naming the field: {wrong}")
 
 
-@case("list_readable_and_paging", "peerbox Results (list entries, ascending, whole entries within 65,536 bytes, "
-                                  "after and next); CLI list follows next", known=None)
-def _():
-    a, b, c = need("a", "b", "c")
-    with ThreadPoolExecutor(8) as pool:
-        many = list(pool.map(lambda i: create(state["repo"], title=f"{i:03d}" + "p" * 197), range(200)))
-    status, response = sign_policy(lambda body: with_peerbox_rules(
-        body, pbx_rules() + [rule(x, [state["bob_p"]]) for x in many]))
-    check(status == 200 and response.get("committed"), f"200 more rules for bob: {status} {response}")
+def listed_and_paged(a, b, c, many):
     learn(b, state["alice_public"], policy_version(a, state["alice_public"]))
     readable, seen, after, pages = sorted(many + [pbx()]), [], None, 0
     while True:
@@ -297,6 +289,30 @@ def _():
     value, _, _ = op_ok({"op": "list"}, sender=c)
     check([e["peerbox_id"] for e in value["peerboxes"]] == sorted([pbx(), need("hidden")[0]]) and value["next"] is None,
           f"carol's list {value}")
+
+
+@case("list_readable_and_paging", "peerbox Results (list entries, ascending, whole entries within 65,536 bytes, "
+                                  "after and next); CLI list follows next", known=None)
+def _():
+    a, b, c = need("a", "b", "c")
+    with ThreadPoolExecutor(8) as pool:
+        many = list(pool.map(lambda i: create(state["repo"], title=f"{i:03d}" + "p" * 197), range(200)))
+    status, response = sign_policy(lambda body: with_peerbox_rules(
+        body, pbx_rules() + [rule(x, [state["bob_p"]]) for x in many]))
+    check(status == 200 and response.get("committed"), f"200 more rules for bob: {status} {response}")
+    try:
+        listed_and_paged(a, b, c, many)
+    finally:
+        # Leave the network as it was: 200 more rules in alice's policy slow every later projection on every host.
+        status, response = sign_policy(lambda body: with_peerbox_rules(
+            body, [r for r in pbx_rules() if r["peerbox"] not in set(many)]))
+        check(status == 200 and response.get("committed"), f"removing the 200 rules: {status} {response}")
+        for host in state["learners"]:
+            learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
+        with ThreadPoolExecutor(8) as pool:
+            gone = list(pool.map(lambda x: a.api("DELETE", f"/v1/peerboxes/{x}")[0], many))
+        check(all(g in (200, 204) for g in gone) and not set(many) & {r["peerbox_id"] for r in shown()}
+              and not [r for r in pbx_rules() if r["peerbox"] in set(many)], f"deleting the 200 peerboxes: {set(gone)}")
 
 
 # Fetch (peerbox Fetch).
@@ -499,13 +515,20 @@ def _():
     state["main"] = feature["head"]
 
 
-@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept", known=None)
+@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept; "
+                          "Submit step 1 (pending_limit beside a decided contribution)", known=None)
 def _():
     a, main = need("a", "main")
     result = review(need("feature2")[0]["contribution_id"], "accept")
     check(result.code == 1 and "not_fast_forward" in result.stderr and rev(state["repo"], "main") == main,
           f"a contribution behind main: exit {result.code} {tail(result.stderr)}")
     ahead = contribute("feature4", {"f4.txt": "4\n"}, start=main)
+    # Submit step 1: at the limit (feature2 and feature4 pending, max_pending 2), a submission on `feature`, whose
+    # member ref holds the accepted contribution, is refused: a decided contribution is never the one replaced.
+    held = member_ref(state["bob_pid"], "feature")
+    failed_with("pending_limit", send("feature", new_commit("feature", {"f5.txt": "5\n"}, start=main)))
+    check(held == need("feature")[0]["head"] and member_ref(state["bob_pid"], "feature") == held,
+          "a submission refused with pending_limit moved the member ref holding a decided contribution")
     (state["repo"] / "README").write_text("edited\n")
     result = review(ahead["contribution_id"], "accept")
     git(state["repo"], "checkout", "--", "README")
@@ -553,6 +576,61 @@ def _():
           f"withdraw: {value}")
 
 
+@case("review_not_pending", "peerbox Review: accepting or rejecting a contribution withdrawn, superseded by a "
+                            "replacement or already decided is 409 not_pending (exit 1) and changes nothing; an "
+                            "owner's decision has exactly six keys", known=None)
+def _():
+    main = need("main")[0]
+    targets = {"withdrawn": need("feature4")[0], "replaced": need("first")[0], "rejected": need("feature2")[0],
+               "accepted": need("feature")[0]}
+    before, (records, _) = (refs(state["repo"]), git(state["repo"], "status", "--porcelain")), status_all(pbx())
+    by_id = {r["contribution_id"]: r for r in records}
+    states = {label: by_id[t["contribution_id"]]["state"] for label, t in targets.items()}
+    check(states == {"withdrawn": "superseded", "replaced": "superseded", "rejected": "rejected",
+                     "accepted": "accepted"}, f"fixture: states {states}")
+    check(set(by_id[targets["rejected"]["contribution_id"]]["decision"]) == {"decision", "reason", "decided_at",
+                                                                              "decided_by", "old_head", "new_head"},
+          "an owner's rejection does not have exactly the six decision keys")
+    wrong = []
+    for label, target in targets.items():
+        for verdict, extra in (("accept", ()), ("reject", ("--reason", "too late"))):
+            result = review(target["contribution_id"], verdict, *extra)
+            if not (result.code == 1 and "not_pending" in result.stderr):
+                wrong.append(f"{verdict} {label}: exit {result.code} {tail(result.stderr)}")
+    check(not wrong, f"want exit 1 with not_pending: {wrong}")
+    check((refs(state["repo"]), git(state["repo"], "status", "--porcelain")) == before
+          and rev(state["repo"], "main") == main, "a not_pending review changed a ref or the worktree")
+    after = {r["contribution_id"]: r for r in status_all(pbx())[0]}
+    check(after == by_id, "a not_pending review changed a contribution record")
+
+
+@case("submit_cancelled", "peerbox Submit (a cancel while the task is queued, its bundle not yet fetched: the task "
+                          "ends cancelled, no contribution ref, the member ref unchanged, no record)", known=None)
+def _():
+    b, main = need("b", "main")
+    held = member_ref(state["bob_pid"], "feature2")
+    check(held == need("feature2")[0]["head"], f"fixture: bob's feature2 member ref is {held}")
+    before, records = refs(state["repo"]), len(status_all(pbx())[0])
+    tip = new_commit("feature2", {"cancelled.txt": "c\n"}, start=main)
+    data = bundle(need("bob_clone")[0], suite.work / "cancelled.bundle", tip, exclude=[main], ref="feature2")
+    entry = upload_bundle(b, data)
+    # Sent with bob's host key but not through his daemon, which therefore serves the home host no such input: the
+    # task stays queued with its bundle pending (artifact contract, Transfer) until the cancel.
+    task_id = new_task_id()
+    status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "feature2",
+                           "bundle": entry["sha256"]}, artifacts=[entry], task_id=task_id)
+    check(status == 200 and body.get("state") == "queued", f"the submission: {status} {body}")
+    settle(1)
+    status, body = peer(b, state["a"], "POST", f"/peer/v1/tasks/{task_id}/cancel", {})
+    check(status == 200 and body.get("cancel_requested") is True, f"the cancel: {status} {body}")
+    kind, value, _ = outcome(task_id)
+    check(kind == "cancelled", f"a submit cancelled while queued ended {kind} {value}")
+    records_after = status_all(pbx())[0]
+    check(refs(state["repo"]) == before and member_ref(state["bob_pid"], "feature2") == held
+          and len(records_after) == records and tip not in [r["head"] for r in records_after],
+          "a cancelled submit stored a ref or a record")
+
+
 @case("status_paging", "peerbox Status: newest first by (submitted_at, contribution_id), whole records within "
                        "65,536 bytes, at most 100, before and next with equal submitted_at (test clock); CLI status", known=None)
 def _():
@@ -591,12 +669,23 @@ def _():
     check(len(stamps) > len(set(stamps)), "fixture: no two contributions share a submitted_at")
     every = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), timeout=90)
     check(every.ok and isinstance(every.json, dict) and [r["contribution_id"] for r in
-                                                       every.json.get("contributions") or []] == ids,
-          f"CLI status --json, one merged contributions array: exit {every.code}")
-    five = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), "--limit", "5", "--before", ids[2], timeout=90)
-    check(five.ok and isinstance(five.json, dict)
-          and [r["contribution_id"] for r in five.json.get("contributions") or []] == ids[3:8],
-          f"CLI status --limit 5 --before: exit {five.code}")
+                                                       every.json.get("contributions") or []] == ids
+          and "next" in every.json and every.json["next"] is None,
+          f"CLI status --json, one merged contributions array and next null: exit {every.code} "
+          f"next {(every.json or {}).get('next', 'missing') if isinstance(every.json, dict) else None}")
+
+    def cli_status(*args):
+        result = b.cli("--json", "peerbox", "status", "--peer", a.id, pbx(), *args, timeout=90)
+        got = result.json if result.ok and isinstance(result.json, dict) else {}
+        return [r["contribution_id"] for r in got.get("contributions") or []], got.get("next", "missing")
+    # --limit cutting the records prints the last printed ID as next, and --before with it continues; with every
+    # remaining record printed (exactly the limit) next is null.
+    printed = cli_status("--limit", "5", "--before", ids[2])
+    check(printed == (ids[3:8], ids[7]), f"CLI status --limit 5 --before: {printed}, want {ids[3:8]}, next {ids[7]}")
+    printed = cli_status("--limit", "3", "--before", ids[7])
+    check(printed == (ids[8:11], ids[10]), f"CLI status --limit 3 --before next: {printed}")
+    printed = cli_status("--limit", "3", "--before", ids[-4])
+    check(printed == (ids[-3:], None), f"CLI status --limit 3 printing the last 3 records: {printed}, next null")
     state["bob_records"] = len(ids)
 
 
@@ -733,14 +822,17 @@ def _():
     f.stop()  # fay's grants are left to lapse (lapsed_sender)
 
 
-@case("share_waiting_for_owner", "peerbox Invitations 4: peerbox_share_waiting for an SSH person key, kept across "
-                                 "a restart, completed by peerbox share --pending")
-def _():
-    a, b, net = need("a", "b", "net")
-    brepo = init_repo(suite.work / "bob-repo")
-    commit_files(brepo, {"tool.sh": "echo tool\n"}, "tool")
-    bpbx = create(brepo, host=b, title="Bob's tools")
-    code, _, invitation = invite_code(bpbx, "gus", host=b)
+def select_provider(host, net, person_public, provider_id):
+    """Select a person's provider on HOST (decentralized-spec 11, `POST /v2/networks/{id}/provider`)."""
+    status, value = host.api("POST", f"/v2/networks/{net}/provider", {
+        "provider_id": provider_id, "person_public_key": person_public, "host_public_key": host.public_key,
+        "approve": True})
+    check(status == 200 and value["provider"]["person_public_key"] == person_public,
+          f"{host.name}: selecting provider {provider_id}: {status} {value}")
+    return value["provider"]
+
+
+def waited_and_signed(a, b, net, bpbx, code, invitation):
     g = suite.host("gus")
     key = ssh_key(g.root, "gus")
     join_with_code(a, g, code, key, net)
@@ -752,7 +844,9 @@ def _():
                 and f"peerbox share --pending {invitation}" in str(i.get("command"))]
     wait_for(waiting, timeout=60, message="peerbox_share_waiting on bob's host")
     b.restart()
-    check(waiting() and invitation in pending_shares(host=b), "the waiting share was lost across a restart")
+    check(waiting() and invitation in pending_shares(host=b)
+          and not rules_for(bpbx, gus, host=b, person_public=state["bob_public"]),
+          "the waiting share was lost across a restart, or signed without the owner")
     owner_cli("share", "--pending", invitation, "--person-key", state["bob_key"], host=b)
     found = rules_for(bpbx, gus, host=b, person_public=state["bob_public"])
     check(len(found) == 1 and found[0]["actions"] == ["peerbox.read"] and not waiting()
@@ -762,11 +856,72 @@ def _():
     check([x["peerbox_id"] for x in value["peerboxes"]] == [bpbx], f"gus's list {value}")
 
 
+@case("share_waiting_for_owner", "peerbox Invitations 4: with the owner's provider an SSH person key, "
+                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending")
+def _():
+    a, b, net = need("a", "b", "net")
+    brepo = init_repo(suite.work / "bob-repo")
+    commit_files(brepo, {"tool.sh": "echo tool\n"}, "tool")
+    bpbx = create(brepo, host=b, title="Bob's tools")
+    code, _, invitation = invite_code(bpbx, "gus", host=b)
+    # A device provider with a host-held seed signs the share automatically; an SSH person key needs the owner. The
+    # suite's hosts use device providers, so bob selects his original SSH key, and gets his device back afterwards.
+    device = b.api("GET", f"/v2/networks/{net}")[1]["provider"]
+    check(device["kind"] == "device" and device.get("lease_id"), f"fixture: bob's selected provider {device}")
+    check(select_provider(b, net, state["bob_public"], state["bob_public"])["kind"] == "original_person",
+          "bob's original SSH person key is not his selected provider")
+    try:
+        waited_and_signed(a, b, net, bpbx, code, invitation)
+    finally:
+        select_provider(b, net, state["bob_public"], device["lease_id"])
+
+
 # Restarts and withdrawal.
 
-@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records", known=None)
+def check_recovered_refs(planted):
+    """peerbox Submit (Startup recovery): no contribution ref without a record, and each member ref at the head of the
+    latest recorded submission of that person on that branch, absent when that one was withdrawn or there is none.
+    Records come from each contributor's `status`; with submitted_at tied, any of the tied latest is allowed (the
+    storage order is never shown). PLANTED maps member refs to the exact state they must have."""
+    prefix = f"refs/peerbox/{pbx()}/"
+    records = status_all(pbx())[0] + status_all(pbx(), sender=state["c"])[0]
+    latest = {}
+    for r in records:
+        key = (r["contributor"]["person_id"], r["branch"])
+        latest.setdefault(key, []).append(r)
+    expected = {}
+    for (person, branch), group in latest.items():
+        top = max((r["submitted_at"], r["contribution_id"]) for r in group)[0]
+        expected[f"{prefix}members/{person}/{branch}"] = {None if r["state"] == "superseded" else r["head"]
+                                                          for r in group if r["submitted_at"] == top}
+    present = refs(state["repo"])
+    ids = {r["contribution_id"] for r in records}
+    orphans = [n for n in present if n.startswith(prefix + "contributions/") and n.rsplit("/", 1)[1] not in ids]
+    wrong = [f"{n}: {present.get(n)} not in {want}" for n, want in expected.items() if present.get(n) not in want]
+    wrong += [f"{n}: {present[n]}, no record" for n in present if n.startswith(prefix + "members/") and n not in expected]
+    wrong += [f"{n}: {present.get(n)}, want {want}" for n, want in planted.items() if present.get(n) != want]
+    check(not orphans and not wrong, f"after a restart: contribution refs without a record {orphans}; member refs "
+                                     f"{wrong}")
+
+
+@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records; "
+                                          "Submit (Startup recovery: unrecorded contribution refs deleted, member "
+                                          "refs set to the latest recorded submission, an interrupted resubmission "
+                                          "of an older head included)", known=None)
 def _():
     a, b, main = need("a", "b", "main")
+    # What a submission interrupted between its refs and its record leaves, written into the owner's repository:
+    # a contribution ref with no record; bob's `feature` member ref back at his first, replaced head (A, B, A with
+    # no record for the second A); his withdrawn `feature4` and an unrecorded branch given member refs again.
+    bob_refs = f"refs/peerbox/{pbx()}/members/{state['bob_pid']}/"
+    stray = f"refs/peerbox/{pbx()}/contributions/pbc_" + os.urandom(16).hex()
+    planted = {stray: None, bob_refs + "feature": need("feature")[0]["head"], bob_refs + "feature4": None,
+               bob_refs + "ghost": None}
+    check(member_ref(state["bob_pid"], "feature") == need("feature")[0]["head"]
+          and member_ref(state["bob_pid"], "feature4") is None, "fixture: bob's feature or feature4 member ref")
+    for name, target in ((stray, main), (bob_refs + "feature", need("first")[0]["head"]),
+                         (bob_refs + "feature4", need("feature4")[0]["head"]), (bob_refs + "ghost", main)):
+        git(state["repo"], "update-ref", name, target)
     task_id = submit_op({"op": "fetch", "peerbox_id": pbx()})
     a.restart(kill=True)
     b.restart(kill=True)
@@ -782,6 +937,7 @@ def _():
     status, listed = a.api("GET", f"/v1/peerboxes/{pbx()}/contributions")
     check(status == 200 and value["contribution_id"] in str(listed) and pbx() in [r["peerbox_id"] for r in shown()],
           f"records after restarts: {status}")
+    check_recovered_refs(planted)
 
 
 @case("withdrawal", "peerbox Withdrawal and Checks 1: fetch and submit refused, status kept for the former "
