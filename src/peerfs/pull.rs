@@ -1,5 +1,6 @@
-//! The owner's cross-host pull (PeerFS pull contract, sections 2 to 4 and 6): brings a
-//! branch another host shares with this one into one of this host's registered spaces.
+//! The cross-host pull (PeerFS pull contract, sections 2 to 6): brings a branch another
+//! host shares with this one into one of this host's registered spaces, for the owner
+//! (`fs pull`) or for an agent the owner allowed to pull there (`fs_pull`).
 //!
 //! The host does not import objects itself (PF-07). For one pull it serves, on a private
 //! socket, the three calls a PeerFS pull makes of its source, answering them from the
@@ -46,7 +47,7 @@ const CHECK_BOUND: Duration = Duration::from_secs(5);
 /// A pull has no overall time bound; its operation outlives any real pull.
 const NO_BOUND: Duration = Duration::from_secs(365 * 24 * 3600);
 /// The default byte bound of one pull (PF-11).
-const DEFAULT_MAX_BYTES: u64 = 1 << 30;
+pub(super) const DEFAULT_MAX_BYTES: u64 = 1 << 30;
 /// The most object IDs one fetch names, as PeerFS asks.
 const MAX_IDS: usize = 256;
 /// How often a fetch asks again after the sharing host's 429, and how long it waits.
@@ -59,7 +60,7 @@ const MAX_SOCKET_PATH: usize = 107;
 
 /// The owner-local route of `fs pull`; never on the peer router.
 pub(super) fn local_routes() -> Router<Arc<Store>> {
-    Router::new().route("/v1/fs/pulls", post(pull))
+    Router::new().route("/v1/fs/pulls", post(owner_pull))
 }
 
 #[derive(Deserialize)]
@@ -118,29 +119,66 @@ impl Drop for Running {
     }
 }
 
+/// Who started a pull: the owner, or one of this host's agents through its grant.
+pub(super) enum Caller {
+    Owner,
+    Agent(String),
+}
+
+/// One pull's arguments, checked by [`Pull::valid`].
+pub(super) struct Pull {
+    pub(super) peer: String,
+    pub(super) space: String,
+    pub(super) branch: String,
+    pub(super) into: String,
+    pub(super) network: Option<String>,
+}
+impl Pull {
+    pub(super) fn valid(&self, store: &Store) -> bool {
+        valid_id(&self.peer, "host", 32)
+            && self.peer != store.identity().id
+            && valid_id(&self.space, "space", 16)
+            && peerfs_branch(&self.branch)
+            && valid_id(&self.into, "space", 16)
+            && self
+                .network
+                .as_deref()
+                .is_none_or(|n| decentralized::codec::ident(n, "net_"))
+    }
+}
+
 /// Owner-local `POST /v1/fs/pulls` with `{peer, space, branch, into, network?,
 /// max_bytes?}`: pulls `(space, branch)` shared by `peer` into the registered space
 /// `into` as `<peer>:<space>/<branch>`. Dropping the request ends the pull.
-async fn pull(
+async fn owner_pull(
     State(store): State<Arc<Store>>,
     input: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Value>, Error> {
     let request: PullRequest = decode(input, super::BODY)?;
-    let valid = valid_id(&request.peer, "host", 32)
-        && request.peer != store.identity().id
-        && valid_id(&request.space, "space", 16)
-        && peerfs_branch(&request.branch)
-        && valid_id(&request.into, "space", 16)
-        && request
-            .network
-            .as_deref()
-            .is_none_or(|n| decentralized::codec::ident(n, "net_"))
-        && request.max_bytes.is_none_or(|n| n > 0);
-    if !valid {
+    let pull = Pull {
+        peer: request.peer,
+        space: request.space,
+        branch: request.branch,
+        into: request.into,
+        network: request.network,
+    };
+    if !pull.valid(&store) || request.max_bytes == Some(0) {
         return Err(invalid());
     }
     let max_bytes = request.max_bytes.unwrap_or(DEFAULT_MAX_BYTES);
+    run(store, Caller::Owner, pull, max_bytes).await.map(Json)
+}
 
+/// One pull, the owner's or an agent's, whose arguments are valid and whose caller
+/// may pull into `pull.into` with `max_bytes`: section 2's checks, the proxy and the
+/// destination's provider pulling from it, and the activity `fs.pulled`. Dropping
+/// the returned future ends the pull.
+pub(super) async fn run(
+    store: Arc<Store>,
+    caller: Caller,
+    request: Pull,
+    max_bytes: u64,
+) -> Result<Value, Error> {
     // 1. The destination: registered here, in the share's network, its directory the
     // pinned one and its provider passing activation's identity check.
     let (check, _check_cancel) = operation(CHECK_BOUND);
@@ -231,7 +269,10 @@ async fn pull(
     let tracking = format!("{tracking_remote}/{}", request.branch);
 
     // 6. Recorded as activity.
-    let subject = format!("{}/{tracking}", request.into);
+    let subject = match &caller {
+        Caller::Owner => format!("{}/{tracking}", request.into),
+        Caller::Agent(agent) => format!("{agent}/{}/{tracking}", request.into),
+    };
     blocking(store.clone(), move |store| {
         let mut c = store.connection()?;
         let tx = c.transaction()?;
@@ -241,7 +282,7 @@ async fn pull(
     })
     .await
     .map_err(|_| internal())?;
-    Ok(Json(json!({
+    Ok(json!({
         "peer": request.peer,
         "space": request.space,
         "branch": request.branch,
@@ -250,7 +291,7 @@ async fn pull(
         "head": head,
         "objects": served.objects,
         "bytes": served.bytes,
-    })))
+    }))
 }
 
 /// The destination's binding and its pinned directory: registered on this host (404
@@ -329,7 +370,7 @@ struct HeadAnswer {
 async fn select_head(
     store: &Arc<Store>,
     peer: &Peer,
-    request: &PullRequest,
+    request: &Pull,
     policy: &PolicyRef,
 ) -> Result<String, Error> {
     let path = format!(
