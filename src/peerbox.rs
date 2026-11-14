@@ -732,50 +732,127 @@ struct TreeEntry {
     object: String,
     path: Vec<u8>,
 }
-fn tree_entries(git: &Git, repo: &FsPath, commit: &str) -> Result<Vec<TreeEntry>, Failure> {
-    let out = git.output(
-        repo,
-        &[
+/// The archive bytes each listed path costs at least: its pax header
+/// block, its tar header block, and the path itself in the pax record.
+const ENTRY_COST: u64 = 1024;
+/// The commit's tree entries, read from `git ls-tree -r -z` as it streams.
+/// Every listed path, `.git` ones included, counts at least `ENTRY_COST`
+/// plus its length against `limit`, the archive's bound: a tree that
+/// reuses subtrees under many names expands combinatorially, so the
+/// listing fails `too_large` the moment it passes the bound, before more
+/// of it is read or held.
+fn tree_entries(
+    git: &Git,
+    repo: &FsPath,
+    commit: &str,
+    limit: u64,
+) -> Result<Vec<TreeEntry>, Failure> {
+    use std::io::{BufRead, BufReader, Read};
+    let internal = |e: std::io::Error| Failure::new("internal", e.to_string());
+    let over = || {
+        Failure::new(
+            "too_large",
+            format!(
+                "the workspace archive is over the runtime rule's max_artifact_bytes of {limit} bytes"
+            ),
+        )
+    };
+    let mut child = git
+        .command(repo)
+        .args([
             "ls-tree",
             "-r",
             "-z",
             "--full-tree",
             "--end-of-options",
             commit,
-        ],
-    )?;
-    if !out.status.success() {
-        return Err(Failure::new("unavailable", stderr_of(&out)));
-    }
-    let mut entries = Vec::new();
-    for item in out.stdout.split(|b| *b == 0).filter(|i| !i.is_empty()) {
-        let tab = item
-            .iter()
-            .position(|b| *b == b'\t')
-            .ok_or_else(|| Failure::new("unavailable", "git ls-tree: an entry without a path"))?;
-        let head = String::from_utf8_lossy(&item[..tab]).into_owned();
-        let mut fields = head.split(' ');
-        let (Some(mode), Some(kind), Some(object)) = (fields.next(), fields.next(), fields.next())
-        else {
-            return Err(Failure::new(
-                "unavailable",
-                "git ls-tree: a malformed entry",
-            ));
-        };
-        let path = &item[tab + 1..];
-        // No `.git`, whatever the tree holds.
-        if path
-            .split(|b| *b == b'/')
-            .any(|c| c.eq_ignore_ascii_case(b".git"))
-        {
-            continue;
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                git_missing()
+            } else {
+                Failure::new("internal", format!("git: {e}"))
+            }
+        })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Failure::new("internal", "git stdout"))?;
+    let mut reader = BufReader::new(stdout);
+    let mut cost: u64 = 0;
+    let result = (|| -> Result<Vec<TreeEntry>, Failure> {
+        let mut entries = Vec::new();
+        let mut item = Vec::new();
+        loop {
+            item.clear();
+            // One record, never more than what is left of the bound.
+            let room = limit.saturating_sub(cost).saturating_add(1);
+            let n = (&mut reader)
+                .take(room)
+                .read_until(0, &mut item)
+                .map_err(internal)?;
+            if n == 0 {
+                break;
+            }
+            if item.last() == Some(&0) {
+                item.pop();
+            } else if n as u64 >= room {
+                return Err(over());
+            }
+            if item.is_empty() {
+                continue;
+            }
+            let tab = item.iter().position(|b| *b == b'\t').ok_or_else(|| {
+                Failure::new("unavailable", "git ls-tree: an entry without a path")
+            })?;
+            let path = &item[tab + 1..];
+            cost = cost
+                .saturating_add(ENTRY_COST)
+                .saturating_add(path.len() as u64);
+            if cost > limit {
+                return Err(over());
+            }
+            // No `.git`, whatever the tree holds.
+            if path
+                .split(|b| *b == b'/')
+                .any(|c| c.eq_ignore_ascii_case(b".git"))
+            {
+                continue;
+            }
+            let head = String::from_utf8_lossy(&item[..tab]).into_owned();
+            let mut fields = head.split(' ');
+            let (Some(mode), Some(kind), Some(object)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                return Err(Failure::new(
+                    "unavailable",
+                    "git ls-tree: a malformed entry",
+                ));
+            };
+            entries.push(TreeEntry {
+                mode: mode.into(),
+                kind: kind.into(),
+                object: object.into(),
+                path: path.to_vec(),
+            });
         }
-        entries.push(TreeEntry {
-            mode: mode.into(),
-            kind: kind.into(),
-            object: object.into(),
-            path: path.to_vec(),
-        });
+        Ok(entries)
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    drop(reader);
+    let status = child.wait().map_err(internal)?;
+    let entries = result?;
+    if !status.success() {
+        return Err(Failure::new(
+            "unavailable",
+            "git ls-tree could not list the commit's tree",
+        ));
     }
     Ok(entries)
 }
@@ -796,7 +873,7 @@ pub fn workspace_archive(
 ) -> Result<u64, Failure> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::fs::OpenOptionsExt;
-    let entries = tree_entries(git, repo, commit)?;
+    let entries = tree_entries(git, repo, commit, u64::try_from(limit).unwrap_or(0))?;
     let internal = |e: std::io::Error| Failure::new("internal", e.to_string());
     let file = std::fs::OpenOptions::new()
         .write(true)
