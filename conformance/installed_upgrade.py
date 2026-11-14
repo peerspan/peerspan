@@ -183,8 +183,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema32 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema32')
+                raise CheckFailure('old binary did not refuse schema33 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema33')
         finally:
             self.process = None
             PROCESSES.discard(process)

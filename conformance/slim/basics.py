@@ -349,7 +349,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 33")
+    db.execute("PRAGMA user_version = 34")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -358,10 +358,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 33 database")
+    check(code not in (None, 0), "a daemon opened a schema 34 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 33, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 34, "the refused database was changed")
     finally:
         db.close()
 

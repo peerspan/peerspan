@@ -8293,7 +8293,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 33;")
+            .execute_batch("PRAGMA user_version = 34;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }
