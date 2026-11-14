@@ -159,7 +159,7 @@ consent or silently widening the original request.
 | PF-0 | Boundary and delivery plan in this document | Owner review; existing behavior distinguished from proposals |
 | PF-1 | [Exact local registration, signer and key-lookup contract](peerfs-local-contract.md); corresponding host/PeerFS adapters | Canonical signing vectors, strict decoding and bounds, key isolation, unavailable/restart/replacement behavior |
 | PF-2 | Exact signed whole-branch `fs.read` policy and selected-head/closure protocol ([read contract](peerfs-read-contract.md), proposed) | Shared signed-policy vectors, current authority and withdrawal, denied unrelated objects and unsupported narrowing |
-| PF-3 | One read-only pull through both daemons into B's local workspace | Real content/kind/hash/signature verification, complete tracking reference, interruption/resume and receiver denial |
+| PF-3 | One read-only pull through both daemons into B's local workspace ([pull contract](peerfs-pull-contract.md), proposed) | Real content/kind/hash/signature verification, complete tracking reference, interruption/resume and receiver denial |
 | PF-4 | Installed direct and managed-NAT/relay acceptance on named final revisions | Same-person and distinct-person explicit sharing, withdrawal, capture/path evidence and cleanup |
 | PF-5 | Remote fork/commit/publish, home CAS and durability | Separate contracts and independent acceptance; no write/durability claim from PF-3 |
 
