@@ -1300,6 +1300,10 @@ pub(crate) fn remember_pairing_contact(
 
 /// Signed transport hints only. The caller must already have independently
 /// verified this host; no returned address establishes a pin or permission.
+/// A member with no valid contact keeps its expired contacts' addresses as
+/// hints (DEC.impl36), as the sync's dial targets do: otherwise a delivery,
+/// such as a task cancellation, finds no address once both hosts were away
+/// longer than 300 seconds, until the next sync exchanges a fresh contact.
 pub(crate) fn product_addresses(
     c: &Connection,
     network: &str,
@@ -1315,8 +1319,9 @@ pub(crate) fn product_addresses(
             return Ok(Vec::new());
         }
         let mut addresses = std::collections::BTreeSet::new();
+        let any_valid = record.contacts.iter().any(|c| c.valid_at(now).is_ok());
         for contact in record.contacts {
-            if contact.valid_at(now).is_ok() {
+            if !any_valid || contact.valid_at(now).is_ok() {
                 for address in array(object(&contact.payload)?, "quic_addresses")? {
                     addresses.insert(
                         address
