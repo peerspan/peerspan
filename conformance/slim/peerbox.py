@@ -1002,14 +1002,34 @@ def _():
         copy.stop()
 
 
-# Test-clock cases last: they move every host days ahead.
+# Test-clock cases last: they move every host ahead, the 16-hour renewal before the 4-day jump that lapses
+# alice's policy.
+
+@case("renewal_keeps_peerbox_rules", "peerbox Policy body (Renewal and edits): automatic renewal copies "
+                                     "peerbox_rules; test clock", known=None)
+def _():
+    a, = need("a")
+    version, before = policy_version(a, state["alice_public"]), pbx_rules()
+    check(before, "no peerbox rules to renew")
+    clock.set(clock.offset + 16 * HOUR + 10 * 60)
+    wait_for(lambda: policy_version(a, state["alice_public"]) > version, timeout=75, interval=1,
+             message="alice's host to renew its policy automatically")
+    check(pbx_rules() == before, "peerbox_rules changed across the renewal")
+
 
 @case("lapsed_sender", "peerbox Checks 1: a sender whose grants lapsed (test clock), refused without "
-                       "allow_disconnected and accepted with it")
+                       "allow_disconnected and accepted with it",
+      known="access renew does not revive an expired policy (PBX-24)")
 def _():
     a, f = need("a", "f")
     clock.set(need("fay_offset")[0] + 4 * DAY + 2 * HOUR)
     fay = principal(need("fay_pid")[0])
+    # The jump lapses alice's own policy too: it lasts at most 24 hours with no grace (decentralized-spec 4.4), and
+    # automatic renewal skips a policy already expired; only `access renew` revives it (coordination contract,
+    # Expired policies; launch contract, policy_expired). Fay's grants stay lapsed.
+    renewed = a.cli("access", "renew", "--network", state["net"], "--person-key", state["alice_key"], timeout=60)
+    check(renewed.ok, f"access renew after alice's policy expired: exit {renewed.code} {tail(renewed.stderr)}")
+    policy_statement(a, state["alice_public"])  # alice's policy is current again (fails with 404 otherwise)
 
     def sign(allow):
         status, response = sign_policy(lambda body: with_peerbox_rules(body, [
@@ -1022,18 +1042,6 @@ def _():
     sign(True)
     status, body = raw_op({"op": "fetch", "peerbox_id": pbx()}, sender=f)
     check(status == 200 and body.get("state") == "queued", f"a lapsed sender with allow_disconnected: {status} {body}")
-
-
-@case("renewal_keeps_peerbox_rules", "peerbox Policy body (Renewal and edits): automatic renewal copies "
-                                     "peerbox_rules; test clock", known=None)
-def _():
-    a, = need("a")
-    version, before = policy_version(a, state["alice_public"]), pbx_rules()
-    check(before, "no peerbox rules to renew")
-    clock.set(clock.offset + 16 * HOUR + 10 * 60)
-    wait_for(lambda: policy_version(a, state["alice_public"]) > version, timeout=75, interval=1,
-             message="alice's host to renew its policy automatically")
-    check(pbx_rules() == before, "peerbox_rules changed across the renewal")
 
 
 suite.finish()
