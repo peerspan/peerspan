@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Run unchanged join_onboarding after its exact own-request publication phase.
 
-Section49/7901877: only the named progress case waits (5 real seconds) for the
-already authorized request's durable storage ACK at every actual own participant
-endpoint. The stopped inviter need not acknowledge. No new send/API/clock/row
+Section49/7901877 and "Join historical progress publication phase": only the
+two named pure progress cases wait (5 real seconds, after every decide call) for
+the already authorized request's durable storage ACK at every actual own
+participant endpoint. The stopped inviter need not acknowledge. No new send/API/clock/row
 mutation, worker switch or changed original action/assertion/comparison/timeout.
 All original decide arguments/results/exceptions and suite argv/verdict remain.
 """
@@ -18,7 +19,8 @@ import sqlite3
 import harness
 
 
-CASE = 'published_progress_exact_read_only_snapshot_cli_bounds_and_owner_routes'
+CASES = frozenset({'published_progress_exact_read_only_snapshot_cli_bounds_and_owner_routes',
+                   'published_progress_historical_replacement_restart_cancel_and_idle_expiry'})
 DASH = ('owner_packet_base64', 'selection_packet_base64', 'administrator_packet_base64',
         'owner_finalization_packet_base64', 'commit_packet_base64', 'outcome_packet_base64',
         'owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id',
@@ -115,7 +117,7 @@ def observed_case(original):
     def case(suite, *args, **kwargs):
         decorator = original(suite, *args, **kwargs)
         name = args[0] if args else kwargs.get('name')
-        if name != CASE:
+        if name not in CASES:
             return decorator
         def register(function):
             namespace = function.__globals__

@@ -8,6 +8,7 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use peerspan_host::tar;
 use serde_json::{Map, Value, json};
 use std::{
     fs,
@@ -45,6 +46,89 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     };
     let socket = directory.join("admin.sock");
     let local = Local(&socket);
+    if let Some(results) = results
+        && peerfs_workspace.is_some()
+        && results == "changes"
+    {
+        bail!(
+            "--results changes is not available with --peerfs-workspace: the workspace's history holds them"
+        );
+    }
+    let mut run = run_object(command, cwd, env, cpus, memory_mib, timeout, results)?;
+    if let Some(name) = peerfs_workspace {
+        run.insert("workspace".into(), json!({ "peerfs": name }));
+    }
+    let mut body = json!({
+        "peer_host_id": peer,
+        "executor": "runtime",
+        "input": input.clone().unwrap_or_else(|| default_input(command)),
+    });
+    if let Some(deadline) = deadline {
+        body["deadline"] = json!(deadline);
+    }
+    if let Some(dir) = workspace {
+        let packed = pack_to_temp(dir)?;
+        let entry =
+            crate::upload(&socket, packed.path(), "workspace.tar", "application/x-tar").await;
+        drop(packed);
+        let entry = entry?;
+        run.insert(
+            "workspace".into(),
+            json!({ "archive": entry["sha256"].clone() }),
+        );
+        body["artifacts"] = json!([entry]);
+    }
+    body["run"] = Value::Object(run);
+    submit_and_follow(
+        &local,
+        &socket,
+        peer,
+        body,
+        *detach,
+        results.as_deref() == Some("changes"),
+    )
+    .await
+}
+
+/// The default `input`: the command line joined with spaces, cut at
+/// 65,536 bytes.
+pub(crate) fn default_input(command: &[String]) -> String {
+    cut(&command.join(" "), MAX_INPUT)
+}
+
+/// Submits a task through `POST /v1/tasks` and, unless `detach`, follows
+/// it to its final event (`task run`'s exit status).
+pub(crate) async fn submit_and_follow(
+    local: &Local<'_>,
+    socket: &Path,
+    peer: &str,
+    body: Value,
+    detach: bool,
+    save: bool,
+) -> anyhow::Result<i32> {
+    let record = local.post("/v1/tasks".into(), body).await?;
+    if detach {
+        crate::output::emit(&record)?;
+        return Ok(0);
+    }
+    let id = record["request"]["task_id"]
+        .as_str()
+        .context("invalid daemon response")?
+        .to_owned();
+    follow(local, socket, peer, &id, save).await
+}
+
+/// A run's `argv`, `cwd`, `env`, `resources` and `results` from `task
+/// run`'s flags.
+pub(crate) fn run_object(
+    command: &[String],
+    cwd: &Option<String>,
+    env: &[String],
+    cpus: &Option<i64>,
+    memory_mib: &Option<i64>,
+    timeout: &Option<String>,
+    results: &Option<String>,
+) -> anyhow::Result<Map<String, Value>> {
     let mut run = Map::new();
     run.insert("argv".into(), json!(command));
     if let Some(cwd) = cwd {
@@ -74,54 +158,9 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
         run.insert("resources".into(), Value::Object(resources));
     }
     if let Some(results) = results {
-        if peerfs_workspace.is_some() && results == "changes" {
-            bail!(
-                "--results changes is not available with --peerfs-workspace: the workspace's history holds them"
-            );
-        }
         run.insert("results".into(), json!(results));
     }
-    if let Some(name) = peerfs_workspace {
-        run.insert("workspace".into(), json!({ "peerfs": name }));
-    }
-    let mut body = json!({
-        "peer_host_id": peer,
-        "executor": "runtime",
-        "input": input.clone().unwrap_or_else(|| cut(&command.join(" "), MAX_INPUT)),
-    });
-    if let Some(deadline) = deadline {
-        body["deadline"] = json!(deadline);
-    }
-    if let Some(dir) = workspace {
-        let packed = pack_to_temp(dir)?;
-        let entry =
-            crate::upload(&socket, packed.path(), "workspace.tar", "application/x-tar").await;
-        drop(packed);
-        let entry = entry?;
-        run.insert(
-            "workspace".into(),
-            json!({ "archive": entry["sha256"].clone() }),
-        );
-        body["artifacts"] = json!([entry]);
-    }
-    body["run"] = Value::Object(run);
-    let record = local.post("/v1/tasks".into(), body).await?;
-    if *detach {
-        crate::output::emit(&record)?;
-        return Ok(0);
-    }
-    let id = record["request"]["task_id"]
-        .as_str()
-        .context("invalid daemon response")?
-        .to_owned();
-    follow(
-        &local,
-        &socket,
-        peer,
-        &id,
-        results.as_deref() == Some("changes"),
-    )
-    .await
+    Ok(run)
 }
 
 /// Follows the local events to the final one, writing output as it comes.
@@ -200,6 +239,14 @@ async fn finish(
         .as_str()
         .and_then(|o| serde_json::from_str(o).ok())
         .unwrap_or(Value::Null);
+    // A peerbox run that failed before it started has no run result, only
+    // `{"error", "message"}` (peerbox contract, Results).
+    if state == "failed"
+        && result.get("exit_code").is_none()
+        && let Some(code) = result["error"].as_str()
+    {
+        eprintln!("{code}: {}", result["message"].as_str().unwrap_or_default());
+    }
     if save && let Some(artifacts) = event["artifacts"].as_array() {
         let dir = PathBuf::from("peerspan-results").join(id);
         fs::create_dir_all(&dir)?;
@@ -381,24 +428,44 @@ pub(crate) fn pack(dir: &Path, out: &mut impl Write) -> anyhow::Result<()> {
             .with_context(|| format!("{} is not a UTF-8 path", relative.display()))?;
         let kind = meta.file_type();
         if kind.is_dir() {
-            entry(out, &format!("{name}/"), b'5', meta.mode() & 0o7777, 0, "")?;
+            tar::entry(
+                out,
+                format!("{name}/").as_bytes(),
+                tar::DIRECTORY,
+                meta.mode() & 0o7777,
+                0,
+                b"",
+            )?;
         } else if kind.is_symlink() {
             let target = fs::read_link(&full)?;
             let target = target
                 .to_str()
                 .with_context(|| format!("{} links to a non-UTF-8 path", relative.display()))?;
-            entry(out, name, b'2', 0o777, 0, target)?;
+            tar::entry(
+                out,
+                name.as_bytes(),
+                tar::SYMLINK,
+                0o777,
+                0,
+                target.as_bytes(),
+            )?;
         } else if kind.is_file() {
-            entry(out, name, b'0', meta.mode() & 0o7777, meta.len(), "")?;
+            tar::entry(
+                out,
+                name.as_bytes(),
+                tar::FILE,
+                meta.mode() & 0o7777,
+                meta.len(),
+                b"",
+            )?;
             let copied = std::io::copy(&mut fs::File::open(&full)?, out)?;
             if copied != meta.len() {
                 bail!("{} changed while it was packed", relative.display());
             }
-            let pad = (512 - (copied % 512) as usize) % 512;
-            out.write_all(&vec![0; pad])?;
+            tar::pad(out, copied)?;
         }
     }
-    out.write_all(&[0; 1024])?;
+    tar::end(out)?;
     Ok(())
 }
 fn walk(root: &Path, relative: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
@@ -448,67 +515,4 @@ fn git_paths(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
             .map(|p| PathBuf::from(String::from_utf8_lossy(p).into_owned()))
             .collect(),
     ))
-}
-
-/// One pax extended header carrying `path` (and `linkpath`), then the
-/// ustar header.
-fn entry(
-    out: &mut impl Write,
-    path: &str,
-    kind: u8,
-    mode: u32,
-    size: u64,
-    link: &str,
-) -> anyhow::Result<()> {
-    let mut records = record("path", path);
-    if !link.is_empty() {
-        records.extend(record("linkpath", link));
-    }
-    header(out, "PaxHeader", b'x', 0o644, records.len() as u64, "")?;
-    out.write_all(&records)?;
-    out.write_all(&vec![0; (512 - records.len() % 512) % 512])?;
-    header(out, path, kind, mode, size, link)
-}
-/// A pax record, `"<length> <key>=<value>\n"`, whose length counts itself.
-fn record(key: &str, value: &str) -> Vec<u8> {
-    let body = format!(" {key}={value}\n");
-    let mut length = body.len() + 1;
-    while format!("{length}{body}").len() != length {
-        length += 1;
-    }
-    format!("{length}{body}").into_bytes()
-}
-fn header(
-    out: &mut impl Write,
-    name: &str,
-    kind: u8,
-    mode: u32,
-    size: u64,
-    link: &str,
-) -> anyhow::Result<()> {
-    let mut h = [0u8; 512];
-    let put = |h: &mut [u8; 512], at: usize, len: usize, text: &[u8]| {
-        let n = text.len().min(len);
-        h[at..at + n].copy_from_slice(&text[..n]);
-    };
-    let octal = |h: &mut [u8; 512], at: usize, len: usize, value: u64| {
-        let text = format!("{value:0width$o}", width = len - 1);
-        h[at..at + len - 1].copy_from_slice(&text.as_bytes()[text.len() - (len - 1)..]);
-    };
-    put(&mut h, 0, 100, name.as_bytes());
-    octal(&mut h, 100, 8, u64::from(mode));
-    octal(&mut h, 108, 8, 0);
-    octal(&mut h, 116, 8, 0);
-    octal(&mut h, 124, 12, size);
-    octal(&mut h, 136, 12, 0);
-    h[156] = kind;
-    put(&mut h, 157, 100, link.as_bytes());
-    put(&mut h, 257, 6, b"ustar\0");
-    put(&mut h, 263, 2, b"00");
-    h[148..156].copy_from_slice(b"        ");
-    let sum: u64 = h.iter().map(|b| u64::from(*b)).sum();
-    let text = format!("{sum:06o}\0 ");
-    h[148..156].copy_from_slice(text.as_bytes());
-    out.write_all(&h)?;
-    Ok(())
 }

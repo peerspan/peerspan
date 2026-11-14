@@ -534,11 +534,34 @@ def expiry_world(w):
     w.step("expiry_stops_access", expiry)
 
 
+def revive_world(w):
+    """Bob's host is offline past his 24-hour policy's end, so it expires unrenewed; automatic renewal then skips
+    it (spec 4.4, 7.1) and status says to run `access renew`, which revives the same rules as the next version."""
+    def revives():
+        before = w.b.ok("access", "show", "--network", w.net)
+        version = w.policy_version()
+        w.b.stop()
+        w.clock.set(DAY + HOUR)  # the policy has expired; the 7-day grants have not
+        w.b.start()
+        kinds = {k for k, _ in attention(w.b)[0]}
+        check("policy_expired" in kinds, f"no policy_expired item for the expired policy: {sorted(kinds)}")
+        check(w.policy_version() == version, "the expired policy was renewed automatically")
+        renewed = w.b.ok("access", "renew", "--network", w.net, "--person-key", w.bob_key)
+        check(renewed["version"] == version + 1, f"renew signed version {renewed['version']}, want {version + 1}")
+        check(renewed["rules"] == before["rules"], f"renew changed the rules: {renewed['rules']}, want {before['rules']}")
+        check(0 < w.left(renewed["valid_until"]) <= DAY, f"the revived policy ends {renewed['valid_until']}")
+        after = w.b.ok("access", "show", "--network", w.net)
+        check(after["version"] == version + 1 and after["rules"] == before["rules"], f"access show after renew: {after}")
+        kinds = {k for k, _ in attention(w.b)[0]}
+        check("policy_expired" not in kinds, f"policy_expired stayed after access renew: {sorted(kinds)}")
+    w.step("access_renew_revives_expired_policy", revives)
+
+
 @suite.case("setup_and_lifetimes", "spec 4.4, 6, 8; appendix 4.3, 5")
 def _():
     worlds["policy"] = OriginalWorld("policy")
     worlds["root"] = ExternalRootWorld("root")
-    for tag in ("device", "expiry"):
+    for tag in ("device", "expiry", "revive"):
         worlds[tag] = World(tag)
     worlds["delegated"] = DelegatedWorld("delegated")
     worlds["original-admin"] = OriginalAdminWorld("original-admin")
@@ -553,6 +576,7 @@ def _():
             check(0 < life <= limit, f"a {kind} lasts {life:.0f}s, over {limit}s")
     # Every independent timed window gets its full bound; one fixture failure does not suppress the others.
     work = (("policy", policy_world), ("root", root_world), ("device", device_world), ("expiry", expiry_world),
+            ("revive", revive_world),
             ("delegated", delegated_world), ("original-admin", delegated_world))
     in_parallel([lambda w=worlds[tag], f=function: f(w) for tag, function in work if "setup" not in worlds[tag].errors])
     for w in worlds.values():
@@ -576,6 +600,8 @@ CASES = [
     ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
      None),
     ("expiry", "expiry_stops_access", "spec 4.4, 5 (accepted work), 7.1, 16",
+     None),
+    ("revive", "access_renew_revives_expired_policy", "spec 4.4, 7.1; coordination Renewal, launch policy_expired",
      None),
     ("delegated", "delegated_admin_renews_person_host_and_group_without_root", "spec 7.1, 7.2; 20 items 18, 21, 22",
      None),
