@@ -231,11 +231,11 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
                     _ => break,
                 }
             }
-            if all.len() > *limit {
-                all.truncate(*limit);
-            }
-            // `next` names the last printed record when more remain.
-            let more = all.len() == *limit && !next.is_null();
+            // `next` names the last printed record when more remain: records
+            // cut by --limit, or another page on the home host.
+            let cut = all.len() > *limit;
+            all.truncate(*limit);
+            let more = cut || !next.is_null();
             let next = if more {
                 all.last()
                     .map(|r| r["contribution_id"].clone())
