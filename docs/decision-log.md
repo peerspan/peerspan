@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
   - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
@@ -75,6 +76,21 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PF-06: an object larger than an objects answer (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** PeerFS host integration, PF-2: the `objects` peer route's 16 MiB answer bound.
+- **Source:** the implementation in #239 found that the contract's "the leading objects that fit, at least one" cannot hold when the first requested object alone is over 16 MiB. The question put to the owner and its options are quoted below.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-read-contract.md](peerfs-read-contract.md), section 5 (objects batches).
+- **Implementing PRs:** [#239](https://github.com/peerspan/peerspan/pull/239).
+- **Question:** "If the first requested object alone is over 16 MiB (a tree or chunk list of about 500K entries), the answer is 503. That conflicts with the contract's \"at least one\". I'd amend the contract to say so; the alternative is allowing a single over-bound object."
+- **Options:**
+  - (a) Amend the contract: such a request is 503.
+  - (b) Allow one object over the bound in an answer.
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
 
 ### PF-03 to PF-05: reading a shared PeerFS branch (2026-11-14)
 
