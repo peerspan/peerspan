@@ -53,7 +53,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `peerfs_activation`: PF-1(c) provider activation against an in-suite fake
   `GET /v1/host-bridge` provider (identity, socket/account fences, bounds,
   concurrent release, restart) and historical HostKeys with a genuinely
-  admitted, then revoked/expired, second host. Full tier (660 lines, 73 seconds).
+  admitted, then revoked/expired, second host. Full tier (676 lines, 72 seconds).
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).
 - `project_onboarding`: exact local project reviews, atomic metadata attachment,
