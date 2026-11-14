@@ -197,7 +197,7 @@ def _():
 
 
 @case("workspace_is_the_tree", "peerbox Runs: the archive is the commit's tree byte for byte, modes, links, "
-                               "submodules as empty directories, no .git, no attribute applied")
+                               "submodules as empty directories, no .git, no attribute applied", known=None)
 def _():
     main = need("main")[0]
     need("ready")
