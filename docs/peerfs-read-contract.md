@@ -183,8 +183,9 @@ is not needed, and genuine hosts in a shared network:
   space's or branch's rule, and a `fs.read` absent from the rule all refused as 404.
 - **Provider:** a released binding, a changed directory, a stopped provider and a provider older
   than `within` each refuse with their status; nothing is started.
-- **Interfaces:** the three routes are absent (404) on the owner-local, adapter, pairing and
-  helper routers.
+- **Interfaces:** the three routes are not served on the owner-local, adapter, pairing and
+  helper routers: each answers them exactly as it answers a path it does not serve (404, or a
+  router's own refusal of the request's form, such as a query string where it accepts none).
 
 ## Decisions and discarded options
 
