@@ -231,7 +231,7 @@ def _():
     refused(status, body, 400, "invalid", "workspace")
 
 
-@case("run_changes_no_ref", "peerbox Runs: a run never changes a ref; the owner's repository unchanged")
+@case("run_changes_no_ref", "peerbox Runs: a run never changes a ref; the owner's repository unchanged", known=None)
 def _():
     work = need("work")[0]
     need("ready")
@@ -243,7 +243,7 @@ def _():
 
 
 @case("runs_recorded", "peerbox Peerboxes and contributions: runs recorded oldest first, cut to the latest 8, "
-                       "runs_total")
+                       "runs_total", known=None)
 def _():
     work = need("work")[0]
     need("ready")
