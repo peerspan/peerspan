@@ -799,7 +799,7 @@ def _():
 
 
 @case("invite_expired_and_cancelled", "peerbox Invitations: a share ending with its invite's expiry (test clock); "
-                                      "a cancelled share giving membership and no access")
+                                      "a cancelled share giving membership and no access", known=None)
 def _():
     a, net = need("a", "net")
     _, _, late = invite_code(pbx(), "late", "--expires-in", "1h")
@@ -857,7 +857,7 @@ def waited_and_signed(a, b, net, bpbx, code, invitation):
 
 
 @case("share_waiting_for_owner", "peerbox Invitations 4: with the owner's provider an SSH person key, "
-                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending")
+                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending", known=None)
 def _():
     a, b, net = need("a", "b", "net")
     brepo = init_repo(suite.work / "bob-repo")
