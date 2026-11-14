@@ -298,6 +298,32 @@ def retire_invitation_return(f):
     check(target < parse_time(link_view(a, f["rid"])["expires_at"]), "invitation isolation consumed the live request window")
     for h in (a, b):
         advance_to(h, target)
+    invitation_retired(f)
+
+
+def own_contact_current(h, network):
+    # The host's own dec_contacts row holds a contact still valid at its now.
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
+        row = db.execute("SELECT record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
+                         (network["id"], network["context_id"], h.public_key)).fetchone()
+    if row is None:
+        return False
+    now = h.now()
+    for raw in json.loads(row[0]).get("contacts_base64", []):
+        contact = json.loads(base64.b64decode(raw))  # wire 8.2 SIGNED_CONTACT
+        if parse_time(contact["issued_at"]) <= now < parse_time(contact["expires_at"]):
+            return True
+    return False
+
+
+def invitation_retired(f):
+    # Spec 8.1 step 4 (DEC-Q26): the inviter keeps the invite's return row in
+    # dec_pending only until the invite expires, and its 2-second return reader
+    # retires the row after that. Once a test clock passes the invite's expiry,
+    # wait for that ordinary retirement before measuring a pure call.
+    a = f["a"]
+    if a.now() < parse_time(f["invitation_expires_at"]):
+        return
     def retired():
         with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True, timeout=30)) as db:
             row = db.execute("SELECT secret FROM dec_pending WHERE request_id=?", (f["invitation_id"],)).fetchone()
@@ -395,7 +421,7 @@ def counts(f):
 
 
 def pure(f, *, status=200, code=None, override=None):
-    settled(f["a"]); quiet_counts(f); before = snapshot(f["a"]); network = counts(f)
+    invitation_retired(f); settled(f["a"]); quiet_counts(f); before = snapshot(f["a"]); network = counts(f)
     value = progress(f, status=status, code=code, override=override)
     after, traffic = snapshot(f["a"]), counts(f)
     check(after == before, f"cached/refused progress changed logical tables/schema/private files: {snapshot_changes(before, after)}; relay_changed={traffic != network}")
@@ -473,7 +499,12 @@ def _():
 
 @suite.case("request_only_waiting_repeat_preserves_stage_and_bounded_valid_endpoint", "guided22 verification2")
 def _():
-    f = prepared_pair("wait"); a = f["a"]; f["b"].stop()
+    f = prepared_pair("wait", invitation_seconds=65); a = f["a"]; f["b"].stop()
+    # Spec 8.1 step 4: the inviter reads the invite's return mailbox on its own
+    # first-contact address every 2 seconds until the invite expires. Retire
+    # that unrelated reader first, as the main fixture does, so the carrier
+    # counts below measure only the progress calls.
+    retire_invitation_return(f); base = a.clock.offset
     # The inviter's real mailbox is valid; the other retained endpoint stalls.
     # Concurrent bounded fetch must still accept the valid completed response.
     f["b"].relay.mode = "stall"
@@ -482,7 +513,7 @@ def _():
     rec, _ = pending(a, f["rid"]); check(rec["owner_packet_base64"] == rec["selection_packet_base64"] == "-", "waiting fabricated an owner/selection")
     a.clock.set(-120)
     pure(f, status=409, code="incoming_progress_unavailable")
-    a.clock.set(60)
+    a.clock.set(base + 60)
     settled(a); before = snapshot(a)
     second = progress(f)
     check(second["next_action"] == first["next_action"] and second["request"] == first["request"] and snapshot(a) == before,
@@ -741,7 +772,18 @@ def _():
         return record["terminal"] == "applied" and not record["outbound_frames"] and row[1] is None and row[2] is None and frames == 0
     wait_for(terminal_transport_retired, timeout=5, interval=.1,
              message="ordinary signed-deadline transport retirement before historical purity")
-    b.stop(); modes(f, "drop"); quiet_counts(f); settled(a)
+    # The hour on the test clock expired this host's own signed contact (valid
+    # at most 300 seconds, spec 9.1), and every network sync re-signs it into
+    # dec_contacts; background sync runs every 60 seconds plus jitter (spec
+    # 10). Run one explicit sync while the peer still answers, so it re-signs
+    # the contact now and finishes on the first QUIC path: the next background
+    # sync then comes at least 60 seconds later (SYNC-1), after the measured calls.
+    synced, _ = a.api("POST", "/v2/networks/" + f["network"]["id"] + "/sync", {}, timeout=40)
+    check(synced == 200, f"explicit network sync before historical purity HTTP {synced}")
+    wait_for(lambda: own_contact_current(a, f["network"]), timeout=5, interval=.1,
+             message="own signed contact re-signed for the advanced clock")
+    b.stop()
+    modes(f, "drop"); quiet_counts(f); settled(a)
     pure(f, status=409, code="incoming_progress_unavailable")
     before = snapshot(a)
     actual, historical = a.api("POST", "/v1/onboarding/admission-consent/lookup", payload(f))

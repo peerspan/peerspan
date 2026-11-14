@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
@@ -79,6 +80,71 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerbox gates: policies judged in a closed loop with an environment, fresh held-out episodes for every evaluation, a public commitment, and paired comparison of noisy scores.
+- **Source:** [peerbox-gate-episodes-proposal.md, Decisions](peerbox-gate-episodes-proposal.md#decisions), decisions 1 to 9; decision *N* is PBX-(24 + *N*).
+- **Recorded in:** this log, the proposal and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates); linked runs in the [runtime task contract](runtime-task-contract.md#linked-runs).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all nine". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### PBX-25. Which loops the gate supports
+
+- **Options:** (a) "All three: a policy as data on today's `outputs` gate, documented; action traces with a generator; and an `episode` mode for policies that are code. Coding agents keep the gate they have." (b) "Policy as data only: no runtime change, but excludes planners, search, bots on libraries and any policy whose code is the contribution, which is most of what agents would write." (c) "Episodes only, replacing outputs: forces every coding gate to run an environment it does not need."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-26. Where the link lives
+
+- **Options:** (a) "In the runtime: it starts the pair and splices connections between the guests over vsock. The runtime already maps one vsock port per guest to a Unix socket on the host for its agent channel (`krun_vsock_device_add_unix_port`, which takes a listen flag), so a link is one more mapping on each side. Latency is local, so episodes of thousands of steps work, and the guests still have no network." (b) "The home host relays through the run events route and a new input route: no VM-to-VM path in the runtime, but the events route is a long poll of up to 25 seconds, far too slow for an episode, and stdin is outside the runtime contract." (c) "A private network between the two guests: lets TCP clients connect unchanged, but it is a much larger surface (addresses, DNS, ports) and ends 'the guest has no network'."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-27. The shape of the link
+
+- **Options:** (a) "A loopback TCP port in both guests, with up to `link_connections` connections at once and a byte bound each way; the owner's environment defines the protocol. Game servers, simulators and their client libraries speak TCP and open several connections (one per bot, or a reconnect after a death or a kick), and protocols differ by environment, so anything Peerspan defined would be wrong for most of them." (b) "One Unix stream socket in each guest: simpler to bound, but every TCP client needs a forwarder, and one connection cannot carry several bots or a reconnect." (c) "Framed observation and action messages with a gate-defined schema: lets the host count steps and bound messages, but makes Peerspan a reinforcement learning framework."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-28. Images for the gate's runs
+
+- **Options:** (a) "A candidate image and a checker image, each pinned by digest and covered by the commitment, as runtime agents' runs already name images. A game server needs Java and its bots need Node with their libraries, which neither the runtime's minimal image nor a contribution within the bundle limit can carry." (b) "The runtime's own image, with runtimes and dependencies in the inputs and checker snapshots: works with no contract change, but every owner rebuilds a toolchain inside a snapshot, and the snapshot sizes grow with it." (c) "Tags without digests: an image could change under a gate version, which the commitment exists to rule out."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-29. The score of an episode
+
+- **Options:** (a) "Only the environment's score (`score: checker`); `time` is refused in `episode` mode." (b) "Allow `time` as the candidate run's `duration_ms`: the environment paces the episode, so the time measures the environment as much as the policy."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-30. Attributing an environment failure
+
+- **Options:** (a) "As for a check run today: on the frontier it pauses the gate; on a candidate it rejects with `check_failed`. The candidate's bytes may have crashed the environment, and a gate that let a crash pass would promote it." (b) "Pause the gate on any environment failure: protects contributors from a fragile environment, but lets one hostile contribution stop the gate for everyone until the owner acts."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-31. How often the held-out episodes change
+
+- **Options:** (a) "A new secret for every evaluation, shared by its frontier and candidate measurements, with an optional generator for candidates' inputs. Every verdict is measured on episodes no earlier query touched, so probing the gate teaches nothing about the next evaluation; the frontier is measured again each time anyway, so no comparison breaks." (b) "A new secret only on each promotion: keeps the public frontier score stable, but every rejected submission between two promotions queries the same episodes, which is exactly how an agent climbs a holdout." (c) "A fixed holdout, as today: simplest, and an agent with enough submissions overfits it."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-32. What readers can check about the gate
+
+- **Options:** (a) "A salted commitment to the snapshots and settings in the public summary, and each evaluation's secret digest in its decision; the owner may publish the salt, the secrets and the snapshots later, and anyone can then verify and replay." (b) "The plain snapshot digests in the public summary: a digest of a small holdout lets a contributor confirm a guess of its contents." (c) "Nothing beyond the version, as today: contributors cannot tell whether the holdout changed under them."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
+
+#### PBX-33. Comparing noisy scores
+
+- **Options:** (a) "Add two paired modes, both on per-episode samples paired by the shared secret, with the margin subtracted per episode: `paired_normal`, an approximate 95% bound that is cheap in episodes and documented as approximate, and `paired_bounded`, an empirical Bernstein bound over a declared score range that holds for any distribution in that range, given independent gains, but needs many more episodes. Both state that the independence of gains is an assumption the gate cannot check, since one candidate process plays every episode of a measurement. The owner chooses per gate, trading episodes against a guarantee; the public summary shows which. Keep `worst_best` as the default for timing." (b) "`paired_normal` only: cheap, but its 95% fails for scores with rare extreme outcomes, and nothing tells contributors so." (c) "`paired_bounded` only: a real guarantee, but a real-time environment of a few dozen episodes per measurement could never promote." (d) "Raise the repeat limit and keep worst against best: needs a VM pair per sample and still states no confidence." (e) "A fresh linked pair for every episode, so that the gains are independent by construction and the guarantee unconditional: one VM pair, and for a game a server start, per sample, which multiplies an evaluation's cost by the episode count." (f) "Replace `worst_best` with the bound everywhere: a time measurement gives one number per run, too few samples for a bound, and today's coding gates would change behavior."
+- **Chosen:** a.
+- **Reason given:** reasons not recorded beyond the options' own text.
 
 ### PF-07 to PF-11: pulling a shared PeerFS branch across hosts (2026-11-14)
 
