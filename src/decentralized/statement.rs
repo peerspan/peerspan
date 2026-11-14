@@ -52,6 +52,9 @@ pub struct SignatureEntry {
     pub format: String,
     pub signature: String,
 }
+/// Statements read recently, by every input of the read. Sized for the
+/// statements of several large catalogs.
+static READ: super::memo::Memo<Statement> = super::memo::Memo::sized(8192);
 #[derive(Clone, Debug)]
 pub struct Statement {
     pub kind: String,
@@ -62,6 +65,10 @@ pub struct Statement {
     pub payload_bytes: Vec<u8>,
     pub payload: Obj,
     pub signatures: BTreeMap<String, SignatureEntry>,
+    /// The stream subject of a policy or group (its body's person key or
+    /// name), read once from the body: `stream` is asked for it many times
+    /// per projection, and a policy body can be large. None: read it again.
+    pub(crate) access_subject: Option<String>,
 }
 impl Statement {
     pub fn read(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
@@ -101,6 +108,35 @@ impl Statement {
         Ok(s)
     }
     fn read_pinned(
+        descriptor: Option<&Descriptor>,
+        expected_context: &str,
+        bytes: &[u8],
+        binding_draft: bool,
+        template: bool,
+    ) -> Result<Self> {
+        // Reading is a pure function of these inputs, and every catalog read
+        // rereads each of its statements: a catalog that gains one object is
+        // new bytes, but its other statements, such as large policies, are
+        // the same ones, each parsed and signature-checked again.
+        let encoded = match descriptor {
+            Some(d) => serde_json::to_vec(d).map_err(|_| Error::new("internal"))?,
+            None => b"-".to_vec(),
+        };
+        let key = super::memo::key([
+            encoded.as_slice(),
+            expected_context.as_bytes(),
+            &[u8::from(binding_draft), u8::from(template)],
+            bytes,
+        ]);
+        if let Some(hit) = READ.get(&key) {
+            return Ok(hit);
+        }
+        let statement =
+            Self::read_inner(descriptor, expected_context, bytes, binding_draft, template)?;
+        READ.put(key, &statement, bytes.len());
+        Ok(statement)
+    }
+    fn read_inner(
         descriptor: Option<&Descriptor>,
         expected_context: &str,
         bytes: &[u8],
@@ -147,6 +183,7 @@ impl Statement {
         // issuer's signature (DEC-Q28); the verifier checks it moves only the
         // deadline.
         check(actual == expected || renewal_candidate(kind, &payload)? && actual == ["issuer"])?;
+        let access_subject = access_subject(kind, &payload)?;
         let statement = Self {
             kind: kind.into(),
             context_id: context.into(),
@@ -156,6 +193,7 @@ impl Statement {
             payload_bytes,
             payload,
             signatures,
+            access_subject,
         };
         if let Some(retained) = statement.payload.get("retained_statement_ids") {
             check(
@@ -200,13 +238,12 @@ impl Statement {
                 text(subject()?, "person_public_key")?.into(),
                 text(subject()?, "device_public_key")?.into(),
             ])),
-            "policy" => {
-                let b = access_body(p)?;
-                pair("policy", text(&b, "person_public_key")?)
-            }
-            "group" => {
-                let b = access_body(p)?;
-                pair("group", text(&b, "name")?)
+            "policy" | "group" => {
+                let subject = match &self.access_subject {
+                    Some(subject) => subject.clone(),
+                    None => access_subject(&self.kind, p)?.ok_or_else(|| Error::new("invalid"))?,
+                };
+                Ok(Some(vec![self.kind.clone(), subject]))
             }
             _ => Ok(None),
         }
@@ -474,6 +511,16 @@ fn peerbox_rule_order(raw: &[u8]) -> bool {
                 .eq(crate::policy::PEERBOX_RULE_KEYS)
         })
     })
+}
+/// The stream subject of a policy (its body's person key) or a group (its
+/// name); None for other kinds.
+fn access_subject(kind: &str, p: &Obj) -> Result<Option<String>> {
+    let field = match kind {
+        "policy" => "person_public_key",
+        "group" => "name",
+        _ => return Ok(None),
+    };
+    Ok(Some(text(&access_body(p)?, field)?.to_owned()))
 }
 pub(crate) fn access_body(p: &Obj) -> Result<Obj> {
     Ok(object(&parse(
