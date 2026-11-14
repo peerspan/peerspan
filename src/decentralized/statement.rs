@@ -657,10 +657,12 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             exact_parents(kind, p)?;
             let body = access_body(p)?;
             if kind == "policy" {
+                // `runtime_rules`, `peerbox_rules` and `fs_rules` (PeerFS read
+                // contract) are each present only when not empty.
                 let mut shape = String::from(
                     "format network_id person_public_key version issued_at valid_until rules capability_rules",
                 );
-                for optional in ["runtime_rules", "peerbox_rules"] {
+                for optional in ["runtime_rules", "peerbox_rules", "fs_rules"] {
                     if body.contains_key(optional) {
                         shape.push(' ');
                         shape.push_str(optional);

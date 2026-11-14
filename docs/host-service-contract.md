@@ -16,6 +16,18 @@ and typed canonical commit signing under the accepted
 Provider activation, the fresh host-backed PeerFS initializer and historical
 key recognition follow in subsequent PF-1 pieces. Filesystem peer access and
 pull remain PF-2/PF-3; project attachment and agent access do not share files.
+PF-2 adds the signed `fs_rules` policy family (PeerFS read contract section 2,
+public vectors in `docs/vectors/peerfs-read-policy.json`) and the owner commands
+`fs share SPACE BRANCH --with PRINCIPAL... [--network ID] [--allow-disconnected]
+[--yes] [--person-key PATH]`, `fs unshare SPACE BRANCH [--network ID] [--yes]
+[--person-key PATH]` and `fs shares [--network ID] [--json]` (section 7). They
+use two owner-local reads: `GET /v1/fs/spaces/{space_id}/branches/{branch}`
+answers `{space_id,binding_id,network_id,branch,head,commits}` for a registered
+binding from its running provider (pinned directory and activation's identity
+check, read-only; 404 no such branch, 409 not registered or not the pinned
+directory/provider, 503 provider unreachable), and `GET /v1/fs/shares` answers
+this host's rules in its person's current policies, each with `network_id` and
+`policy:{person_id,version}`. Neither is on the peer router.
 
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated

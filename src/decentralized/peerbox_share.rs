@@ -81,6 +81,7 @@ pub(crate) fn sign_peerbox_rules(
             capability_rules: Some(Vec::new()),
             runtime_rules: None,
             peerbox_rules: None,
+            fs_rules: None,
             trusted_hosts: Some(Vec::new()),
             edits: Some(Vec::new()),
         });

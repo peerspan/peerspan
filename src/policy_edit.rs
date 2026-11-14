@@ -362,6 +362,28 @@ pub(crate) fn merge(
             crate::policy::peerbox_remove(&mut out.peerbox_rules, &bu.host, &bu.peerbox, principal);
         }
     }
+    // Filesystem rules, keyed by (host, space, branch), as runtime rules.
+    for or in &o.fs_rules {
+        let br = b.fs_rules.iter().find(|r| r.key() == or.key());
+        if br == Some(or) || !additions {
+            continue;
+        }
+        let name = or.marker();
+        if m.skip.contains(&name) {
+            continue;
+        }
+        match out.fs_rules.iter_mut().find(|r| r.key() == or.key()) {
+            Some(sr) => *sr = or.clone(),
+            None if br.is_some() => m.dropped.push(name),
+            None => out.fs_rules.push(or.clone()),
+        }
+    }
+    for br in &b.fs_rules {
+        if !o.fs_rules.iter().any(|r| r.key() == br.key()) {
+            out.fs_rules.retain(|r| r.key() != br.key());
+        }
+    }
+    out.fs_rules.sort_by(|a, b| a.key().cmp(&b.key()));
     (out, m.dropped)
 }
 

@@ -489,6 +489,7 @@ impl Editor {
                 capability_rules: None,
                 runtime_rules: None,
                 peerbox_rules: None,
+                fs_rules: None,
                 trusted_hosts: None,
                 edits: Some(edits),
             };
