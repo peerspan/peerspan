@@ -1,7 +1,8 @@
 //! `fs share`, `fs unshare` and `fs shares` (PeerFS read contract, section 7): this
 //! host's filesystem rules in the person's policy, signed through the network's provider
 //! as a policy edit, as `runtime enable` signs runtime rules. `fs branches --peer` asks
-//! another host what it shares with this one.
+//! another host what it shares with this one, and `fs pull` brings a shared branch into
+//! one of this host's spaces.
 use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, edit_conflict, top_principal},
     admin::Local,
@@ -11,6 +12,7 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use chrono::TimeDelta;
+use hyper::Method;
 use peerspan_host::policy::{DEFAULT_VALID_DAYS, FS_READ_ACTION, FsRule, peerfs_branch, principal};
 use serde_json::{Value, json};
 use std::{
@@ -147,6 +149,55 @@ pub async fn command(command: &FsCommand, socket: &Path) -> anyhow::Result<Value
                 Err(e) if status(&e) == Some(503) => {
                     bail!("host {peer} did not answer; nothing is known about what it shares")
                 }
+                outcome => outcome,
+            }
+        }
+        FsCommand::Pull {
+            peer,
+            space,
+            branch,
+            into,
+            network,
+            max_bytes,
+            ..
+        } => {
+            let mut body = json!({"peer": peer, "space": space, "branch": branch, "into": into});
+            if let Some(network) = network {
+                body["network"] = json!(network);
+            }
+            if let Some(max_bytes) = max_bytes {
+                body["max_bytes"] = json!(max_bytes);
+            }
+            eprintln!(
+                "Pulling branch {branch:?} of space {space} from host {peer} into space {into}..."
+            );
+            // A pull has no overall time bound; interrupting this command ends it.
+            let outcome = crate::call(
+                socket.to_path_buf(),
+                Method::POST,
+                "/v1/fs/pulls".into(),
+                Some(body),
+            )
+            .await;
+            match outcome {
+                Err(e) if status(&e) == Some(400) => bail!(
+                    "invalid arguments: --peer must be another host's ID (host_...), --space and --into space IDs (space_...), --network a network ID"
+                ),
+                Err(e) if status(&e) == Some(404) => bail!(
+                    "nothing to pull: host {peer} does not share branch {branch:?} of space {space} with this host, or there is no space {into} here ({e})"
+                ),
+                Err(e) if status(&e) == Some(409) => bail!(
+                    "cannot pull into space {into}: it is not registered here in the share's network, its directory or provider changed, or another pull of this branch into it is running ({e})"
+                ),
+                Err(e) if status(&e) == Some(502) => {
+                    bail!("the pull failed its checks; nothing was referenced ({e})")
+                }
+                Err(e) if status(&e) == Some(503) => bail!(
+                    "the pull could not complete: host {peer} or space {into}'s provider is unavailable, or an object is larger than one answer; nothing was referenced ({e})"
+                ),
+                Err(e) if status(&e) == Some(507) => bail!(
+                    "the pull reached its byte bound; nothing was referenced (raise it with --max-bytes; blobs already fetched are not fetched again)"
+                ),
                 outcome => outcome,
             }
         }
