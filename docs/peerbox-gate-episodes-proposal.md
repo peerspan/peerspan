@@ -59,8 +59,9 @@ gate**:
 - the **candidate command**: `node bot.js --host 127.0.0.1 --port 7000 --bots 10`, in a Node
   image with the challenge's dependencies;
 - the **link**: port 7000, so the bot connects to the server as it would on any machine;
-- the **comparison**: paired by arena, lower is better, promoted when the gain is at least 3%
-  with 95% confidence.
+- the **comparison**: paired by arena (`paired_normal`), lower is better, promoted when the
+  gain is at least 3% by an approximate 95% bound. Each arena's ticks are capped at 60
+  seconds of game time, so no single arena can dominate the result.
 
 Readers see that the gate exists, its command, its images, its comparison and its
 **commitment**, a digest of Alice's environment and settings that she can open after the
@@ -68,9 +69,9 @@ challenge.
 
 Bob's agent replaces the baseline's walk-to-nearest with an ordering search over the three
 items and digs through stone where that is shorter than walking round. In his evaluation,
-`main` and his bot play the same 60 arenas; his bot needs 6.8% fewer ticks on average, and with
-95% confidence at least 1.1 points more than the 3% margin, so it is promoted. Carol's agent submits five times in a row, tuning
-against each score it gets back. It learns nothing about the arenas: each evaluation draws 60
+`main` and his bot play the same 60 arenas; his bot needs 6.8% fewer ticks on average, and the
+bound puts his gain at least 1.1 points above the 3% margin, so it is promoted. Carol's agent
+submits five times in a row, tuning against each score it gets back. It learns nothing about the arenas: each evaluation draws 60
 new ones. A change that sends position packets faster than a player can move is refused by the
 server's movement checks and finishes no arena. Neither of them sees an arena or an
 observation; each sees the verdict, the gain, its bound and the reason.
@@ -173,11 +174,11 @@ the episodes; the gain is what compares across evaluations.
 
 ### Paired comparison with a confidence bound
 
-The gate gains `compare`: `worst_best` (today's rule, the default) or `paired`. With
-`paired`, the checker's or environment's line also carries `samples`, an array of 30 to
-10,000 positive finite numbers, one per episode or test case, in an order the secret fixes,
-so sample *i* of the frontier and of the candidate come from the same episode. `score` stays
-required and is shown as before.
+The gate gains `compare`: `worst_best` (today's rule, the default), `paired_normal` or
+`paired_bounded`. With either paired mode, the checker's or environment's line also carries
+`samples`, an array of 30 to 10,000 positive finite numbers, one per episode or test case, in
+an order the secret fixes, so sample *i* of the frontier and of the candidate come from the
+same episode. `score` stays required and is shown as before.
 
 Every repeat of an evaluation uses the same secret, so sample *i* is the same episode in
 every repeat. Repeats are therefore not new episodes, and are never pooled as if they were:
@@ -188,24 +189,47 @@ one candidate score *c*ᵢ per episode. With *d*ᵢ = *f*ᵢ − *c*ᵢ for `low
 
     eᵢ = dᵢ − (min_gain / 100) · fᵢ
 
-and the candidate is promoted when
+The margin is subtracted per episode, not compared with `mean(f)` afterwards, so that the
+bound accounts for the frontier's own variation and its covariance with the gain; a margin
+against a frontier mean treated as exact would promote too often. *n* is the number of
+episodes, not of measurements, and `sd` is the sample standard deviation of *e*. Both modes
+assume what the environment has to provide: episodes drawn independently from one
+distribution, which a secret-derived set of episodes is when the environment samples each
+one afresh from it. Then:
 
-    mean(e) − 1.645 · sd(e) / √n  ≥  0
+- **`paired_normal`**, an approximate bound. The candidate is promoted when
 
-with `sd` the sample standard deviation and *n* the number of episodes, not of measurements:
-a one-sided 95% lower bound on the gain beyond the margin is above zero. The margin is
-subtracted per episode, not compared with `mean(f)` afterwards, so that the bound accounts
-for the frontier's own variation and its covariance with the gain; a margin against a
-frontier mean treated as exact would promote too often. Repeats only reduce the noise
-within each episode; more episodes per measurement are what tighten the bound. The same rule
-holds for an environment that ignores the secret and replays a fixed set. Pairing removes the
-variance that comes from the episodes themselves, so far fewer episodes are needed than for
-two independent means. A measurement whose sample count differs from the evaluation's first
-frontier measurement is `check_failed`: on a frontier measurement it pauses the gate, on a
-candidate's it rejects the candidate. Failing the bound is `below_margin`. The public result
-gains `{episodes, mean_gain_percent, margin_bound_percent}`: the mean of *d* and the lower
-bound of mean(*e*), each as a percentage of mean(*f*), the second at least 0 on a promotion.
-The samples themselves stay with the owner.
+      mean(e) − 1.645 · sd(e) / √n  ≥  0
+
+  This is a normal approximation, and its 95% is approximate: it is close for scores without
+  rare extreme outcomes, and can be far off when they occur. A candidate that is slightly
+  better in most episodes and much worse in a rare one can pass every time those episodes are
+  missed from the sample; with 30 episodes and a 2% chance of a large loss, that is more than
+  half the time. It suits scores capped per episode, such as ticks with a time limit, and the
+  gate guide says to cap them.
+- **`paired_bounded`**, a guaranteed bound. The gate declares the score range, `--score-range
+  LO HI`; a sample outside it is `check_failed`. With *R* = (2 + min_gain / 100) · (HI − LO),
+  the width of the range of *e*, and *L* = ln(2 / 0.05), the candidate is promoted when
+
+      mean(e) − √(2 · sd(e)² · L / n) − 7 · R · L / (3 · (n − 1))  ≥  0
+
+  an empirical Bernstein bound, which holds with probability at least 95% for any
+  distribution of scores within the range. It costs episodes: the last term shrinks only as
+  *R* / *n*, so a wide range needs hundreds to thousands of episodes to show a gain of a few
+  percent. A tight range, such as a per-episode cap near the typical score, keeps it
+  practical.
+
+Repeats only reduce the noise within each episode; more episodes per measurement are what
+tighten either bound. The same rules hold for an environment that ignores the secret and
+replays a fixed set, except that the bound then speaks about that set, not about new
+episodes. Pairing removes the variance that comes from the episodes themselves, so far fewer
+episodes are needed than for two independent means. A measurement whose sample count differs
+from the evaluation's first frontier measurement is `check_failed`: on a frontier measurement
+it pauses the gate, on a candidate's it rejects the candidate. Failing the bound is
+`below_margin`. The public result gains `{episodes, mean_gain_percent, margin_bound_percent}`:
+the mean of *d* and the lower bound of mean(*e*), each as a percentage of mean(*f*), the
+second at least 0 on a promotion. The public summary shows the mode and, for
+`paired_bounded`, the score range. The samples themselves stay with the owner.
 
 ### Commitment
 
@@ -242,11 +266,11 @@ the episode. Failures keep today's attribution:
 Both modes gain separate bounds for the owner's side, `--checker-cpus` and
 `--checker-memory-mib`, defaulting to the candidate's: an environment such as a game server
 needs more memory than the policy. One timeout covers a linked pair. `peerbox gate set` gains
-`--mode outputs|episode`, `--generator JSON_ARGV`, `--compare worst_best|paired`, `--image
+`--mode outputs|episode`, `--generator JSON_ARGV`, `--compare worst_best|paired_normal|paired_bounded`, `--score-range LO HI`, `--image
 REF`, `--checker-image REF`, `--link-port N`, `--link-connections N` and `--link-bytes N`. A
 real-time environment needs a longer timeout than the default 15 minutes, up to what the
-runtime reports. The public summary gains `mode`, `compare`, `image`, `link_port` and
-`commitment`; never the checker image, the generator command, the salt or a secret.
+runtime reports. The public summary gains `mode`, `compare`, `score_range` (null unless
+`paired_bounded`), `image`, `link_port` and `commitment`; never the checker image, the generator command, the salt or a secret.
 
 ### Training
 
@@ -358,13 +382,19 @@ as today: contributors cannot tell whether the holdout changed under them.
 
 ### 9. Comparing noisy scores
 
-**Recommendation.** (a) Add `compare: paired`: per-episode samples paired by the shared
-secret, promoted when a one-sided 95% lower confidence bound of the gain beyond the margin,
-taken per episode, is above zero. Keep `worst_best` as the default for timing. Pairing on
-the same episodes makes a few hundred episodes enough for most environments.
+**Recommendation.** (a) Add two paired modes, both on per-episode samples paired by the
+shared secret, with the margin subtracted per episode: `paired_normal`, an approximate 95%
+bound that is cheap in episodes and documented as approximate, and `paired_bounded`, an
+empirical Bernstein bound over a declared score range that holds for any distribution in
+that range but needs many more episodes. The owner chooses per gate, trading episodes
+against a guarantee; the public summary shows which. Keep `worst_best` as the default for
+timing.
 
-**Not chosen.** (b) Raise the repeat limit and keep worst against best: needs a VM pair per
-sample and still states no confidence. (c) Replace `worst_best` with the bound everywhere: a
+**Not chosen.** (b) `paired_normal` only: cheap, but its 95% fails for scores with rare
+extreme outcomes, and nothing tells contributors so. (c) `paired_bounded` only: a real
+guarantee, but a real-time environment of a few dozen episodes per measurement could never
+promote. (d) Raise the repeat limit and keep worst against best: needs a VM pair per sample
+and still states no confidence. (e) Replace `worst_best` with the bound everywhere: a
 time measurement gives one number per run, too few samples for a bound, and today's coding
 gates would change behavior.
 
@@ -393,8 +423,10 @@ real loopback port and enforces `link_connections` and `link_bytes`. Cases for a
 - generator outputs under `.peerbox-gate/inputs/` as the candidate's inputs, the rest under
   `.peerbox-gate/generated/` for the check run only; a failing generator pausing the gate with
   `generator_failed`;
-- `paired`: a promotion and a `below_margin` at known samples on both sides of the bound, for
-  each direction; a case where the gain beats the margin against `mean(f)` taken as exact
+- `paired_normal` and `paired_bounded`: a promotion and a `below_margin` at known samples on
+  both sides of each bound, for each direction; `paired_bounded` refused without
+  `--score-range`, a sample outside the range `check_failed`, and rare-large-loss samples
+  that `paired_normal` promotes rejected by `paired_bounded`; a case where the gain beats the margin against `mean(f)` taken as exact
   but not per episode, rejected; fewer than 30 or mismatched sample counts as `check_failed`; with
   `repeats` above 1, each episode averaged over the repeats and *n* the episode count, so
   identical repeats leave the bound unchanged; the public result's `episodes`,
