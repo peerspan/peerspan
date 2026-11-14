@@ -28,6 +28,31 @@ check, read-only; 404 no such branch, 409 not registered or not the pinned
 directory/provider, 503 provider unreachable), and `GET /v1/fs/shares` answers
 this host's rules in its person's current policies, each with `network_id` and
 `policy:{person_id,version}`. Neither is on the peer router.
+The peer router (never the owner-local, adapter, pairing or helper routers) serves
+the three read routes of section 5: `GET /peer/v1/fs/branches?network=ID` answers
+`{network,branches:[{host,space,branch,policy}]}` from the current policy and the
+bindings' states only (400 without exactly a well-formed `network`; an unshared
+network or no rule answers an empty list); `POST
+/peer/v1/fs/spaces/{space}/branches/{branch}/head` with `{policy}` answers
+`{host,space,branch,head}`; `POST .../objects` with `{policy,ids}` (1 to 256
+distinct object IDs, each 66 lowercase hex digits with algorithm code `01`)
+answers `application/octet-stream`, the PeerFS object batch of the leading
+requested objects whose encoding fits 16 MiB, with an exact `Content-Length`,
+asking the provider with `within`. Head and objects authorize at each request
+(section 3): an unknown space, a citation that is not the binding owner's
+current policy version, no matching `fs.read` rule, an absent branch or an
+unreached ID are the same 404; a rule's binding that is not registered, a
+changed directory, a provider failing the identity check, not answering, or
+refusing `within`, and a first object that alone exceeds 16 MiB are 503; a
+malformed request is 400. The rule is checked before the provider is
+contacted. At most 4 concurrent objects requests per reader host (429); objects
+is bounded to 30 seconds, branches and head to 5 (503). On a reader, `fs
+branches --peer HOST [--network ID] [--json]` uses owner-local `GET
+/v1/fs/peers/{host}/networks/{network}/branches`, which asks HOST and answers
+`{host,network,branches}` after checking the answer's exact shape (404 unknown
+host, 503 no answer, 502 a refusal, with `peer_status`, or a malformed
+answer). `peerspan-peer-probe --raw-body` prints a response body as
+`body_base64`.
 
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated

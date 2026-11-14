@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! peerspan-peer-probe (--state DIR | --seed-hex HEX) --address IP:PORT [--method M] [--path P]
-//!     [--body RAW | --body-stdin] [--alpn ALPN]
+//!     [--body RAW | --body-stdin] [--alpn ALPN] [--raw-body]
 //! peerspan-peer-probe sign-link (--state DIR | --seed-hex HEX) --network-id ID --index N
 //!     --previous P --issuer HOST --audience HOST --task-id ID --originator-agent ID
 //!     --principal P [--principal P ...] --deadline TIME --depth N
@@ -14,7 +14,8 @@
 //!     --request JSON --chain JSON
 //! ```
 //!
-//! The exchange prints `{"body":…,"status":N}`. sign-link prints the link
+//! The exchange prints `{"body":…,"status":N}`, or `{"body_base64":…,"status":N}`
+//! with `--raw-body`. sign-link prints the link
 //! signed with that host key exactly as given: principals keep their order and
 //! nothing is validated. link-hash prints the `previous` value a following
 //! link names. submit-task posts the request to `/peer/v1/tasks` with
@@ -77,6 +78,9 @@ struct Exchange {
     /// ALPN to offer
     #[arg(long, default_value = PEER_ALPN)]
     alpn: String,
+    /// Print the response body as `body_base64`, byte for byte, instead of `body`
+    #[arg(long)]
+    raw_body: bool,
 }
 #[derive(Subcommand)]
 enum Command {
@@ -158,6 +162,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 "POST",
                 "/peer/v1/tasks",
                 Some(payload),
+                false,
             )
         }
         None => {
@@ -172,7 +177,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } else {
                 None
             };
-            exchange(key, &e.address, &e.alpn, &e.method, &e.path, payload)
+            exchange(
+                key, &e.address, &e.alpn, &e.method, &e.path, payload, e.raw_body,
+            )
         }
     }
 }
@@ -280,6 +287,7 @@ fn exchange(
     method: &str,
     path: &str,
     payload: Option<Vec<u8>>,
+    raw_body: bool,
 ) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -292,6 +300,15 @@ fn exchange(
         .await
         .map_err(|_| anyhow::anyhow!("timeout: no recent network activity"))?
     })?;
+    if raw_body {
+        let mut out = std::io::stdout().lock();
+        serde_json::to_writer(
+            &mut out,
+            &serde_json::json!({"status": status, "body_base64": STANDARD.encode(&data)}),
+        )?;
+        writeln!(out)?;
+        return Ok(());
+    }
     let body = if data.is_empty() {
         serde_json::Value::Null
     } else {
