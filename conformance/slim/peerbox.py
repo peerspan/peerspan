@@ -671,7 +671,7 @@ def _():
 
 
 @case("invite_join", "peerbox Invitations 2 to 5: peerbox join and join accept the code; the rule signed for "
-                     "exactly the admitted person; other rules unchanged; the joiner lists and fetches")
+                     "exactly the admitted person; other rules unchanged; the joiner lists and fetches", known=None)
 def _():
     a, d, code, net = need("a", "d", "dan_code", "net")
     e = state["e"] = suite.host("erin")
