@@ -603,7 +603,7 @@ def _():
 # Several rules on one peerbox (peerbox Peerbox rules; CLI share).
 
 @case("several_rules", "peerbox Peerbox rules: two people with different actions and bounds, share for one leaves "
-                       "the other unchanged, person and network rules give the union and the largest bound")
+                       "the other unchanged, person and network rules give the union and the largest bound", known=None)
 def _():
     a, c, main = need("a", "c", "main")
     bob_before = rules_for(pbx(), state["bob_p"])
@@ -764,7 +764,7 @@ def _():
 
 # Restarts and withdrawal.
 
-@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records")
+@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     task_id = submit_op({"op": "fetch", "peerbox_id": pbx()})
