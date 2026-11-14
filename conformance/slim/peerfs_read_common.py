@@ -285,9 +285,10 @@ class Provider:
 
 # Hosts, bindings and policies.
 
-def binding(net, graph=None, activate=True, old=False):
-    """Prepare (and activate) a binding on alice for NET, served by a fake provider over GRAPH."""
-    a = state["a"]
+def binding(net, graph=None, activate=True, old=False, host=None, cls=None):
+    """Prepare (and activate) a binding on HOST (default alice) for NET, served by a fake provider (CLS, default
+    Provider) over GRAPH."""
+    a = host or state["a"]
     state["counter"] = state.get("counter", 0) + 1
     directory = state["roots"] / f"s{state['counter']}"
     directory.mkdir(mode=0o700)
@@ -295,7 +296,7 @@ def binding(net, graph=None, activate=True, old=False):
              "directory": str(directory)}
     status, registration = a.api("POST", "/v1/fs/spaces", terms)
     check(status == 201, f"fixture: prepare: {status} {registration}")
-    provider = Provider(registration, graph or Graph())
+    provider = (cls or Provider)(registration, graph or Graph())
     provider.old = old
     if activate:
         status, value = a.api("POST", f"/v1/fs/spaces/{terms['space_id']}/activate",
