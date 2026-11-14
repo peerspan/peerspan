@@ -263,30 +263,6 @@ def _():
     check(not wrong, f"want 400 invalid naming the field: {wrong}")
 
 
-@case("list_readable_and_paging", "peerbox Results (list entries, ascending, whole entries within 65,536 bytes, "
-                                  "after and next); CLI list follows next", known=None)
-def _():
-    a, b, c = need("a", "b", "c")
-    with ThreadPoolExecutor(8) as pool:
-        many = list(pool.map(lambda i: create(state["repo"], title=f"{i:03d}" + "p" * 197), range(200)))
-    status, response = sign_policy(lambda body: with_peerbox_rules(
-        body, pbx_rules() + [rule(x, [state["bob_p"]]) for x in many]))
-    check(status == 200 and response.get("committed"), f"200 more rules for bob: {status} {response}")
-    try:
-        listed_and_paged(a, b, c, many)
-    finally:
-        # Leave the network as it was: 200 more rules in alice's policy slow every later projection on every host.
-        status, response = sign_policy(lambda body: with_peerbox_rules(
-            body, [r for r in pbx_rules() if r["peerbox"] not in set(many)]))
-        check(status == 200 and response.get("committed"), f"removing the 200 rules: {status} {response}")
-        for host in state["learners"]:
-            learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
-        with ThreadPoolExecutor(8) as pool:
-            gone = list(pool.map(lambda x: a.api("DELETE", f"/v1/peerboxes/{x}")[0], many))
-        check(all(g in (200, 204) for g in gone) and not set(many) & {r["peerbox_id"] for r in shown()}
-              and not [r for r in pbx_rules() if r["peerbox"] in set(many)], f"deleting the 200 peerboxes: {set(gone)}")
-
-
 def listed_and_paged(a, b, c, many):
     learn(b, state["alice_public"], policy_version(a, state["alice_public"]))
     readable, seen, after, pages = sorted(many + [pbx()]), [], None, 0
@@ -313,6 +289,30 @@ def listed_and_paged(a, b, c, many):
     value, _, _ = op_ok({"op": "list"}, sender=c)
     check([e["peerbox_id"] for e in value["peerboxes"]] == sorted([pbx(), need("hidden")[0]]) and value["next"] is None,
           f"carol's list {value}")
+
+
+@case("list_readable_and_paging", "peerbox Results (list entries, ascending, whole entries within 65,536 bytes, "
+                                  "after and next); CLI list follows next", known=None)
+def _():
+    a, b, c = need("a", "b", "c")
+    with ThreadPoolExecutor(8) as pool:
+        many = list(pool.map(lambda i: create(state["repo"], title=f"{i:03d}" + "p" * 197), range(200)))
+    status, response = sign_policy(lambda body: with_peerbox_rules(
+        body, pbx_rules() + [rule(x, [state["bob_p"]]) for x in many]))
+    check(status == 200 and response.get("committed"), f"200 more rules for bob: {status} {response}")
+    try:
+        listed_and_paged(a, b, c, many)
+    finally:
+        # Leave the network as it was: 200 more rules in alice's policy slow every later projection on every host.
+        status, response = sign_policy(lambda body: with_peerbox_rules(
+            body, [r for r in pbx_rules() if r["peerbox"] not in set(many)]))
+        check(status == 200 and response.get("committed"), f"removing the 200 rules: {status} {response}")
+        for host in state["learners"]:
+            learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
+        with ThreadPoolExecutor(8) as pool:
+            gone = list(pool.map(lambda x: a.api("DELETE", f"/v1/peerboxes/{x}")[0], many))
+        check(all(g in (200, 204) for g in gone) and not set(many) & {r["peerbox_id"] for r in shown()}
+              and not [r for r in pbx_rules() if r["peerbox"] in set(many)], f"deleting the 200 peerboxes: {set(gone)}")
 
 
 # Fetch (peerbox Fetch).
@@ -822,14 +822,17 @@ def _():
     f.stop()  # fay's grants are left to lapse (lapsed_sender)
 
 
-@case("share_waiting_for_owner", "peerbox Invitations 4: peerbox_share_waiting for an SSH person key, kept across "
-                                 "a restart, completed by peerbox share --pending")
-def _():
-    a, b, net = need("a", "b", "net")
-    brepo = init_repo(suite.work / "bob-repo")
-    commit_files(brepo, {"tool.sh": "echo tool\n"}, "tool")
-    bpbx = create(brepo, host=b, title="Bob's tools")
-    code, _, invitation = invite_code(bpbx, "gus", host=b)
+def select_provider(host, net, person_public, provider_id):
+    """Select a person's provider on HOST (decentralized-spec 11, `POST /v2/networks/{id}/provider`)."""
+    status, value = host.api("POST", f"/v2/networks/{net}/provider", {
+        "provider_id": provider_id, "person_public_key": person_public, "host_public_key": host.public_key,
+        "approve": True})
+    check(status == 200 and value["provider"]["person_public_key"] == person_public,
+          f"{host.name}: selecting provider {provider_id}: {status} {value}")
+    return value["provider"]
+
+
+def waited_and_signed(a, b, net, bpbx, code, invitation):
     g = suite.host("gus")
     key = ssh_key(g.root, "gus")
     join_with_code(a, g, code, key, net)
@@ -841,7 +844,9 @@ def _():
                 and f"peerbox share --pending {invitation}" in str(i.get("command"))]
     wait_for(waiting, timeout=60, message="peerbox_share_waiting on bob's host")
     b.restart()
-    check(waiting() and invitation in pending_shares(host=b), "the waiting share was lost across a restart")
+    check(waiting() and invitation in pending_shares(host=b)
+          and not rules_for(bpbx, gus, host=b, person_public=state["bob_public"]),
+          "the waiting share was lost across a restart, or signed without the owner")
     owner_cli("share", "--pending", invitation, "--person-key", state["bob_key"], host=b)
     found = rules_for(bpbx, gus, host=b, person_public=state["bob_public"])
     check(len(found) == 1 and found[0]["actions"] == ["peerbox.read"] and not waiting()
@@ -849,6 +854,26 @@ def _():
     learn(g, state["bob_public"], policy_version(b, state["bob_public"]))
     value, _, _ = op_ok({"op": "list"}, sender=g, receiver=b)
     check([x["peerbox_id"] for x in value["peerboxes"]] == [bpbx], f"gus's list {value}")
+
+
+@case("share_waiting_for_owner", "peerbox Invitations 4: with the owner's provider an SSH person key, "
+                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending")
+def _():
+    a, b, net = need("a", "b", "net")
+    brepo = init_repo(suite.work / "bob-repo")
+    commit_files(brepo, {"tool.sh": "echo tool\n"}, "tool")
+    bpbx = create(brepo, host=b, title="Bob's tools")
+    code, _, invitation = invite_code(bpbx, "gus", host=b)
+    # A device provider with a host-held seed signs the share automatically; an SSH person key needs the owner. The
+    # suite's hosts use device providers, so bob selects his original SSH key, and gets his device back afterwards.
+    device = b.api("GET", f"/v2/networks/{net}")[1]["provider"]
+    check(device["kind"] == "device" and device.get("lease_id"), f"fixture: bob's selected provider {device}")
+    check(select_provider(b, net, state["bob_public"], state["bob_public"])["kind"] == "original_person",
+          "bob's original SSH person key is not his selected provider")
+    try:
+        waited_and_signed(a, b, net, bpbx, code, invitation)
+    finally:
+        select_provider(b, net, state["bob_public"], device["lease_id"])
 
 
 # Restarts and withdrawal.
