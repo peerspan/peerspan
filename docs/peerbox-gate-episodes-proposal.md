@@ -192,10 +192,18 @@ one candidate score *c*ᵢ per episode. With *d*ᵢ = *f*ᵢ − *c*ᵢ for `low
 The margin is subtracted per episode, not compared with `mean(f)` afterwards, so that the
 bound accounts for the frontier's own variation and its covariance with the gain; a margin
 against a frontier mean treated as exact would promote too often. *n* is the number of
-episodes, not of measurements, and `sd` is the sample standard deviation of *e*. Both modes
-assume what the environment has to provide: episodes drawn independently from one
-distribution, which a secret-derived set of episodes is when the environment samples each
-one afresh from it. Then:
+episodes, not of measurements, and `sd` is the sample standard deviation of *e*.
+
+Both modes assume that the margin-adjusted gains *e*ᵢ are independent across episodes, and
+the gate cannot establish that. Fresh, independently drawn episodes make the environment's
+side independent, but in `episode` mode one candidate process plays every episode of a
+measurement, and it can carry randomness or state from one episode to the next: a policy
+that decides once per process to play well or badly, then plays every episode that way,
+produces gains that agree with each other and a bound far tighter than its real variation.
+Only separate measurements, each in a fresh VM, are independent of each other. The 95% of
+either mode is therefore conditional on independent gains; the gate guide says so, and says
+that the frontier is measured again in every evaluation, so a policy promoted on one lucky
+draw is measured afresh, on new episodes, each time it is the frontier. Then:
 
 - **`paired_normal`**, an approximate bound. The candidate is promoted when
 
@@ -214,7 +222,7 @@ one afresh from it. Then:
       mean(e) − √(2 · sd(e)² · L / n) − 7 · R · L / (3 · (n − 1))  ≥  0
 
   an empirical Bernstein bound, which holds with probability at least 95% for any
-  distribution of scores within the range. It costs episodes: the last term shrinks only as
+  distribution of scores within the range, given independent gains. It costs episodes: the last term shrinks only as
   *R* / *n*, so a wide range needs hundreds to thousands of episodes to show a gain of a few
   percent. A tight range, such as a per-episode cap near the typical score, keeps it
   practical.
@@ -386,15 +394,20 @@ as today: contributors cannot tell whether the holdout changed under them.
 shared secret, with the margin subtracted per episode: `paired_normal`, an approximate 95%
 bound that is cheap in episodes and documented as approximate, and `paired_bounded`, an
 empirical Bernstein bound over a declared score range that holds for any distribution in
-that range but needs many more episodes. The owner chooses per gate, trading episodes
-against a guarantee; the public summary shows which. Keep `worst_best` as the default for
+that range, given independent gains, but needs many more episodes. Both state that the
+independence of gains is an assumption the gate cannot check, since one candidate process
+plays every episode of a measurement. The owner chooses per gate, trading episodes against
+a guarantee; the public summary shows which. Keep `worst_best` as the default for
 timing.
 
 **Not chosen.** (b) `paired_normal` only: cheap, but its 95% fails for scores with rare
 extreme outcomes, and nothing tells contributors so. (c) `paired_bounded` only: a real
 guarantee, but a real-time environment of a few dozen episodes per measurement could never
 promote. (d) Raise the repeat limit and keep worst against best: needs a VM pair per sample
-and still states no confidence. (e) Replace `worst_best` with the bound everywhere: a
+and still states no confidence. (e) A fresh linked pair for every episode, so that the
+gains are independent by construction and the guarantee unconditional: one VM pair, and for
+a game a server start, per sample, which multiplies an evaluation's cost by the episode
+count. (f) Replace `worst_best` with the bound everywhere: a
 time measurement gives one number per run, too few samples for a bound, and today's coding
 gates would change behavior.
 
