@@ -99,7 +99,8 @@ pub(crate) struct LongTransfer {
 }
 impl LongTransfer {
     pub(crate) fn allow(&self) {
-        self.allowed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.allowed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     fn allowed(&self) -> bool {
         self.allowed.load(std::sync::atomic::Ordering::Relaxed)
