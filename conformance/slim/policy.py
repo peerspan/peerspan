@@ -8,13 +8,14 @@ and a refused send from docs/cli-output-contract.md sections 2 and 4.
 """
 import base64
 import json
+import os
 import re
 import subprocess
 import threading
 import urllib.parse
 
-from harness import (Suite, check, create_network, datetime, join_new_person, parse_time, parses_as_json, rfc3339, ssh_key,
-                     terminal_escaped, timedelta, timezone)
+from harness import (Suite, check, create_network, datetime, join_new_person, parse_time, parses_as_json, peer, rfc3339,
+                     ssh_key, terminal_escaped, timedelta, timezone)
 
 suite = Suite("policy", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -68,9 +69,9 @@ def send_to_bert(text):
     return a.cli("--json", "message", "send", "--peer", b.id, "--agent", bert.id, "--content", text)
 
 
-def check_rejected(result, what):
-    """A send or retry bob refused (peer-messaging-contract CLI outcomes, MSG-1): the outbound record on stdout,
-    `error: rejected: ERROR` with the record's `error` on stderr, exit 1. Returns the record."""
+def rejection_problems(result):
+    """How RESULT differs from a send or retry bob refused (peer-messaging-contract CLI outcomes, MSG-1): the
+    outbound record on stdout, `error: rejected: ERROR` with the record's `error` on stderr, exit 1."""
     record = result.json if isinstance(result.json, dict) else {}
     first = (result.stderr.splitlines() or [""])[0]
     problems = []
@@ -82,8 +83,57 @@ def check_rejected(result, what):
         problems.append(f"stderr does not start with 'error: rejected: ': {result.stderr.strip()[-300:]!r}")
     elif isinstance(record.get("error"), str) and first != f"error: rejected: {record['error']}":
         problems.append(f"stderr {first!r} does not carry the record's error {record['error']!r}")
+    return problems
+
+
+def check_rejected(result, what):
+    """A send or retry bob refused (MSG-1). Returns the record."""
+    problems = rejection_problems(result)
     check(not problems, f"{what}: " + "; ".join(problems))
-    return record
+    return result.json
+
+
+def send_outcome(result):
+    """Who settled a send: `accepted` or `unknown` (a record, exit 0), `rejected` (bob refused, MSG-1), or
+    `refused locally` (alice refused before persisting anything: no record)."""
+    if isinstance(result.json, dict) and result.json.get("state") in ("accepted", "unknown", "rejected"):
+        return result.json["state"]
+    return "refused locally"
+
+
+def blocked_send(text, what):
+    """Send alice -> bert while bob blocks alice, syncing alice's view in between, until bob rejects the send
+    (coordination contract, Authorization, COORD-11: the receiving host refuses a blocked sender with 403; the
+    sender records `rejected`, MSG-1). Any other final outcome (accepted, unknown, or a refusal on alice's side)
+    fails. Returns the rejected record."""
+    deadline = __import__("time").monotonic() + 20
+    while True:
+        result = send_to_bert(text)
+        if not rejection_problems(result):
+            return result.json
+        if __import__("time").monotonic() > deadline:
+            break
+        a.api("POST", f"/v2/networks/{state['net']}/sync", {})
+    got = send_outcome(result)
+    detail = f"exit {result.code}, stdout {result.stdout.strip()[-300:]!r}, stderr {result.stderr.strip()[-300:]!r}"
+    if got == "rejected":
+        check(False, f"{what}: bob rejected it, but not as MSG-1 requires: " + "; ".join(rejection_problems(result)))
+    check(False, f"{what}: final outcome {got}, want rejected by bob's host: {detail}")
+
+
+def check_blocked_on_wire(record, what):
+    """One raw peer append from alice to bert, citing the policy alice's rejected send cited: bob's host
+    refuses it with 403 `{code: "forbidden"}` (coordination contract, Authorization, COORD-11)."""
+    (bert,) = need("bert")
+    policy = (record.get("request") or {}).get("policy")
+    check(isinstance(policy, dict), f"{what}: the rejected send cites no policy: {record.get('request')}")
+    request_id = "request_" + os.urandom(16).hex()
+    deadline = rfc3339(datetime.now(timezone.utc) + timedelta(minutes=5))
+    status, body = peer(a, b, "POST", "/peer/v1/messages",
+                        {"request_id": request_id, "target_agent_id": bert.id, "deadline": deadline,
+                         "content": "raw while blocked", "policy": policy})
+    check(status == 403 and isinstance(body, dict) and body.get("code") == "forbidden",
+          f"{what}: raw peer append answered {status} {body}, want 403 code forbidden")
 
 
 def check_exit_0(result, want, what):
@@ -256,12 +306,13 @@ def _():
     check(terminal_escaped(error) in result.stdout, f"the readable record lacks the error {error!r}: {result.stdout[:400]!r}")
 
 
-@suite.case("block_overrides_allow", "launch-contract 3 block/unblock")
+@suite.case("block_overrides_allow", "launch-contract 3 block/unblock; coordination-contract Authorization (COORD-11)")
 def _():
     bob("allow", "everyone")
     check(message_to_bert() == "accepted", "allow everyone did not let alice in")
     b.ok("block", "alice")
-    check(message_to_bert(want="refused") != "accepted", "a blocked person's message was accepted")
+    record = blocked_send("blocked", "a blocked person's message")
+    check_blocked_on_wire(record, "a blocked person's raw message")
     b.ok("unblock", "alice")
     check(message_to_bert() == "accepted", "unblock did not restore access")
 
@@ -274,6 +325,8 @@ def _():
             check(result.ok, f"{verb} {target}: exit {result.code}: {result.stderr.strip()[-300:]}")
             check(not parses_as_json(result.stdout) and target in result.stdout,
                   f"readable `{verb} {target}` does not name {target}: {result.stdout[:300]!r}")
+            if verb == "block":
+                blocked_send("blocked", f"a message after the readable `block {target}`")
     check(message_to_bert() == "accepted", "access not restored after the readable unblocks")
 
 

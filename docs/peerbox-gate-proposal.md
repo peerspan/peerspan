@@ -116,7 +116,10 @@ paused waits; the owner can still accept or reject it by hand.
 
 Credit split along commit lineage; a gate shared across several peerboxes; a signed,
 hash-chained receipt log (decision 5); evaluators running anywhere but the home host;
-non-numeric objectives beyond pass and fail; parallel evaluation.
+non-numeric objectives beyond pass and fail; parallel evaluation. Collaborative
+reinforcement learning (closed-loop episodes, fresh held-out episodes per evaluation, paired
+comparison of noisy scores) is proposed in the
+[episodes proposal](peerbox-gate-episodes-proposal.md).
 
 ## Decisions
 

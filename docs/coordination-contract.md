@@ -502,6 +502,7 @@ A receiving host bound to person P authorizes a message to its local agent named
   - the connected-state rule applies unless `allow_disconnected` is set, with 503 when it can recover, as for grants.
 
 The **block list** is host-local, set by the owner with the commands below. A sender host blocked by host ID, or bound to a person blocked by person ID, is refused with 403 under both kinds of authorization, at once and without coordination.
+The receiving host refuses it with 403 `{code: "forbidden"}`, as for other authorization failures ([COORD-11](decision-log.md#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14)).
 
 Handoff and reply recheck authorization the same way. A lapsed or narrowed policy is final, like an expired or revoked grant. A recoverable connected state behaves as specified for grants.
 

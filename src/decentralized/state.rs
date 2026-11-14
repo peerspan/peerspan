@@ -48,8 +48,22 @@ impl Prior {
             return Ok(None);
         }
         let descriptor = serde_json::to_vec(d).map_err(|_| Error::new("internal"))?;
-        let key = super::memo::value_key(value, [descriptor.as_slice(), &[u8::from(read_only)]]);
-        if let Some(hit) = PRIORS.get(&key) {
+        // The clock guard is the one field that changes on every remembered
+        // decision, and reading only checks that it is a time (or `-`): an
+        // entry read under one guard is reused under any other, with the new
+        // guard in place of the old.
+        let key = super::memo::value_key_without(
+            value,
+            "clock_guard",
+            [descriptor.as_slice(), &[u8::from(read_only)]],
+        );
+        if let Some(mut hit) = PRIORS.get(&key) {
+            let guard = text(object(value)?, "clock_guard")?;
+            if guard != "-" {
+                stamp(guard)?;
+            }
+            hit.clock_guard = guard.to_owned();
+            hit.value["clock_guard"] = Value::from(guard);
             return Ok(Some(hit));
         }
         let prior = Self::read_verified(d, value, read_only)?;
@@ -222,7 +236,8 @@ pub struct Stream {
 /// Projections recently built by `Projection::build`, by all of its inputs.
 static BUILT: super::memo::Memo<Projection> = super::memo::Memo::new();
 /// Read projections recently built, by `Projection::read_key`: every input
-/// but the current time, with what the time decides in a read.
+/// but the current time and the prior's clock guard, with what the time
+/// decides in a read.
 static READS: super::memo::Memo<Projection> = super::memo::Memo::new();
 /// Whether a retained migration's prepared root was issued by `time`.
 fn migration_started(migration: &super::migration::Migration, time: &str) -> Result<bool> {
@@ -418,6 +433,12 @@ impl Projection {
         {
             if let Some(mut hit) = READS.get(&key) {
                 hit.decision_time = decision_time;
+                if let Some(prior) = hit.prior.as_mut()
+                    && let Some(guard) = prior_value.get("clock_guard").and_then(Value::as_str)
+                {
+                    prior.clock_guard = guard.to_owned();
+                    prior.value["clock_guard"] = Value::from(guard);
+                }
                 return Ok(hit);
             }
             let projection =
@@ -481,7 +502,13 @@ impl Projection {
                 facts.push(u8::from(issued_by(s, &decision_time)));
             }
         }
-        let key = super::memo::value_key(prior_value, [descriptor, b"read", &facts]);
+        // The prior's clock guard enters a read only through the decision
+        // time, so it is left out of the key like the time itself.
+        let key = super::memo::value_key_without(
+            prior_value,
+            "clock_guard",
+            [descriptor, b"read", &facts],
+        );
         Some((key, decision_time))
     }
     /// Verify additional exact proof bytes against an already trusted snapshot.
