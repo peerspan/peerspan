@@ -48,7 +48,13 @@ asks L's provider to pull from that socket:
 4. **L's provider pulls** with its existing `POST /v1/pull` from the proxy socket. PeerFS checks
    each object's identity and kind, stores children before what refers to them so its store stays
    closed, checks each commit's signature through its key check (section 3), and writes the
-   tracking reference `<S>:<SPACE>/<BRANCH>` last.
+   tracking reference `<S>:<SPACE>/<BRANCH>` last. Its answer is PeerFS's `PullResponse`
+   (`peerfs-api`): 200 with exactly `{remote, branch, head, objects, bytes}`, each once, where
+   `remote` is the `host` the proxy reported, `branch` the pulled branch and `head` the target
+   selected in step 2; a refusal is a non-200 status with `{code, error}`. B's host accepts the
+   pull only when `remote`, `branch` and `head` are those; any other 200 answer, or one that does
+   not parse, is 503 `unavailable`, as for an unavailable provider. A refusal is mapped as
+   section 6 says.
 5. **The answer:** `{peer, space, branch, into, tracking, head, objects, bytes}`, with the number
    of objects and bytes fetched in this pull.
 
@@ -134,7 +140,7 @@ target head and the byte count; the owner's too.
 | 404 `not_found` | S does not share that branch with B in N, or no such local space |
 | 409 `conflict` | L's binding not registered, in another network, or its directory changed; another pull of the same shared branch into L running |
 | 502 `remote` | S's answer was malformed, or an object or signature failed its check |
-| 503 `unavailable` | S unreachable, S's space not serving, or L's provider unavailable |
+| 503 `unavailable` | S unreachable, S's space not serving, or L's provider unavailable or answering its pull malformed |
 | 507 `too_large` | The pull's byte bound reached |
 
 ## 7. Verification
