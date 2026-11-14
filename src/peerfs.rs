@@ -4,6 +4,7 @@ mod commit;
 mod directory;
 mod provider;
 mod read;
+mod reader;
 
 pub(crate) use read::{MAX_OBJECTS_ANSWER, peer_routes};
 
@@ -175,6 +176,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         )
         .layer(DefaultBodyLimit::max(BODY))
         .layer(middleware::from_fn(bounded))
+        .merge(reader::local_routes())
 }
 fn body(input: Result<Bytes, BytesRejection>) -> Result<Bytes, Error> {
     input.map_err(|error| {
