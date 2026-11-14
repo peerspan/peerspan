@@ -761,9 +761,10 @@ pub fn sweep(store: &Store, now: DateTime<Utc>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Deletes contribution refs that no record names, and repairs member
-/// refs naming an unrecorded head, both left by a submission interrupted
-/// between storing its refs and its record.
+/// Startup recovery (peerbox contract): deletes contribution refs that no
+/// record names, and sets every member ref to what the latest recorded
+/// submission of that person on that branch requires, both left by a
+/// submission interrupted between its refs and its record.
 pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
     let records = super::records(&*store.connection()?)?;
     if records.is_empty() {
@@ -788,9 +789,10 @@ pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
                 let _ = git.delete_ref(&repo, name, None);
             }
         }
-        // A member ref naming a head no record of that person and branch
-        // holds goes back to the latest recorded submission there, or
-        // away when that one was withdrawn (or there is none).
+        // Every member ref is set to what the latest recorded submission of
+        // that person on that branch requires: its head, or no ref when it
+        // was withdrawn or there is none (peerbox contract, Startup
+        // recovery).
         let prefix = format!("refs/peerbox/{}/members/", rec.peerbox_id);
         let Ok(listed) = git.text(
             &repo,
@@ -799,39 +801,44 @@ pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
         ) else {
             continue;
         };
-        let contributions = of_peerbox(&*store.connection()?, &rec.peerbox_id)?;
-        for line in listed.lines() {
-            let Some((name, head)) = line.split_once(' ') else {
+        let mut actual: std::collections::BTreeMap<String, String> = listed
+            .lines()
+            .filter_map(|l| l.split_once(' '))
+            .map(|(name, head)| (name.to_owned(), head.to_owned()))
+            .collect();
+        // Newest first by (submitted_at, contribution_id): the first record
+        // of each person and branch is the latest.
+        let mut expected: std::collections::BTreeMap<String, Option<String>> = Default::default();
+        for c in of_peerbox(&*store.connection()?, &rec.peerbox_id)? {
+            let Some(person) = c.contributor.person_id.as_deref() else {
                 continue;
             };
-            let Some((person, branch)) = name
-                .strip_prefix(&prefix)
-                .and_then(|rest| rest.split_once('/'))
-            else {
-                continue;
-            };
-            let mine: Vec<&Contribution> = contributions
-                .iter()
-                .filter(|c| {
-                    c.contributor.person_id.as_deref() == Some(person) && c.branch == branch
-                })
-                .collect();
-            if mine.iter().any(|c| c.head == head) {
+            if !ref_safe(person) {
                 continue;
             }
-            // Newest first: the latest recorded submission on that branch.
-            match mine.first() {
-                Some(latest) if latest.state != SUPERSEDED => {
-                    let _ = git.text(
-                        &repo,
-                        &["update-ref", name, &latest.head, head],
-                        "unavailable",
-                    );
+            expected
+                .entry(member_ref(&rec.peerbox_id, person, &c.branch))
+                .or_insert_with(|| (c.state != SUPERSEDED).then(|| c.head.clone()));
+        }
+        for (name, want) in &expected {
+            let have = actual.remove(name);
+            match (want, have) {
+                (Some(want), Some(have)) if *want == have => {}
+                (Some(want), Some(have)) => {
+                    let _ = git.text(&repo, &["update-ref", name, want, &have], "unavailable");
                 }
-                _ => {
-                    let _ = git.delete_ref(&repo, name, Some(head));
+                (Some(want), None) => {
+                    let _ = git.text(&repo, &["update-ref", name, want, ""], "unavailable");
                 }
+                (None, Some(have)) => {
+                    let _ = git.delete_ref(&repo, name, Some(&have));
+                }
+                (None, None) => {}
             }
+        }
+        // Member refs of a person and branch with no record at all.
+        for (name, have) in actual {
+            let _ = git.delete_ref(&repo, &name, Some(&have));
         }
     }
     Ok(())
