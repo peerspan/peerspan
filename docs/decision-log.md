@@ -15,7 +15,10 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
+  - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
+  - [PBX-23: which providers sign an invitation's share automatically](#pbx-23-which-providers-sign-an-invitations-share-automatically-2026-11-14) (2026-11-14)
   - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
@@ -76,6 +79,84 @@ Contents:
 
 ## Full entries
 
+### PF-07 to PF-11: pulling a shared PeerFS branch across hosts (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** PeerFS host integration, PF-3: how a reader's host brings a branch shared with it into one of its own PeerFS spaces.
+- **Source:** the owner's answers to five questions after the PF-2 contract amendments merged. The options below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-pull-contract.md](peerfs-pull-contract.md), sections 2 to 5.
+- **Implementing PRs:** none yet.
+
+#### PF-07. How a pull runs
+
+- **Question:** "PF-3: how does a reader's host bring a shared remote branch into its own PeerFS space? PeerFS's own pull already verifies every object's content, kind, hash and signature, keeps its store closed, and writes the tracking reference last; it talks to its source through three calls (space info, branch heads, object fetch)."
+- **Options:**
+  - (a) Host serves a proxy: "For one pull, the reader's host serves those three calls on a private local socket, answering them from the sharing host's peer routes, and asks its own PeerFS to pull from that socket. All verification, resumption and the tracking reference stay in PeerFS's existing pull; the host adds only transport and authorization."
+  - (b) Host imports directly: "The reader's host fetches objects itself and hands them to its PeerFS (objects/receive), then sets the tracking reference. No proxy socket, but the host re-implements the pull's ordering, resumption and reference rules alongside PeerFS's."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** PeerFS's pull needs every object it asks for in one answer, while a PF-2 `objects` answer holds only the leading objects that fit 16 MiB, so the proxy asks again for the rest and answers with one batch. This is a contract choice within PF-07.
+- **Note:** the proxy reports the remote name `<S>:<SPACE>`, so the tracking reference is `<S>:<SPACE>/<BRANCH>` and branches of one name in two spaces S shares do not collide. Raised in review of the contract (#242); also a contract choice within PF-07.
+
+#### PF-08. Where a pulled branch lands
+
+- **Question:** "Where does a pulled branch land on the reader?"
+- **Options:**
+  - (a) An existing local space: "One of the reader's own registered host-backed spaces in the same network, named on the command. The sharing host's commits verify there because its key check uses that network's admission history. The branch arrives as `<sharing host>/<branch>`, as local pulls do."
+  - (b) A new mirror space: "Each remote space gets its own local space, created and bound on first pull. Keeps remote content apart, but every pull would prepare, initialize and activate a space first, and the reader has more spaces to manage."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-09. Who can start a pull
+
+- **Question:** "Who can start a pull in PF-3?"
+- **Options:**
+  - (a) Owner command only: "`peerspan fs pull` run by the reader host's owner; that run is the receiving side's consent. An agent tool to pull, with its own consent rules, comes later."
+  - (b) Owner and agents: "Also expose pulling to the reader's agents now, as a tool. That needs its own consent and quota rules in this contract."
+- **Recommended:** (a).
+- **Chosen:** (b).
+- **Reason given:** none given. PF-10 and PF-11 were asked as a result, as the option said.
+
+#### PF-10. What lets an agent pull
+
+- **Question:** "PF-3 agent pulls: what lets one of the reader host's agents pull a shared branch into a local space?"
+- **Options:**
+  - (a) Owner grants per space: "The owner runs `fs allow-pull AGENT --space LOCAL_SPACE` (and `fs deny-pull`), stored only on this host, never in signed policy. That agent may then pull any branch shared with this host into that space through its MCP tool, with no prompt each time. Withdrawing it stops the next pull."
+  - (b) Approve each pull: "Each agent pull waits for the owner's approval, as capability calls needing approval do. Strongest control, but an agent that pulls often blocks on the owner every time."
+  - (c) Any of the owner's agents: "Every agent registered on this host may pull into any of its registered spaces. Simplest, but any agent can fill any space with remote content."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### PF-11. How much one pull may bring in
+
+- **Question:** "How much may one pull bring in? A shared branch's whole history can be large, and agent pulls would run unattended."
+- **Options:**
+  - (a) Bounded per pull: "Each pull stops before it fetches more than a byte bound (default 1 GiB; the owner command can raise it with --max-bytes, an agent's grant sets its own). Stopping leaves no tracking reference, and a later pull with a larger bound resumes from what was fetched."
+  - (b) No limit: "A pull fetches whatever the branch reaches. Fine for the owner's own use, but an agent pull of a huge branch fills the disk."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the bound is checked on the bytes S has answered, so a pull may exceed it by at most one 16 MiB answer; and since PeerFS keeps only checked blobs from a failed pull, a resumed pull fetches the trees and commits again. Both are contract choices within PF-11.
+
+### PF-06: an object larger than an objects answer (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** PeerFS host integration, PF-2: the `objects` peer route's 16 MiB answer bound.
+- **Source:** the implementation in #239 found that the contract's "the leading objects that fit, at least one" cannot hold when the first requested object alone is over 16 MiB. The question put to the owner and its options are quoted below.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [peerfs-read-contract.md](peerfs-read-contract.md), section 5 (objects batches).
+- **Implementing PRs:** [#239](https://github.com/peerspan/peerspan/pull/239).
+- **Question:** "If the first requested object alone is over 16 MiB (a tree or chunk list of about 500K entries), the answer is 503. That conflicts with the contract's \"at least one\". I'd amend the contract to say so; the alternative is allowing a single over-bound object."
+- **Options:**
+  - (a) Amend the contract: such a request is 503.
+  - (b) Allow one object over the bound in an answer.
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
 ### PF-03 to PF-05: reading a shared PeerFS branch (2026-11-14)
 
 - **Date:** 2026-11-13 (PF-03) and 2026-11-14 (PF-04, PF-05).
@@ -114,6 +195,22 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question.
 - **Note:** the listing leaves heads out, so listing contacts no provider; a separate `head` route answers them. This is a contract choice within PF-05.
+
+### PBX-23: which providers sign an invitation's share automatically (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: invitations, step 4 (the home host signing the pending share after admission).
+- **Source:** slice C's implementer (PR #234). The contract said the share waits when "the network's provider for the owner needs the owner's interaction (an SSH person key, for example)"; the suite's hosts all use a device provider with a host-held seed, so the case expecting a wait could not hold, and it was unclear whether only the owner's original person key may sign automatically.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Invitations for new participants](peerbox-contract.md#invitations-for-new-participants).
+- **Implementing PRs:** #234.
+
+#### PBX-23. Which providers sign automatically
+
+- **Options:** (a) Any provider the network selected for the owner that signs without the owner's interaction (a device provider whose seed the home host holds); the share waits for `peerbox share --pending` only for an interactive one (an SSH person key, `sshsig`, or no seed on this host). (b) Only the owner's original person key held on the home host; anything else, a device provider included, waits for the owner.
+- **Recommended:** (a): "it matches the contract's wording, keeps invitations one step for owners whose host can sign, and the provider is one the network already trusts to sign the owner's policy."
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
 
 ### PBX-22: a peerbox task's past deadline (2026-11-14)
 

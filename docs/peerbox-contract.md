@@ -223,8 +223,11 @@ person already in the network gets access through `peerbox share` instead.
 4. **Share.** When the home host admits the admission of the person whose request came
    through that invitation ID, it grants `person:` that person the pending share's actions and
    bounds exactly as `peerbox share --for` would (CLI, below), leaving every other
-   principal's rule as it is, and signs the next policy version as `peerbox share` does. When the network's provider for the owner needs the owner's interaction (an SSH
-   person key, for example), status shows `peerbox_share_waiting` with the command
+   principal's rule as it is, and signs the next policy version as `peerbox share` does, automatically, with the provider the
+   network selected for the owner whenever that provider signs without the owner's interaction
+   (a device provider whose seed this host holds, for example) (PBX-23). When it needs the
+   owner's interaction (an SSH person key, an `sshsig` provider, or a provider with no seed on
+   this host), status shows `peerbox_share_waiting` with the command
    `peerbox share --pending INVITATION_ID` instead, and the pending share is kept, across
    restarts, until that command signs it. The pending share is deleted only once a policy
    version granting it is signed.
