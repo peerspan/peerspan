@@ -146,6 +146,20 @@ def settled(h):
     time.sleep(0.1)
     return wait_for(stable, timeout=3, interval=0.1, message="quiescent ordinary host-owned maintenance")
 
+def invitation_retired(f):
+    # Spec 8.1 step 4 (DEC-Q26): the inviter keeps the invite's return row in
+    # dec_pending only until the invite expires; its 2-second return reader
+    # deletes it after that. The one-hour invite ends before the request
+    # window, so once a test clock passes it, wait for that ordinary deletion
+    # before attributing any dec_pending change to a measured call.
+    a = f["a"]
+    if a.now() < parse_time(f["invitation_expires_at"]):
+        return
+    def gone():
+        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True, timeout=30)) as db:
+            return db.execute("SELECT 1 FROM dec_pending WHERE request_id=?", (f["invitation_id"],)).fetchone() is None
+    wait_for(gone, timeout=10, interval=.1, message="expired invitation return-row retirement (DEC-Q26)")
+
 def public(value, *secrets):
     text = json.dumps(value, ensure_ascii=False, default=str)
     for index, marker in enumerate((*PREFIXES, 'payload_base64', 'template_base64', 'message_base64',
@@ -209,7 +223,8 @@ def pair(name, *, scopes=7, short=False, before_owner=None, ssh_root=False):
     check(status == 201, "public ordinary original request fixture")
     rid, reply = request["request_id"], request["display_code"]
     f = dict(a=a, b=b, parent=parent, remote_parent=remote_parent, network=net, key=key,
-             person=person, member=member, code=code, reply=reply, rid=rid)
+             person=person, member=member, code=code, reply=reply, rid=rid,
+             invitation_id=issued["invitation_id"], invitation_expires_at=issued["expires_at"])
     def returned():
         values = get(a, "/v2/link/requests")
         return next((v for v in values if v["request_id"] == rid), None)
@@ -331,7 +346,7 @@ def op(f, action, prepared=None, *, parent=None, status=200, code=None, override
 
 
 def pure(f, action, prepared=None, *, parent=None, status=200, code=None, override=None):
-    a = f["a"]; settled(a); before = snapshot(a)
+    a = f["a"]; invitation_retired(f); settled(a); before = snapshot(a)
     value = op(f, action, prepared, parent=parent, status=status, code=code, override=override)
     after = snapshot(a)
     tables = sorted(k for k in set(before[0]) | set(after[0]) if before[0].get(k) != after[0].get(k))
