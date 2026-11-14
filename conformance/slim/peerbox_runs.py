@@ -294,7 +294,7 @@ def _():
 
 @case("deadline_past_and_expiry", "task contract (deadline in the future at the receiver; queued at its deadline "
                                   "becomes expired); peerbox Requests; runtime Running (expired before dispatch); "
-                                  "test clock")
+                                  "test clock", known=None)
 def _():
     a, b, rt, main = need("a", "b", "rt", "main")
     need("ready")
