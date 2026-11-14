@@ -295,10 +295,13 @@ the member ref back and stores nothing.
 
 **Startup recovery.** When the home host starts, before it serves peerbox tasks, it repairs
 what a submission interrupted between its refs and its record can leave, in each peerbox's
-repository: it deletes every contribution ref that names no contribution record, and every
-member ref whose head no record of that person and branch holds goes back to the latest
-recorded submission on that branch (newest by `(submitted_at, contribution_id)`), or is
-deleted when that submission was withdrawn (`superseded`) or there is none. This is besides
+repository: it deletes every contribution ref that names no contribution record, and it sets
+every member ref to what the latest recorded submission of that person on that branch (newest
+by `(submitted_at, contribution_id)`) requires: that submission's head, or no member ref when
+that submission was withdrawn (`superseded` by withdrawal) or there is none. Each member ref is
+compared with that expected state, not merely checked for a head some record holds, so an
+interrupted resubmission of an older head (A, then B, then A again with no record saved) goes
+back to B. This is besides
 the deletion of contribution refs 30 days after `rejected` or `superseded`.
 
 ### Status and withdraw
@@ -910,8 +913,9 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
 - invitations: `peerbox invite` printing a `psb1-` code that `peerbox join` and `join` accept; after admission, the rule signed for exactly the admitted person with the pending share's actions and bounds, and the joiner listing and fetching the peerbox; an expired or cancelled pending share giving membership and no access; a joiner already in the network refused; a code given as a command argument refused; a share waiting for the owner's signature kept
 across a restart and completed by `peerbox share --pending`; the pending share kept across a restart of the home host;
 - restarts of both hosts during a fetch and a submit, and records kept; after a restart, no
-  contribution ref without a record, and every member ref naming the head of a recorded
-  submission;
+  contribution ref without a record, and every member ref naming the head of the latest
+  recorded submission on its branch (none after a withdrawal), including after an interrupted
+  resubmission of an older head;
 - opening a database of the previous schema version.
 
 `peerbox_agents` (second tier) covers, through the adapter socket and MCP as the runtime
