@@ -5,7 +5,7 @@
 //! caller chose: it must be a real socket owned by this account with mode 0600, its peer
 //! process must run as this account, and its `GET /v1/host-bridge` identity must match the
 //! binding exactly. Connecting is bounded to 1 second and the whole probe to the operation.
-use super::{Operation, View, conflict, directory::Pinned, forbidden, unavailable};
+use super::{Operation, View, conflict, directory::Pinned, forbidden, too_large, unavailable};
 use crate::model::Error;
 use serde::Deserialize;
 use std::{
@@ -232,6 +232,161 @@ pub(super) fn branch(
     }))
 }
 
+/// Reads branch `name`'s current head from the provider serving `view`'s space, after
+/// the activation probe, or `None` when the space has no such branch. Read-only.
+pub(super) fn head(
+    dir: &Pinned,
+    view: &View,
+    name: &str,
+    op: &Operation,
+) -> Result<Option<String>, Error> {
+    /// One entry of `GET /v1/branches`, with its head.
+    #[derive(Deserialize)]
+    struct Headed {
+        name: String,
+        head: String,
+    }
+    probe(dir, view, op)?;
+    let (status, body) = get(dir, "/v1/branches", MAX_BRANCHES, op)?;
+    if status != 200 {
+        return Err(unavailable());
+    }
+    let branches: Vec<Headed> = serde_json::from_slice(&body).map_err(|_| conflict())?;
+    let Some(found) = branches.into_iter().find(|b| b.name == name) else {
+        return Ok(None);
+    };
+    if object_id(&found.head).is_none() {
+        return Err(conflict());
+    }
+    op.check()?;
+    Ok(Some(found.head))
+}
+
+/// An object ID's encoded bytes: its algorithm code (1, BLAKE3) and 32-byte digest, as
+/// 66 lowercase hex digits; `None` when the text is not one.
+pub(super) fn object_id(text: &str) -> Option<[u8; OBJECT_ID]> {
+    if text.len() != 2 * OBJECT_ID
+        || !text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return None;
+    }
+    let mut id = [0u8; OBJECT_ID];
+    hex::decode_to_slice(text, &mut id).ok()?;
+    (id[0] == 1).then_some(id)
+}
+/// Bytes in an encoded object ID.
+pub(super) const OBJECT_ID: usize = 33;
+
+/// What the provider answered a fetch within a branch.
+pub(super) enum Fetched {
+    /// The branch is absent, or its current head does not reach every object.
+    NotReached,
+    /// The leading objects, in request order, whose encoding fits the bound: a PeerFS
+    /// object batch (`peerfs_core::encode_objects`).
+    Batch(Vec<u8>),
+}
+
+/// Fetches `ids` (each an [`object_id`]) from the provider serving `view`'s space, after
+/// the activation probe, with `within: branch`, so it answers only when the branch's
+/// current head reaches every one. The answer holds the leading objects whose batch
+/// encoding stays within `max` bytes; the rest of the provider's answer is not read.
+/// The provider must return exactly the requested objects, in order: one missing makes
+/// the whole fetch [`Fetched::NotReached`]; any other difference is a conflict.
+pub(super) fn fetch(
+    dir: &Pinned,
+    view: &View,
+    branch: &str,
+    ids: &[String],
+    max: usize,
+    op: &Operation,
+) -> Result<Fetched, Error> {
+    let wanted: Vec<[u8; OBJECT_ID]> = ids
+        .iter()
+        .map(|id| object_id(id).ok_or_else(conflict))
+        .collect::<Result<_, _>>()?;
+    probe(dir, view, op)?;
+    let body = serde_json::to_vec(&serde_json::json!({"ids": ids, "within": branch}))
+        .map_err(|_| conflict())?;
+    let mut reply = send(dir, "POST", "/v1/objects/fetch", Some(&body), op)?;
+    match reply.status {
+        200 => {}
+        404 => return Ok(Fetched::NotReached),
+        // An older provider refuses `within` as an unknown field.
+        _ => return Err(unavailable()),
+    }
+    let mut consumed = 0;
+    let count = reply.varint(&mut consumed)?;
+    if count < wanted.len() as u64 {
+        return Ok(Fetched::NotReached);
+    }
+    if count != wanted.len() as u64 {
+        return Err(conflict());
+    }
+    let mut objects = Vec::new();
+    let mut taken = 0usize;
+    for id in &wanted {
+        let mut found = [0u8; OBJECT_ID];
+        reply.exact(&mut found, &mut consumed)?;
+        if &found != id {
+            return Err(conflict());
+        }
+        let mut kind = [0u8; 1];
+        reply.exact(&mut kind, &mut consumed)?;
+        if !(1..=4).contains(&kind[0]) {
+            return Err(conflict());
+        }
+        let length = reply.varint(&mut consumed)?;
+        let length = usize::try_from(length).map_err(|_| conflict())?;
+        let mut entry = Vec::with_capacity(OBJECT_ID + 11);
+        entry.extend_from_slice(&found);
+        entry.push(kind[0]);
+        varint(&mut entry, length as u64);
+        let size = entry.len().checked_add(length).ok_or_else(conflict)?;
+        let total = varint_len(taken as u64 + 1) + objects.len() + size;
+        if total > max {
+            if taken == 0 {
+                // Even the first object alone does not fit the answer's bound.
+                return Err(too_large());
+            }
+            break;
+        }
+        let start = entry.len();
+        entry.resize(size, 0);
+        reply.exact(&mut entry[start..], &mut consumed)?;
+        objects.extend_from_slice(&entry);
+        taken += 1;
+    }
+    if taken == wanted.len() && Some(consumed) != reply.length {
+        return Err(conflict());
+    }
+    op.check()?;
+    let mut batch = Vec::with_capacity(varint_len(taken as u64) + objects.len());
+    varint(&mut batch, taken as u64);
+    batch.extend_from_slice(&objects);
+    Ok(Fetched::Batch(batch))
+}
+
+/// Appends `value` as PeerFS encodes integers: unsigned LEB128.
+fn varint(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let low = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(low);
+            return;
+        }
+        out.push(low | 0x80);
+    }
+}
+/// The encoded length of `value` as [`varint`] writes it.
+fn varint_len(value: u64) -> usize {
+    let mut out = Vec::new();
+    varint(&mut out, value);
+    out.len()
+}
+
 /// A path segment, percent-encoded except for unreserved bytes.
 fn segment(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -248,47 +403,66 @@ fn segment(text: &str) -> String {
 /// Sends `GET path` over a new checked connection to the provider's socket and returns
 /// the status and a body of at most `max` bytes. Chunked bodies are refused.
 fn get(dir: &Pinned, path: &str, max: usize, op: &Operation) -> Result<(u16, Vec<u8>), Error> {
+    let mut reply = send(dir, "GET", path, None, op)?;
+    let status = reply.status;
+    Ok((status, reply.body(max)?))
+}
+
+/// A provider's response whose head was read: its status, its declared length, and a
+/// reader of the rest of its body within the operation's deadline.
+struct Reply<'a> {
+    status: u16,
+    length: Option<usize>,
+    /// Body bytes already read with the head.
+    pending: Vec<u8>,
+    stream: UnixStream,
+    op: &'a Operation,
+}
+/// The largest response head accepted.
+const MAX_HEAD: usize = 16 << 10;
+
+/// Sends one request over a new checked connection to the provider's socket and reads
+/// the response's head. Chunked bodies are refused.
+fn send<'a>(
+    dir: &Pinned,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+    op: &'a Operation,
+) -> Result<Reply<'a>, Error> {
     op.check()?;
     check_socket(dir)?;
     let mut stream = connect(dir, op)?;
     check_peer(&stream, dir.stamp.uid)?;
-    let left = || {
-        op.0.at
-            .checked_duration_since(Instant::now())
-            .filter(|left| !left.is_zero())
-            .ok_or_else(unavailable)
-    };
     stream
-        .set_write_timeout(Some(left()?))
+        .set_write_timeout(Some(left(op)?))
         .map_err(|_| unavailable())?;
-    stream
-        .write_all(
-            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-                .as_bytes(),
-        )
-        .map_err(|_| unavailable())?;
+    let mut request =
+        format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n");
+    if let Some(body) = body {
+        request.push_str(&format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        ));
+    }
+    request.push_str("\r\n");
+    let mut request = request.into_bytes();
+    request.extend_from_slice(body.unwrap_or_default());
+    stream.write_all(&request).map_err(|_| unavailable())?;
     let mut response = Vec::new();
     let mut buf = [0u8; 4096];
-    loop {
-        stream
-            .set_read_timeout(Some(left()?))
-            .map_err(|_| unavailable())?;
-        match stream.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                response.extend_from_slice(&buf[..n]);
-                if response.len() > max + 4096 {
-                    return Err(conflict());
-                }
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => return Err(unavailable()),
+    let split = loop {
+        if let Some(split) = response.windows(4).position(|w| w == b"\r\n\r\n") {
+            break split;
         }
-    }
-    let split = response
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or_else(conflict)?;
+        if response.len() > MAX_HEAD {
+            return Err(conflict());
+        }
+        match read(&mut stream, &mut buf, op)? {
+            0 => return Err(conflict()),
+            n => response.extend_from_slice(&buf[..n]),
+        }
+    };
     let head = std::str::from_utf8(&response[..split]).map_err(|_| conflict())?;
     let mut lines = head.split("\r\n");
     let status = lines
@@ -297,7 +471,7 @@ fn get(dir: &Pinned, path: &str, max: usize, op: &Operation) -> Result<(u16, Vec
         .and_then(|rest| rest.get(..3))
         .and_then(|code| code.parse::<u16>().ok())
         .ok_or_else(conflict)?;
-    let mut body = &response[split + 4..];
+    let mut length = None;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             return Err(conflict());
@@ -306,15 +480,116 @@ fn get(dir: &Pinned, path: &str, max: usize, op: &Operation) -> Result<(u16, Vec
             return Err(conflict());
         }
         if name.eq_ignore_ascii_case("content-length") {
-            let length: usize = value.trim().parse().map_err(|_| conflict())?;
-            if length > max || body.len() < length {
+            if length.is_some() {
                 return Err(conflict());
             }
-            body = &body[..length];
+            length = Some(value.trim().parse::<usize>().map_err(|_| conflict())?);
         }
     }
-    if body.len() > max {
-        return Err(conflict());
+    Ok(Reply {
+        status,
+        length,
+        pending: response[split + 4..].to_vec(),
+        stream,
+        op,
+    })
+}
+
+/// The time left of the operation, or 503 when none is.
+fn left(op: &Operation) -> Result<Duration, Error> {
+    op.0.at
+        .checked_duration_since(Instant::now())
+        .filter(|left| !left.is_zero())
+        .ok_or_else(unavailable)
+}
+
+/// One read from the provider within the operation's deadline; 0 at its end.
+fn read(stream: &mut UnixStream, buf: &mut [u8], op: &Operation) -> Result<usize, Error> {
+    loop {
+        stream
+            .set_read_timeout(Some(left(op)?))
+            .map_err(|_| unavailable())?;
+        match stream.read(buf) {
+            Ok(n) => return Ok(n),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return Err(unavailable()),
+        }
     }
-    Ok((status, body.to_vec()))
+}
+
+impl Reply<'_> {
+    /// The whole body, at most `max` bytes: its declared length, or up to the end of the
+    /// stream when none is declared.
+    fn body(&mut self, max: usize) -> Result<Vec<u8>, Error> {
+        if self.length.is_some_and(|length| length > max) {
+            return Err(conflict());
+        }
+        let mut body = std::mem::take(&mut self.pending);
+        let mut buf = [0u8; 4096];
+        loop {
+            if let Some(length) = self.length
+                && body.len() >= length
+            {
+                body.truncate(length);
+                return Ok(body);
+            }
+            if body.len() > max {
+                return Err(conflict());
+            }
+            match read(&mut self.stream, &mut buf, self.op)? {
+                0 if self.length.is_none() => return Ok(body),
+                0 => return Err(conflict()),
+                n => body.extend_from_slice(&buf[..n]),
+            }
+        }
+    }
+
+    /// Exactly `out.len()` more body bytes, within the declared length.
+    fn exact(&mut self, out: &mut [u8], consumed: &mut usize) -> Result<(), Error> {
+        let length = self.length.ok_or_else(conflict)?;
+        if consumed
+            .checked_add(out.len())
+            .is_none_or(|end| end > length)
+        {
+            return Err(conflict());
+        }
+        let mut filled = 0;
+        while filled < out.len() {
+            if !self.pending.is_empty() {
+                let n = self.pending.len().min(out.len() - filled);
+                out[filled..filled + n].copy_from_slice(&self.pending[..n]);
+                self.pending.drain(..n);
+                filled += n;
+                continue;
+            }
+            let n = read(&mut self.stream, &mut out[filled..], self.op)?;
+            if n == 0 {
+                return Err(conflict());
+            }
+            filled += n;
+        }
+        *consumed += out.len();
+        Ok(())
+    }
+
+    /// One unsigned LEB128 integer, canonical as PeerFS encodes it.
+    fn varint(&mut self, consumed: &mut usize) -> Result<u64, Error> {
+        let mut value: u64 = 0;
+        for shift in (0..64).step_by(7) {
+            let mut byte = [0u8; 1];
+            self.exact(&mut byte, consumed)?;
+            let low = u64::from(byte[0] & 0x7f);
+            if shift == 63 && low > 1 {
+                return Err(conflict());
+            }
+            value |= low << shift;
+            if byte[0] & 0x80 == 0 {
+                if byte[0] == 0 && shift > 0 {
+                    return Err(conflict());
+                }
+                return Ok(value);
+            }
+        }
+        Err(conflict())
+    }
 }
