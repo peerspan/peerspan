@@ -45,7 +45,13 @@ pub(crate) fn sign_peerbox_rules(
             }
             Err(e) => return Err(e),
         };
-        if provider.provider.kind == "root" {
+        // Only a key this host holds signs without the owner: an SSH person
+        // key (`sshsig`, no seed here) needs the owner's interaction
+        // (Invitations for new participants 4), as does the network root.
+        if provider.provider.kind == "root"
+            || provider.provider.signature_format != "ed25519"
+            || provider.seed.is_none()
+        {
             return Ok(Signing::NeedsOwner);
         }
         let public = provider.public(&p, &store.identity().public_key, false)?;
