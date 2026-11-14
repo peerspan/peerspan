@@ -18,6 +18,7 @@ Contents:
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
+  - [PBX-24: the peerbox suite's lapsed sender and an expired owner policy](#pbx-24-the-peerbox-suites-lapsed-sender-and-an-expired-owner-policy-2026-11-14) (2026-11-14)
   - [PBX-23: which providers sign an invitation's share automatically](#pbx-23-which-providers-sign-an-invitations-share-automatically-2026-11-14) (2026-11-14)
   - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
@@ -195,6 +196,22 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question.
 - **Note:** the listing leaves heads out, so listing contacts no provider; a separate `head` route answers them. This is a contract choice within PF-05.
+
+### PBX-24: the peerbox suite's lapsed sender and an expired owner policy (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: the `peerbox` suite's `lapsed_sender` and `renewal_keeps_peerbox_rules` cases (test clock).
+- **Source:** the suite author, running the suite on slice C's build (PR #234). `lapsed_sender` moves the clock about 4 days so the sender's grants lapse, which lapses the owner's 24-hour policy too (spec 4.4: no grace; 7.1 and the coordination contract's Expired policies: automatic renewal skips a policy already expired). The case then needed a current owner policy, and `renewal_keeps_peerbox_rules` after it failed with no current policy. The contract's way to revive it, `access renew` (coordination-contract.md lines 520 and 534; launch-contract.md line 103, `policy_expired`), refuses with "you have no policy in this network", while an ordinary `allow` edit from the same expired policy succeeds.
+- **Recorded in:** this log and the `peerbox` suite (this PR).
+- **Contract section:** [coordination-contract.md, Renewal and Commands](coordination-contract.md#renewal); [launch-contract.md, attention item 2](launch-contract.md).
+- **Implementing PRs:** none yet (the host fix to `access renew`).
+
+#### PBX-24. Suite or host first
+
+- **Options:** (1) change the suite now: run `renewal_keeps_peerbox_rules` before the 4-day jump, and have `lapsed_sender` revive the owner's policy with `access renew` and require it current, a strict expected failure until the host is fixed; then fix the host. (2) Fix `access renew` in the host first, and change the suite after. (3) Change the suite only, reviving the policy another way and leaving `access renew` as it is.
+- **Recommended:** (1).
+- **Chosen:** (1).
+- **Reason given:** it unblocks slice C, whose suite run otherwise fails `renewal_keeps_peerbox_rules`; the `access renew` contract (coordination-contract.md:520 and 534, launch-contract.md:103) is fixed in the host separately.
 
 ### PBX-23: which providers sign an invitation's share automatically (2026-11-14)
 
