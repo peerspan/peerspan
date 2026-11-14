@@ -3,8 +3,11 @@
 //! inputs, and one command repeats each of them many times on the same
 //! inputs; a memo keyed by a hash of every input returns the earlier result
 //! instead. Loading a join request is the same, and background workers
-//! reload every request on each pass. Only successes are kept, nothing is
-//! persisted, and a full memo starts over.
+//! reload every request on each pass; so are reading a statement, a prior,
+//! a stored frame and the untimed checks of opening one, which every
+//! catalog read, projection and request pass repeats on the same bytes.
+//! Only successes are kept, nothing is persisted, and a full memo starts
+//! over.
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, sync::Mutex};
 
@@ -99,4 +102,52 @@ pub(crate) fn hash_rows(
     }
     hash.update([0xfe]);
     Ok(())
+}
+
+/// Adds `value` to `hash`, each node tagged with its type and every string,
+/// key and array length-prefixed, so different values give different keys.
+/// Unlike hashing its JSON text, strings are hashed as their bytes, without
+/// escaping, which matters for a projection's megabyte catalog field.
+pub(crate) fn hash_value(hash: &mut Sha256, value: &serde_json::Value) {
+    use serde_json::Value;
+    fn bytes(hash: &mut Sha256, tag: u8, bytes: &[u8]) {
+        hash.update([tag]);
+        hash.update((bytes.len() as u64).to_be_bytes());
+        hash.update(bytes);
+    }
+    match value {
+        Value::Null => hash.update([0]),
+        Value::Bool(b) => hash.update([1, u8::from(*b)]),
+        Value::Number(n) => bytes(hash, 2, n.to_string().as_bytes()),
+        Value::String(s) => bytes(hash, 3, s.as_bytes()),
+        Value::Array(items) => {
+            hash.update([4]);
+            hash.update((items.len() as u64).to_be_bytes());
+            for item in items {
+                hash_value(hash, item);
+            }
+        }
+        Value::Object(map) => {
+            hash.update([5]);
+            hash.update((map.len() as u64).to_be_bytes());
+            for (k, v) in map {
+                bytes(hash, 6, k.as_bytes());
+                hash_value(hash, v);
+            }
+        }
+    }
+}
+
+/// A key over `value` and length-prefixed `parts`.
+pub(crate) fn value_key<'a>(
+    value: &serde_json::Value,
+    parts: impl IntoIterator<Item = &'a [u8]>,
+) -> Key {
+    let mut hash = Sha256::new();
+    hash_value(&mut hash, value);
+    for part in parts {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part);
+    }
+    hash.finalize().into()
 }

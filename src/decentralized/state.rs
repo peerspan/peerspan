@@ -20,6 +20,8 @@ pub struct Maximum {
     pub statement_ids: BTreeSet<String>,
     pub head_ids: BTreeSet<String>,
 }
+/// Priors recently read, by the descriptor, the read-only flag and the value.
+static PRIORS: super::memo::Memo<Prior> = super::memo::Memo::new();
 #[derive(Clone, Debug)]
 pub struct Prior {
     pub value: Value,
@@ -39,10 +41,24 @@ impl Prior {
     pub(crate) fn read_only(d: &Descriptor, value: &Value) -> Result<Option<Self>> {
         Self::read_mode(d, value, true)
     }
+    /// Reading is a pure function of its inputs, and every projection built
+    /// from a stored snapshot reads the same prior again.
     fn read_mode(d: &Descriptor, value: &Value, read_only: bool) -> Result<Option<Self>> {
         if value.as_str() == Some("-") {
             return Ok(None);
         }
+        let descriptor = serde_json::to_vec(d).map_err(|_| Error::new("internal"))?;
+        let key = super::memo::value_key(value, [descriptor.as_slice(), &[u8::from(read_only)]]);
+        if let Some(hit) = PRIORS.get(&key) {
+            return Ok(Some(hit));
+        }
+        let prior = Self::read_verified(d, value, read_only)?;
+        if let Some(prior) = &prior {
+            PRIORS.put(key, prior, prior.catalog.bytes.len());
+        }
+        Ok(prior)
+    }
+    fn read_verified(d: &Descriptor, value: &Value, read_only: bool) -> Result<Option<Self>> {
         let o = object(value)?;
         fields(
             o,
@@ -205,6 +221,29 @@ pub struct Stream {
 }
 /// Projections recently built by `Projection::build`, by all of its inputs.
 static BUILT: super::memo::Memo<Projection> = super::memo::Memo::new();
+/// Read projections recently built, by `Projection::read_key`: every input
+/// but the current time, with what the time decides in a read.
+static READS: super::memo::Memo<Projection> = super::memo::Memo::new();
+/// Whether a retained migration's prepared root was issued by `time`.
+fn migration_started(migration: &super::migration::Migration, time: &str) -> Result<bool> {
+    Ok(stamp(migration.prepared.get(&migration.root_id)?.issued_at()?)? <= stamp(time)?)
+}
+/// Whether `s` is an original root state: no migration, no predecessors.
+fn original_root(s: &Statement) -> bool {
+    s.kind == "root_state"
+        && s.payload
+            .get("migration_proposal_id")
+            .and_then(Value::as_str)
+            == Some("-")
+        && s.payload
+            .get("predecessors")
+            .and_then(Value::as_array)
+            .is_some_and(|a| a.is_empty())
+}
+/// Whether `s` was issued by `time`, as the migration origins compare it.
+fn issued_by(s: &Statement, time: &str) -> bool {
+    s.issued_at().is_ok_and(|issued| issued <= time)
+}
 #[derive(Default)]
 struct Preparation {
     migration: Option<(String, String)>,
@@ -372,18 +411,32 @@ impl Projection {
         // rebuilds the same one many times (each read, each recheck of a
         // candidate inside its final transaction), so an identical set of
         // inputs reuses the projection built last time.
-        let (descriptor, prior) = (
-            serde_json::to_vec(d).map_err(|_| Error::new("internal"))?,
-            serde_json::to_vec(prior_value).map_err(|_| Error::new("internal"))?,
+        let descriptor = serde_json::to_vec(d).map_err(|_| Error::new("internal"))?;
+        if operation == "read"
+            && candidate.is_none()
+            && let Some((key, decision_time)) = Self::read_key(d, &descriptor, prior_value, now)
+        {
+            if let Some(mut hit) = READS.get(&key) {
+                hit.decision_time = decision_time;
+                return Ok(hit);
+            }
+            let projection =
+                Self::build_mode(d, prior_value, None, now, operation, Preparation::default())?;
+            if projection.decision_time == decision_time {
+                READS.put(key, &projection, projection.catalog.bytes.len());
+            }
+            return Ok(projection);
+        }
+        let key = super::memo::value_key(
+            prior_value,
+            [
+                descriptor.as_slice(),
+                candidate.map_or(b"-".as_slice(), |_| b"+"),
+                candidate.unwrap_or_default(),
+                now.as_bytes(),
+                operation.as_bytes(),
+            ],
         );
-        let key = super::memo::key([
-            descriptor.as_slice(),
-            &prior,
-            candidate.map_or(b"-".as_slice(), |_| b"+"),
-            candidate.unwrap_or_default(),
-            now.as_bytes(),
-            operation.as_bytes(),
-        ]);
         if let Some(hit) = BUILT.get(&key) {
             return Ok(hit);
         }
@@ -397,6 +450,39 @@ impl Projection {
         )?;
         BUILT.put(key, &projection, projection.catalog.bytes.len());
         Ok(projection)
+    }
+    /// The memo key of a read projection, without the current time, and its
+    /// decision time; None when either cannot be found, which builds without
+    /// this memo (and fails there if the inputs are invalid).
+    ///
+    /// A read admits nothing, so its build depends on the time only through
+    /// the decision time it records and through which retained migrations
+    /// and original root states were issued by then (the migration origins).
+    /// No other step of a read compares against the decision time: proof
+    /// provenance, operation checks and streams are time-free, and every
+    /// time-dependent evaluation (activity, powers, membership, actions)
+    /// runs later against the projection's `decision_time`. The key holds
+    /// those issued-by facts in place of the time, and a reused projection
+    /// takes the new decision time.
+    fn read_key(
+        d: &Descriptor,
+        descriptor: &[u8],
+        prior_value: &Value,
+        now: &str,
+    ) -> Option<(super::memo::Key, String)> {
+        let prior = Prior::read_only(d, prior_value).ok()??;
+        let decision_time = decision_clock(now, &prior.clock_guard).ok()?;
+        let mut facts = Vec::new();
+        for migration in prior.catalog.migrations.values() {
+            facts.push(u8::from(migration_started(migration, &decision_time).ok()?));
+        }
+        for s in prior.catalog.statements.values() {
+            if original_root(s) {
+                facts.push(u8::from(issued_by(s, &decision_time)));
+            }
+        }
+        let key = super::memo::value_key(prior_value, [descriptor, b"read", &facts]);
+        Some((key, decision_time))
     }
     /// Verify additional exact proof bytes against an already trusted snapshot.
     /// Only the proof carrier changes: no admission, operation, restriction,
@@ -663,9 +749,7 @@ impl Projection {
         let mut staged_floors = staged_floors;
         let mut origins = BTreeSet::new();
         for migration in catalog.migrations.values() {
-            if stamp(migration.prepared.get(&migration.root_id)?.issued_at()?)?
-                > stamp(&decision_time)?
-            {
+            if !migration_started(migration, &decision_time)? {
                 continue;
             }
             origins.insert((
@@ -673,19 +757,11 @@ impl Projection {
                 hash(&migration.prepared.bytes),
             ));
         }
-        if catalog.statements.values().any(|s| {
-            s.kind == "root_state"
-                && s.issued_at()
-                    .is_ok_and(|issued| issued <= decision_time.as_str())
-                && s.payload
-                    .get("migration_proposal_id")
-                    .and_then(Value::as_str)
-                    == Some("-")
-                && s.payload
-                    .get("predecessors")
-                    .and_then(Value::as_array)
-                    .is_some_and(|a| a.is_empty())
-        }) && !origins.is_empty()
+        if catalog
+            .statements
+            .values()
+            .any(|s| original_root(s) && issued_by(s, &decision_time))
+            && !origins.is_empty()
         {
             origins.insert(("-".into(), "-".into()));
         }
@@ -700,9 +776,7 @@ impl Projection {
         }
         if origins.len() == 1 {
             for migration in catalog.migrations.values() {
-                if stamp(migration.prepared.get(&migration.root_id)?.issued_at()?)?
-                    > stamp(&decision_time)?
-                {
+                if !migration_started(migration, &decision_time)? {
                     continue;
                 }
                 for ((kind, subject), (maximum, _)) in &migration.source_state.maxima {
@@ -2972,6 +3046,7 @@ impl Projection {
             proof_id: "-".into(),
             body: Vec::new(),
             signatures,
+            access_subject: None,
         };
         // A new writer fixes issued_at to its guarded NOW. A fixed external
         // signing template can be rechecked seconds later without rewriting
