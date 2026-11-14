@@ -296,8 +296,9 @@ the member ref back and stores nothing.
 **Startup recovery.** When the home host starts, before it serves peerbox tasks, it repairs
 what a submission interrupted between its refs and its record can leave, in each peerbox's
 repository: it deletes every contribution ref that names no contribution record, and it sets
-every member ref to what the latest recorded submission of that person on that branch (newest
-by `(submitted_at, contribution_id)`) requires: that submission's head, or no member ref when
+every member ref to what the latest recorded submission of that person on that branch requires
+(latest in the order the home host stored the records: each record keeps a per-host storage
+sequence for this, never shown, since `submitted_at` can tie and `contribution_id` is random): that submission's head, or no member ref when
 that submission was withdrawn (`superseded` by withdrawal) or there is none. Each member ref is
 compared with that expected state, not merely checked for a head some record holds, so an
 interrupted resubmission of an older head (A, then B, then A again with no record saved) goes
@@ -915,7 +916,7 @@ across a restart and completed by `peerbox share --pending`; the pending share k
 - restarts of both hosts during a fetch and a submit, and records kept; after a restart, no
   contribution ref without a record, and every member ref naming the head of the latest
   recorded submission on its branch (none after a withdrawal), including after an interrupted
-  resubmission of an older head;
+  resubmission of an older head and with two submissions sharing `submitted_at`;
 - opening a database of the previous schema version.
 
 `peerbox_agents` (second tier) covers, through the adapter socket and MCP as the runtime
