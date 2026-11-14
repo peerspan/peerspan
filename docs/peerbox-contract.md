@@ -73,6 +73,11 @@ ref directly.
 - A peerbox task has no `target_agent_id`, `grant_id`, `run`, `self` or `delegation`; any of
   them, or any other field not listed here, is 400 naming it.
 - `policy` cites the home host owner's policy, as for runtime tasks.
+- `deadline` must be in the future at the receiver. A new task whose deadline has passed is
+  400 `{code: "invalid", field: "deadline"}`, decided before Check 1, so the answer is the same
+  for a peerbox the sender may not see. This differs from agent tasks, whose message-style
+  validation answers 403; a peerbox task is shape-checked like its other fields. A repeat of a
+  stored task is answered from its record (idempotency below), not refused for its deadline.
 - The whole request is part of idempotency by `(sender, task_id)`.
 
 `peerbox` is an object whose `op` selects the operation:

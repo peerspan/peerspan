@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
   - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
@@ -73,6 +74,22 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PBX-22: a peerbox task's past deadline (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: the code for a new peerbox task whose `deadline` has already passed.
+- **Source:** slice A's implementer (PR #221). The task contract (task-contract.md) says a deadline is "in the future at the receiver" and that validation and error codes are "as for messages", which answers 403 for agent tasks. The peerbox contract named no code, while the `deadline_past_and_expiry` case (#222) expects 400 `invalid` naming `deadline`.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Requests](peerbox-contract.md#requests).
+- **Implementing PRs:** #221 (4c9e471e).
+
+#### PBX-22. The code for a past deadline
+
+- **Options:** (a) 400 `{code: "invalid", field: "deadline"}`, decided before Check 1, like the peerbox task's other field checks. (b) 403, as message-style validation answers for agent tasks.
+- **Recommended:** (a): "a peerbox task is shape-checked field by field with 400 naming the field, and deciding it before Check 1 answers the same whether or not the sender may see the peerbox; it is what the suite and slice A already do."
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation ("go with your recommendations on all three").
 
 ### PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes (2026-11-13)
 
