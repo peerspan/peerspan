@@ -8,8 +8,8 @@ Status: proposed contract for owner review, following the [delivery plan](peerfs
 ## 1. Scope
 
 A reader host B brings a branch that a serving host S shares with it (PF-2) into one of B's own
-host-backed PeerFS spaces, L, as the tracking reference `<S's host ID>/<branch>`. Every object is
-checked against its identity and kind, every commit's signature is checked against a key B's host
+host-backed PeerFS spaces, L, as the tracking reference `<S>:<SPACE>/<BRANCH>` (S's host ID and
+the shared space's ID, section 2). Every object is checked against its identity and kind, every commit's signature is checked against a key B's host
 recognizes, and the reference is written last, only when the whole history is present. A pull is
 started by B's owner (`fs pull`), or by one of B's agents the owner allowed to pull into L
 (`fs_pull`). It is read-only towards S: nothing is written there.
@@ -33,7 +33,11 @@ asks L's provider to pull from that socket:
 3. **The proxy:** B creates a directory, mode 0700, in its private state directory, and in it a
    socket, mode 0600, owned by B's account, that serves exactly:
    - `GET /v1/space`: `{path, host, objects, key}` with `path` the text `peerspan:S/SPACE`, `host`
-     S's host ID, `objects` 0 and `key` S's public key;
+     the remote name `<S>:<SPACE>` (S's host ID, a colon, and the shared space's ID), `objects` 0
+     and `key` S's public key. PeerFS names the tracking reference after `host`, so including the
+     space keeps the same branch name of two spaces S shares apart: `<S>:<SPACE_1>/main` and
+     `<S>:<SPACE_2>/main`. PeerFS uses `host` only for that name; each commit's signature is
+     checked against its own author key (section 3);
    - `GET /v1/branches`: `[{name: BRANCH, head: TARGET}]`, only the pulled branch at its target;
    - `POST /v1/objects/fetch` with `{ids}` (at most 256): forwarded to S's `objects` route,
      citing the same policy. S returns only the leading objects that fit its 16 MiB answer, while
@@ -44,7 +48,7 @@ asks L's provider to pull from that socket:
 4. **L's provider pulls** with its existing `POST /v1/pull` from the proxy socket. PeerFS checks
    each object's identity and kind, stores children before what refers to them so its store stays
    closed, checks each commit's signature through its key check (section 3), and writes the
-   tracking reference `<S's host ID>/<branch>` last.
+   tracking reference `<S>:<SPACE>/<BRANCH>` last.
 5. **The answer:** `{peer, space, branch, into, tracking, head, objects, bytes}`, with the number
    of objects and bytes fetched in this pull.
 
@@ -123,7 +127,7 @@ target head and the byte count; the owner's too.
 | 400 `invalid` | Malformed arguments or IDs |
 | 403 `forbidden` | An agent without a grant for that destination |
 | 404 `not_found` | S does not share that branch with B in N, or no such local space |
-| 409 `conflict` | L's binding not registered, in another network, or its directory changed; another pull of the same branch into L running |
+| 409 `conflict` | L's binding not registered, in another network, or its directory changed; another pull of the same shared branch into L running |
 | 502 `remote` | S's answer was malformed, or an object or signature failed its check |
 | 503 `unavailable` | S unreachable, S's space not serving, or L's provider unavailable |
 | 507 `too_large` | The pull's byte bound reached |
@@ -134,9 +138,10 @@ A separate author writes one compact suite from this contract (second tier, unde
 genuine hosts in a shared network and fake PeerFS providers on both sides where real ones are
 not needed, plus one installed check with real PeerFS (below):
 
-- **Pull:** a shared branch arrives in L as `<S>/<branch>` at the head selected at the start, with
+- **Pull:** a shared branch arrives in L as `<S>:<SPACE>/<BRANCH>` at the head selected at the start, with
   every object S's head reaches and no others; a second pull fetches nothing new; after S's
-  branch moves, a pull brings the new head.
+  branch moves, a pull brings the new head; branches of the same name in two spaces S shares
+  arrive as two references, also when pulled at once.
 - **Proxy:** only the three calls are served; a fetch whose objects S returns over several answers
   is answered with all of them in one batch; the socket and its directory are private and
   removed after success, failure and interruption; a connection from another account is refused.
@@ -169,7 +174,8 @@ by stopping the server's host resumes and completes.
 - PF-10: an agent pulls only into spaces its owner allowed it, by a local grant. Discarded:
   approving each pull; letting any of the owner's agents pull anywhere.
 - PF-11: each pull has a byte bound, 1 GiB by default. Discarded: no limit.
-- Contract choices within them: the head is selected once per pull; the bound counts S's answer
-  bytes and is enforced at the proxy; grants live in a local file, not the database, so PF-3 adds
+- Contract choices within them: the tracking reference is named `<S>:<SPACE>/<BRANCH>`, not
+  `<S>/<BRANCH>`, so two shared spaces' branches never collide; the head is selected once per
+  pull; the bound counts S's answer bytes and is enforced at the proxy; grants live in a local file, not the database, so PF-3 adds
   no schema version; the proxy collects S's partial answers into the one batch PeerFS expects; a
   failed pull leaves fetched blobs for garbage collection, not a reference.
