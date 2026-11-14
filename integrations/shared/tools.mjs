@@ -65,6 +65,15 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
   // The protocol revision the harness's MCP server negotiated, as sent with
   // the latest accepted tool call that carried one.
   let protocolVersion;
+  // Tool calls running now, and what waits for there to be none.
+  let running = 0;
+  let waiting = [];
+  const settle = () => {
+    if (running > 0) return;
+    const ready = waiting;
+    waiting = [];
+    for (const resolve of ready) resolve();
+  };
   const server = http.createServer(async (request, response) => {
     const reply = (status, value) => {
       response.writeHead(status, { 'Content-Type': 'application/json' });
@@ -101,9 +110,16 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
       // call's daemon request (peerspan_ready included).
       if (typeof value.protocol_version === 'string' && protocolPattern.test(value.protocol_version))
         protocolVersion = value.protocol_version;
-      const result = await adapter.callTool(value.name, value.arguments, {
-        signal: cancelled.signal
-      });
+      running += 1;
+      let result;
+      try {
+        result = await adapter.callTool(value.name, value.arguments, {
+          signal: cancelled.signal
+        });
+      } finally {
+        running -= 1;
+        settle();
+      }
       reply(200, result);
       emit({
         type: 'tool_result',
@@ -132,6 +148,9 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
   return {
     socket,
     protocolVersion: () => protocolVersion,
+    // Resolves once no tool call is running (an fs_pull may run for long).
+    idle: () =>
+      running === 0 ? Promise.resolve() : new Promise((resolve) => waiting.push(resolve)),
     ownsSocket: async () => {
       if (!server.listening) return false;
       try { return sameFile(owned, await lstat(socket)); }

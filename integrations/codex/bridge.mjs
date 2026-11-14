@@ -66,7 +66,20 @@ export async function run(config, { emit = () => {} } = {}) {
     });
     const selected = await thread.attach();
     if (closing) throw new Error('Attachment stopped during setup.');
+    // A pull grant arriving or withdrawn changes the tools. Codex lists them again on
+    // an MCP reload, which restarts the sidecar, so it waits until no tool call (an
+    // fs_pull may run for long) is running; changes meanwhile share one reload.
+    let reloading;
+    const toolsChanged = () => {
+      reloading ??= (async () => {
+        await gateway?.idle();
+        reloading = undefined;
+        if (!closing && entryInstalled) await rpc.request('config/mcpServer/reload', {});
+      })().catch(() => {});
+      return reloading;
+    };
     adapter = await configuredAdapter(config.socket, config.credential, {
+      toolsChanged,
       notify: async (event) => {
         try {
           const presentation = presentEvent(event);
