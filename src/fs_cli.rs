@@ -1,6 +1,7 @@
 //! `fs share`, `fs unshare` and `fs shares` (PeerFS read contract, section 7): this
 //! host's filesystem rules in the person's policy, signed through the network's provider
-//! as a policy edit, as `runtime enable` signs runtime rules.
+//! as a policy edit, as `runtime enable` signs runtime rules. `fs branches --peer` asks
+//! another host what it shares with this one.
 use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, edit_conflict, top_principal},
     admin::Local,
@@ -126,6 +127,28 @@ pub async fn command(command: &FsCommand, socket: &Path) -> anyhow::Result<Value
         }
         FsCommand::Shares { network, .. } => {
             Ok(Value::Array(shares(&local, network.as_deref()).await?))
+        }
+        FsCommand::Branches { peer, network, .. } => {
+            let network = resolved(network);
+            let path = format!(
+                "/v1/fs/peers/{}/networks/{}/branches",
+                encoded(peer),
+                encoded(network)
+            );
+            match local.get(path).await {
+                Err(e) if status(&e) == Some(400) => {
+                    bail!(
+                        "{peer:?} is not another host's ID (host_...), or {network:?} is not a network ID"
+                    )
+                }
+                Err(e) if status(&e) == Some(404) => {
+                    bail!("host {peer} is not known to this host")
+                }
+                Err(e) if status(&e) == Some(503) => {
+                    bail!("host {peer} did not answer; nothing is known about what it shares")
+                }
+                outcome => outcome,
+            }
         }
     }
 }

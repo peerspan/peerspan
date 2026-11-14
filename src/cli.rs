@@ -1051,6 +1051,17 @@ pub enum FsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// On a reader: the branches another host shares with this host, in one network
+    Branches {
+        /// The sharing host's ID (host_...)
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Print the JSON answer (the default output)
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2365,9 +2376,11 @@ impl Command {
                 RuntimeCommand::Enable { network, .. } | RuntimeCommand::Disable { network, .. },
             )
             | Self::Peerbox(PeerboxCommand::Create { network, .. }) => Some(network),
-            Self::Fs(FsCommand::Share { network, .. } | FsCommand::Unshare { network, .. }) => {
-                Some(network)
-            }
+            Self::Fs(
+                FsCommand::Share { network, .. }
+                | FsCommand::Unshare { network, .. }
+                | FsCommand::Branches { network, .. },
+            ) => Some(network),
             Self::Network(
                 NetworkCommand::Persons { id }
                 | NetworkCommand::Members { id }
@@ -2464,7 +2477,7 @@ impl Command {
                 | PeerboxCommand::Status { json, .. }
                 | PeerboxCommand::Review { json, .. },
             )
-            | Self::Fs(FsCommand::Shares { json, .. })
+            | Self::Fs(FsCommand::Shares { json, .. } | FsCommand::Branches { json, .. })
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
             _ => return global,

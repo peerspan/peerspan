@@ -1,7 +1,12 @@
-//! Owner-local PeerFS bindings and typed host signing (PF-1a). No peer FS API.
+//! Owner-local PeerFS bindings and typed host signing (PF-1), and whole-branch reads
+//! for other hosts on the peer router (PF-2, in `read`).
 mod commit;
 mod directory;
 mod provider;
+mod read;
+mod reader;
+
+pub(crate) use read::{MAX_OBJECTS_ANSWER, peer_routes};
 
 use crate::{api::blocking, decentralized, model::Error, peer_store::valid_id, store::Store};
 use axum::{
@@ -171,6 +176,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         )
         .layer(DefaultBodyLimit::max(BODY))
         .layer(middleware::from_fn(bounded))
+        .merge(reader::local_routes())
 }
 fn body(input: Result<Bytes, BytesRejection>) -> Result<Bytes, Error> {
     input.map_err(|error| {
