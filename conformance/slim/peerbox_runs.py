@@ -328,7 +328,7 @@ def _():
 
 @case("superseded_runnable_window", "peerbox Peerboxes and contributions: a superseded contribution runnable through "
                                     "its contribution ref; the ref kept 30 days (test clock), then deleted, the "
-                                    "record kept")
+                                    "record kept", known=None)
 def _():
     a = need("a")[0]
     need("ready")
