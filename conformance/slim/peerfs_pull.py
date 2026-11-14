@@ -6,6 +6,7 @@ paragraph of docs/host-service-contract.md; fakes and fixtures in peerfs_pull_co
 peerfs_read_common.py. alice's host is S, bob's host is B and his space L the destination. The agents' pulls are
 in peerfs_pull_agents.py.
 """
+import json
 import os
 import re
 import signal
@@ -22,7 +23,7 @@ os.umask(0o077)
 suite = Suite("peerfs_pull", __doc__)
 common.bind(suite, None)
 BRANCHES = ["main", "probe", "move", "reset", "big", "huge", "corrupt", "kind", "badsig", "stranger", "stop",
-            "cancel", "conc", "withdraw"]
+            "cancel", "conc", "withdraw", "answer"]
 
 
 def cli_pull(branch, into, space, *extra, timeout=180):
@@ -400,6 +401,44 @@ def _():
     no_ref("cancel", "a cancelled pull")
     status, value = pull("cancel", into, one, timeout=60)
     pulled(status, value, "cancel", into, one, g.branches["cancel"], "a pull after the cancelled one")
+
+
+@suite.case("provider_answers", "pull 2 step 4, 6: a 200 naming another head or remote, with another field, or "
+                                "unparseable is 503; a provider refusal 409 is 502, 500 is 503; no fs.pulled")
+def _():
+    need("ready")
+    one, into, g = sp("one"), L()["id"], g1()
+    subject = f"{into}/{tracking(one, 'answer')}"
+
+    def ok(change):
+        return lambda r: (200, json.dumps({**r, **change}).encode()) if r else None
+
+    variants = [("a 200 naming another head", ok({"head": "01" + "0" * 64}), 503, "unavailable"),
+                ("a 200 naming another remote", ok({"remote": "host_" + "b" * 64 + ":" + one}), 503,
+                 "unavailable"),
+                ("a 200 naming another branch", ok({"branch": "other"}), 503, "unavailable"),
+                ("a 200 with another field", ok({"extra": 1}), 503, "unavailable"),
+                ("a 200 without bytes", lambda r: (200, json.dumps({k: v for k, v in r.items() if k != "bytes"})
+                                                   .encode()) if r else None, 503, "unavailable"),
+                ("an unparseable 200", lambda r: (200, b"{\"remote\":"), 503, "unavailable"),
+                ("a refusal 409", lambda r: (409, b'{"code":"conflict","error":"conflict"}'), 502, "remote"),
+                ("a refusal 500", lambda r: (500, b'{"code":"internal","error":"internal error"}'), 503,
+                 "unavailable")]
+    problems = []
+    try:
+        for label, answer, want, code in variants:
+            fake().answer = answer
+            status, value = pull("answer", into, one)
+            if not (status == want and isinstance(value, dict) and value.get("code") == code):
+                problems.append(f"{label}: HTTP {status} {value}, want {want} {code}")
+            if fs_pulled(subject):
+                problems.append(f"{label}: fs.pulled was recorded")
+    finally:
+        fake().answer = None
+    check(not problems, "; ".join(problems))
+    status, value = pull("answer", into, one)
+    pulled(status, value, "answer", into, one, g.branches["answer"], "the pull with PeerFS's own answer")
+    check(fs_pulled(subject), "no fs.pulled once the answer is PeerFS's")
 
 
 suite.finish()
