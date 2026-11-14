@@ -18,6 +18,7 @@ Contents:
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
+  - [PBX-23: which providers sign an invitation's share automatically](#pbx-23-which-providers-sign-an-invitations-share-automatically-2026-11-14) (2026-11-14)
   - [PBX-22: a peerbox task's past deadline](#pbx-22-a-peerbox-tasks-past-deadline-2026-11-14) (2026-11-14)
   - [PBX-16 to PBX-21: agent-proposed, owner-confirmed peerbox changes](#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13) (2026-11-13)
   - [RUN-16: removing a finished task's workspace](#run-16-removing-a-finished-tasks-workspace-2026-11-13) (2026-11-13)
@@ -194,6 +195,22 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question.
 - **Note:** the listing leaves heads out, so listing contacts no provider; a separate `head` route answers them. This is a contract choice within PF-05.
+
+### PBX-23: which providers sign an invitation's share automatically (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** peerboxes: invitations, step 4 (the home host signing the pending share after admission).
+- **Source:** slice C's implementer (PR #234). The contract said the share waits when "the network's provider for the owner needs the owner's interaction (an SSH person key, for example)"; the suite's hosts all use a device provider with a host-held seed, so the case expecting a wait could not hold, and it was unclear whether only the owner's original person key may sign automatically.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Invitations for new participants](peerbox-contract.md#invitations-for-new-participants).
+- **Implementing PRs:** #234.
+
+#### PBX-23. Which providers sign automatically
+
+- **Options:** (a) Any provider the network selected for the owner that signs without the owner's interaction (a device provider whose seed the home host holds); the share waits for `peerbox share --pending` only for an interactive one (an SSH person key, `sshsig`, or no seed on this host). (b) Only the owner's original person key held on the home host; anything else, a device provider included, waits for the owner.
+- **Recommended:** (a): "it matches the contract's wording, keeps invitations one step for owners whose host can sign, and the provider is one the network already trusts to sign the owner's policy."
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
 
 ### PBX-22: a peerbox task's past deadline (2026-11-14)
 
