@@ -53,8 +53,10 @@ asks L's provider to pull from that socket:
    `remote` is the `host` the proxy reported, `branch` the pulled branch and `head` the target
    selected in step 2; a refusal is a non-200 status with `{code, error}`. B's host accepts the
    pull only when `remote`, `branch` and `head` are those; any other 200 answer, or one that does
-   not parse, is 503 `unavailable`, as for an unavailable provider. A refusal is mapped as
-   section 6 says.
+   not parse, is 503 `unavailable`, as for an unavailable provider. A refusal with status 400,
+   403, 404, 409 or 502 means PeerFS rejected what it was sent and is 502 `remote`; any other
+   refusal is 503 `unavailable`. When the proxy itself stopped the pull (section 4), its reason
+   decides the status, whatever the provider reports.
 5. **The answer:** `{peer, space, branch, into, tracking, head, objects, bytes}`, with the number
    of objects and bytes fetched in this pull.
 
