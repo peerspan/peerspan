@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
@@ -80,6 +81,32 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### COORD-11 and COORD-12: the refusal of a blocked sender (2026-11-14)
+
+- **Date:** 2026-11-14.
+- **Area:** coordination (COORD): the block list in owner access policy.
+- **Source:** the owner's answers, 2026-11-14, to questions from the `policy` suite author. The suite's block cases passed on any outcome other than `accepted`, so an `unknown` send, or a refusal by the sender from a stale view, passed without testing the block. The contract said a blocked sender "is refused with 403", with no error code, and the sender's outbound record carries only the receiver's reason as text. The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [coordination-contract.md](coordination-contract.md#authorization), Authorization, the block list.
+
+#### COORD-11. Which error code a blocked sender gets
+
+- **Options:**
+  - (a) "pin `forbidden`"
+  - (b) "403 with any code"
+  - (c) "a new `blocked` code"
+- **Chosen:** (a), the recommended option. The receiving host refuses a blocked sender with 403 `{code: "forbidden"}`.
+- **Reason given:** it matches the host and the conversations contract (DEC.impl45), and needs no host change.
+
+#### COORD-12. How the `policy` suite observes the refusal
+
+- **Options:**
+  - (i) "a CLI loop plus one raw probe"
+  - (ii) "the probe only"
+  - (iii) "the CLI only"
+- **Chosen:** (i), the recommended option. The CLI send is retried, syncing in between, until the receiver rejects it, and any other final outcome fails. One raw `POST /peer/v1/messages` then checks the 403 and its code.
+- **Reason given:** none beyond choosing it.
 
 ### PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning (2026-11-14)
 
