@@ -151,11 +151,17 @@ fn remove(conn: &Connection, id: &str) -> Result<(), Error> {
 }
 
 /// The invite's return path received a join request through invitation
-/// `id`: the request's person is noted on the invite's pending share.
+/// `id`: the request's person is noted on the invite's pending share,
+/// unless that person is already in the network, who gets access through
+/// `peerbox share` instead (Invitations for new participants). Noting a
+/// request grants nothing: only the admission of that exact request does
+/// (`admitted`).
 pub(crate) fn came_through(
+    store: &Store,
     conn: &Connection,
     id: &str,
     request_id: &str,
+    network_id: &str,
     person_public_key: &str,
 ) -> Result<(), Error> {
     let Some(mut share) = read(conn, id)? else {
@@ -164,6 +170,14 @@ pub(crate) fn came_through(
     if share.person.is_some()
         || share.requests.len() >= MAX_REQUESTS
         || share.requests.iter().any(|r| r.request_id == request_id)
+        || (network_id != "-" && network_id != share.network_id)
+    {
+        return Ok(());
+    }
+    if store
+        .product_persons(conn, &share.network_id)?
+        .iter()
+        .any(|p| p.person_public_key == person_public_key)
     {
         return Ok(());
     }
@@ -173,6 +187,21 @@ pub(crate) fn came_through(
         at: now(),
     });
     save(conn, &share)
+}
+
+/// Whether this host's record of the join request noted as `came` holds
+/// the network administrator's admission of that exact request, for that
+/// person as a new person: a request that folded into an existing person
+/// needs no administrator and never counts.
+fn admitted(conn: &Connection, came: &Came) -> bool {
+    let Ok(request) = crate::decentralized::requests::load(conn, &came.request_id) else {
+        return false;
+    };
+    let r = &request.record;
+    r.mode == "new"
+        && r.expected_person_public_key == came.person_public_key
+        && r.administrator_packet_base64 != "-"
+        && r.administrator_offer_id != "-"
 }
 
 /// Deletes the pending shares that ended without an admission, or whose
@@ -240,8 +269,15 @@ fn pass(store: &Store) -> Result<(), Error> {
             if share.requests.is_empty() {
                 continue;
             }
+            // The person of a request whose admission this host holds, once
+            // they are a member: never a person merely present.
+            let evidenced: Vec<&Came> =
+                share.requests.iter().filter(|r| admitted(&tx, r)).collect();
+            if evidenced.is_empty() {
+                continue;
+            }
             let persons = store.product_persons(&tx, &share.network_id)?;
-            let found = share.requests.iter().find_map(|r| {
+            let found = evidenced.iter().find_map(|r| {
                 persons
                     .iter()
                     .find(|p| p.person_public_key == r.person_public_key)
@@ -262,6 +298,12 @@ fn pass(store: &Store) -> Result<(), Error> {
         let Some(unit) = share.unit(&me) else {
             continue;
         };
+        // A share waiting for the owner is signed by `peerbox share
+        // --pending`; one whose signing failed is tried again after a
+        // pause, not on every pass.
+        if share.waiting || !due(&share.invitation_id) {
+            continue;
+        }
         let outcome = sign_peerbox_rules(store, &share.network_id, |host, rules| {
             crate::policy::peerbox_put(
                 rules,
@@ -282,11 +324,29 @@ fn pass(store: &Store) -> Result<(), Error> {
                 }
                 tx.commit()?;
             }
-            // Waiting already, or a recoverable failure: tried again.
-            Ok(Signing::NeedsOwner) | Err(_) => {}
+            Ok(Signing::NeedsOwner) => {}
+            // A recoverable failure: tried again later.
+            Err(_) => retry_later(&share.invitation_id),
         }
     }
     Ok(())
+}
+
+/// When each share whose automatic signing failed may be tried again.
+static RETRY: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// How long a failed automatic signing waits before it is tried again.
+const RETRY_AFTER: Duration = Duration::from_secs(30);
+fn due(id: &str) -> bool {
+    RETRY
+        .lock()
+        .map(|m| m.get(id).is_none_or(|at| std::time::Instant::now() >= *at))
+        .unwrap_or(true)
+}
+fn retry_later(id: &str) {
+    if let Ok(mut m) = RETRY.lock() {
+        m.insert(id.to_owned(), std::time::Instant::now() + RETRY_AFTER);
+    }
 }
 
 /// Admits and signs pending shares until shutdown.

@@ -204,9 +204,11 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
     // not the request is new here.
     if text(p, "mode")? == "new" {
         crate::peerbox_invite::came_through(
+            store,
             &tx,
             &invite.id,
             &code.request_id,
+            text(p, "expected_network_id")?,
             text(p, "expected_person_public_key")?,
         )
         .map_err(|_| Error::new("internal"))?;
