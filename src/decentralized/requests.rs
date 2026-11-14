@@ -64,6 +64,7 @@ pub(crate) struct Record {
 }
 /// Each stage times out after 10 minutes of inactivity (spec 8.5).
 const STAGE_SECONDS: i64 = 600;
+#[derive(Clone)]
 pub(crate) struct Pending {
     pub id: String,
     pub deadline: String,
@@ -504,8 +505,22 @@ impl Pending {
         )?))
     }
 }
+/// Requests loaded and verified recently. Background workers reload every
+/// request on each pass (every 2 seconds), and one command loads the same
+/// request many times; full verification decodes and checks every packet,
+/// the retained catalog and each frame. Sized for the 4096 pending rows a
+/// host can hold being cycled through without the memo starting over.
+static LOADED: super::memo::Memo<Pending> = super::memo::Memo::sized(4096);
+/// The intent references a record names, in the order `load_key` reads them.
+const INTENT_FIELDS: [&str; 4] = [
+    "owner_intent_id",
+    "administrator_intent_id",
+    "selection_intent_id",
+    "commit_intent_id",
+];
 pub(crate) fn load(c: &Connection, id: &str) -> Result<Pending> {
     check(ident(id, "link_"))?;
+    let began = std::time::Instant::now();
     type PendingRow = (String, String, Option<Vec<u8>>, Option<Vec<u8>>);
     let row: Option<PendingRow> = c
         .query_row(
@@ -516,7 +531,14 @@ pub(crate) fn load(c: &Connection, id: &str) -> Result<Pending> {
         .optional()
         .map_err(db)?;
     let (deadline, raw, secret, cap) = row.ok_or_else(|| Error::new("not_found"))?;
-    let record = serde_json::from_value(parse(raw.as_bytes(), 32 << 20)?)
+    // Verification is a pure function of the rows `load_key` hashes, so the
+    // same rows reuse the request verified last time.
+    let key = load_key(c, id, &deadline, &raw, secret.as_deref(), cap.as_deref());
+    if let Some(hit) = key.as_ref().and_then(|(k, _)| LOADED.get(k)) {
+        crate::timing::log("step", "request reuse", began);
+        return Ok(hit);
+    }
+    let record: Record = serde_json::from_value(parse(raw.as_bytes(), 32 << 20)?)
         .map_err(|_| Error::new("invalid"))?;
     let pending = Pending {
         id: id.into(),
@@ -534,7 +556,76 @@ pub(crate) fn load(c: &Connection, id: &str) -> Result<Pending> {
     super::ceremony::validate_references(c, &pending)?;
     super::ceremony_admin::validate_references(c, &pending)?;
     frames(c, &pending)?;
+    crate::timing::log("step", "request load", began);
+    // The key read the intents named by SQLite's reading of the record; keep
+    // the result only if they are the ones this verification followed.
+    if let Some((key, named)) = key {
+        let r = &pending.record;
+        let followed = [
+            &r.owner_intent_id,
+            &r.administrator_intent_id,
+            &r.selection_intent_id,
+            &r.commit_intent_id,
+        ];
+        if named
+            .iter()
+            .zip(followed)
+            .all(|(n, f)| n.as_deref() == Some(f.as_str()))
+        {
+            LOADED.put(key, &pending, raw.len());
+        }
+    }
     Ok(pending)
+}
+/// A hash of every row `load` reads for request `id`: its pending row, its
+/// frames, the intents its record names and the host identity; with the
+/// intent IDs as SQLite reads them from the record. None if a row cannot be
+/// read, which loads without the memo.
+fn load_key(
+    c: &Connection,
+    id: &str,
+    deadline: &str,
+    raw: &str,
+    secret: Option<&[u8]>,
+    cap: Option<&[u8]>,
+) -> Option<(super::memo::Key, Vec<Option<String>>)> {
+    use sha2::{Digest, Sha256};
+    let mut named = Vec::new();
+    for field in INTENT_FIELDS {
+        let value: Option<String> = c
+            .prepare_cached("SELECT json_extract(?1,?2)")
+            .ok()?
+            .query_row(rusqlite::params![raw, format!("$.{field}")], |r| r.get(0))
+            .ok()?;
+        named.push(value);
+    }
+    let mut hash = Sha256::new();
+    for part in [
+        id.as_bytes(),
+        deadline.as_bytes(),
+        raw.as_bytes(),
+        secret.unwrap_or(b"-"),
+        cap.unwrap_or(b"-"),
+    ] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part);
+    }
+    hash.update([u8::from(secret.is_some()), u8::from(cap.is_some())]);
+    let mut frames = c
+        .prepare_cached("SELECT role,writer_key,frame_id,record FROM dec_frames WHERE request_id=?1 ORDER BY role,writer_key,frame_id")
+        .ok()?;
+    super::memo::hash_rows(&mut hash, &mut frames, [id]).ok()?;
+    let mut intents = c
+        .prepare_cached("SELECT intent_id,network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?1")
+        .ok()?;
+    for intent in &named {
+        super::memo::hash_rows(&mut hash, &mut intents, [intent.as_deref().unwrap_or("-")]).ok()?;
+    }
+    let mut identity = c
+        .prepare_cached("SELECT * FROM identity WHERE singleton=1")
+        .ok()?;
+    super::memo::hash_rows(&mut hash, &mut identity, []).ok()?;
+    Some((hash.finalize().into(), named))
 }
 pub(crate) fn frames(c: &Connection, pending: &Pending) -> Result<Vec<Frame>> {
     let mut query=c.prepare("SELECT role,writer_key,frame_id,record FROM dec_frames WHERE request_id=?1 ORDER BY role,writer_key,frame_id").map_err(db)?;
