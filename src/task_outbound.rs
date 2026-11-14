@@ -1987,7 +1987,8 @@ async fn poll(
     // A running task's events are waited for (task contract, polling;
     // RUN-14).
     let mut held = hold && status.state == "running";
-    let page_size = if out.request.is_runtime() {
+    // A peerbox run's events are a runtime task's (peerbox contract, Runs).
+    let page_size = if out.request.is_runtime() || out.request.is_peerbox_run() {
         RUNTIME_EVENT_PAGE
     } else {
         EVENT_PAGE

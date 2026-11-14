@@ -1187,8 +1187,30 @@ async fn pass(
             // A peerbox run is checked again under its peerbox rule
             // (peerbox contract, Checks) and its runtime rule.
             let checked = if peerbox {
-                crate::peerbox_task::recheck_run(s, &tx, &sender, &request)
-                    .map(|(rule, version)| (rule, Some(version)))
+                crate::peerbox_task::recheck_run(s, &tx, &sender, &request).and_then(
+                    |(rule, version)| {
+                        // The prepared workspace archive is the run's input:
+                        // it stays within the rule now authorizing the start
+                        // (runtime task contract, Checks 3, rechecked before
+                        // the run starts).
+                        let size = internal(&tx, &sender, &id)?
+                            .archive
+                            .and_then(|path| std::fs::metadata(path).ok())
+                            .map_or(0, |m| i64::try_from(m.len()).unwrap_or(i64::MAX));
+                        if size > rule.max_artifact_bytes {
+                            return Err(Error::Coded {
+                                status: 403,
+                                code: "too_large",
+                                message: format!(
+                                    "the workspace archive is {size} bytes, over the runtime rule's max_artifact_bytes {}",
+                                    rule.max_artifact_bytes
+                                ),
+                                extra: Default::default(),
+                            });
+                        }
+                        Ok((rule, Some(version)))
+                    },
+                )
             } else {
                 authorize(s, &tx, &sender, &request).map(|rule| (rule, None))
             };
