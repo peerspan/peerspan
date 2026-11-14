@@ -52,6 +52,9 @@ pub fn response_limit(method: &str, path: &str) -> usize {
         return 16 << 20;
     }
     let route = path.split('?').next().unwrap_or_default();
+    if method == "POST" && route.starts_with("/peer/v1/fs/spaces/") && route.ends_with("/objects") {
+        return crate::peerfs::MAX_OBJECTS_ANSWER;
+    }
     if method == "GET"
         && route.starts_with("/peer/v1/networks/")
         && route.ends_with("/agent-lookup")

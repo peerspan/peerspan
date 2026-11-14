@@ -1,7 +1,11 @@
-//! Owner-local PeerFS bindings and typed host signing (PF-1a). No peer FS API.
+//! Owner-local PeerFS bindings and typed host signing (PF-1), and whole-branch reads
+//! for other hosts on the peer router (PF-2, in `read`).
 mod commit;
 mod directory;
 mod provider;
+mod read;
+
+pub(crate) use read::{MAX_OBJECTS_ANSWER, peer_routes};
 
 use crate::{api::blocking, decentralized, model::Error, peer_store::valid_id, store::Store};
 use axum::{
