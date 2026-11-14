@@ -21,7 +21,9 @@ function configuration(context, state) {
     mcp_entry: {
       command: state.node,
       args: [mcp, '--socket', toolSocket, '--thread', context.options.thread],
-      default_tools_approval_mode: 'approve'
+      default_tools_approval_mode: 'approve',
+      // fs_pull returns when its pull ends; Codex's default 60 s would cut it.
+      tool_timeout_sec: 86400
     }
   };
 }

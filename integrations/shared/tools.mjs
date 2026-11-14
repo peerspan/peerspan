@@ -70,10 +70,15 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
       response.writeHead(status, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify(value));
     };
-    if (request.method !== 'POST' || request.url !== '/tool') {
+    if (request.method !== 'POST' || (request.url !== '/tool' && request.url !== '/tools')) {
       reply(404, {});
       return;
     }
+    // A tool call whose caller goes away is cancelled (fs_pull then ends its pull).
+    const cancelled = new AbortController();
+    response.once('close', () => {
+      if (!response.writableFinished) cancelled.abort();
+    });
     try {
       let size = 0;
       const chunks = [];
@@ -87,11 +92,18 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
         reply(403, {});
         return;
       }
+      // The tools offered now, which may include fs_pull (adapter listTools).
+      if (request.url === '/tools') {
+        reply(200, { tools: adapter.listTools ? await adapter.listTools() : adapter.tools });
+        return;
+      }
       // Recorded before the call, so the adapter reports it before this
       // call's daemon request (peerspan_ready included).
       if (typeof value.protocol_version === 'string' && protocolPattern.test(value.protocol_version))
         protocolVersion = value.protocol_version;
-      const result = await adapter.callTool(value.name, value.arguments);
+      const result = await adapter.callTool(value.name, value.arguments, {
+        signal: cancelled.signal
+      });
       reply(200, result);
       emit({
         type: 'tool_result',
@@ -134,7 +146,41 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
 }
 // protocolVersion, when given, is the protocol revision the caller's MCP
 // server negotiated with the harness; the gateway reports it to the daemon.
-export async function proxyTool(socket, callerSession, name, args, protocolVersion) {
+// The tools the bridge offers this caller now, through its gateway.
+export async function proxyTools(socket, callerSession) {
+  const answer = await new Promise((resolve, reject) => {
+    const encoded = Buffer.from(JSON.stringify({ caller_session: callerSession }));
+    const request = http.request(
+      {
+        socketPath: socket,
+        path: '/tools',
+        method: 'POST',
+        agent: false,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
+        signal: AbortSignal.timeout(10000)
+      },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('error', reject);
+        response.on('end', () => {
+          if (response.statusCode !== 200) return reject(new Error('Peerspan tools unavailable.'));
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch {
+            reject(new Error('Invalid Peerspan tools response.'));
+          }
+        });
+      }
+    );
+    request.on('error', reject);
+    request.end(encoded);
+  });
+  if (!Array.isArray(answer?.tools)) throw new Error('Invalid Peerspan tools response.');
+  return answer.tools;
+}
+// signal, when given, cancels the call; fs_pull has no other time bound.
+export async function proxyTool(socket, callerSession, name, args, protocolVersion, signal) {
   // Allocate at the harness side of this extra hop so a lost gateway response
   // still leaves the caller with the exact ID the Peerspan host may have saved.
   // call_capability likewise allocates its call_id here.
@@ -155,7 +201,12 @@ export async function proxyTool(socket, callerSession, name, args, protocolVersi
         : args;
   // The host may hold call_capability for up to 50 s; list_capabilities may
   // return up to 16 MiB.
+  // fs_pull returns when its pull ends, which has no time bound.
   const timeout = name === 'call_capability' ? 60000 : 40000;
+  const signals = [
+    ...(name === 'fs_pull' ? [] : [AbortSignal.timeout(timeout)]),
+    ...(signal ? [signal] : [])
+  ];
   const limit = name === 'list_capabilities' ? 67108864 : 1048576;
   try {
     return await new Promise((resolve, reject) => {
@@ -174,7 +225,7 @@ export async function proxyTool(socket, callerSession, name, args, protocolVersi
           method: 'POST',
           agent: false,
           headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
-          signal: AbortSignal.timeout(timeout)
+          signal: AbortSignal.any(signals)
         },
         (response) => {
           const chunks = [];

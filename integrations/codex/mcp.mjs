@@ -6,7 +6,7 @@ import {
   InitializeRequestSchema,
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
-import { proxyTool } from '../shared/tools.mjs';
+import { proxyTool, proxyTools } from '../shared/tools.mjs';
 import { tools, instructions } from '../shared/adapter.mjs';
 const { values } = parseArgs({
   options: { socket: { type: 'string' }, thread: { type: 'string' } }
@@ -26,8 +26,16 @@ server.setRequestHandler(InitializeRequestSchema, async (request) => {
   negotiated = result.protocolVersion;
   return result;
 });
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools }));
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+// The bridge's tools now (fs_pull only while the agent has a pull grant), or the
+// shared tools when it cannot say.
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  try {
+    return { tools: await proxyTools(values.socket, values.thread) };
+  } catch {
+    return { tools };
+  }
+});
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   if (request.params._meta?.threadId !== values.thread)
     return {
       isError: true,
@@ -41,7 +49,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       values.thread,
       request.params.name,
       request.params.arguments,
-      negotiated
+      negotiated,
+      extra.signal
     );
   } catch (error) {
     return { isError: true, content: [{ type: 'text', text: error.message }] };

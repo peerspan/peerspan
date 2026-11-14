@@ -30,7 +30,7 @@ function channelServer(adapter, negotiated) {
   const server = new Server(
     { name: 'peerspan', version: '0.2.2' },
     {
-      capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
+      capabilities: { experimental: { 'claude/channel': {} }, tools: { listChanged: true } },
       instructions
     }
   );
@@ -39,9 +39,12 @@ function channelServer(adapter, negotiated) {
     negotiated.version = result.protocolVersion;
     return result;
   });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: adapter.tools }));
-  server.setRequestHandler(CallToolRequestSchema, (request) =>
-    adapter.callTool(request.params.name, request.params.arguments)
+  // fs_pull is listed only while the agent has a pull grant; the adapter
+  // announces a change with notifications/tools/list_changed.
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await adapter.listTools() }));
+  // A cancelled call (notifications/cancelled) aborts its signal; fs_pull then ends its pull.
+  server.setRequestHandler(CallToolRequestSchema, (request, extra) =>
+    adapter.callTool(request.params.name, request.params.arguments, { signal: extra.signal })
   );
   server.onclose = () => {
     void adapter.stop();
@@ -63,6 +66,7 @@ export function createChannel(options) {
     reattach,
     ...options,
     protocolVersion: () => negotiated.version,
+    toolsChanged: () => channel.server.sendToolListChanged(),
     notify: (params) =>
       channel.server.notification({
         method: 'notifications/claude/channel',
@@ -79,6 +83,7 @@ export async function configuredChannel(socketPath, credentialPath, options = {}
     reattach,
     ...options,
     protocolVersion: () => negotiated.version,
+    toolsChanged: () => channel.server.sendToolListChanged(),
     notify: (params) =>
       channel.server.notification({
         method: 'notifications/claude/channel',
