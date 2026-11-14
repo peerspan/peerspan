@@ -184,9 +184,12 @@ pub(crate) fn load(conn: &Connection, id: &str) -> Result<Option<Contribution>, 
         .optional()?;
     raw.map(|r| Ok(serde_json::from_str(&r)?)).transpose()
 }
+/// Saves a record. An update keeps the row, so its rowid stays the order
+/// in which this host stored its contributions (rows are never deleted,
+/// so no rowid is reused); startup recovery relies on that order.
 pub(crate) fn save(conn: &Connection, c: &Contribution) -> Result<(), Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO peerbox_contributions VALUES (?1, ?2, ?3)",
+        "INSERT INTO peerbox_contributions (contribution_id, peerbox_id, record) VALUES (?1, ?2, ?3) ON CONFLICT (contribution_id) DO UPDATE SET peerbox_id = excluded.peerbox_id, record = excluded.record",
         params![c.contribution_id, c.peerbox_id, serde_json::to_string(c)?],
     )?;
     Ok(())
@@ -806,10 +809,16 @@ pub fn sweep_orphans(store: &Store) -> Result<(), Error> {
             .filter_map(|l| l.split_once(' '))
             .map(|(name, head)| (name.to_owned(), head.to_owned()))
             .collect();
-        // Newest first by (submitted_at, contribution_id): the first record
-        // of each person and branch is the latest.
+        // Latest stored first (submitted_at can tie, and contribution IDs
+        // are random): the first record of each person and branch is the
+        // latest recorded submission there.
         let mut expected: std::collections::BTreeMap<String, Option<String>> = Default::default();
-        for c in of_peerbox(&*store.connection()?, &rec.peerbox_id)? {
+        let stored = query(
+            &*store.connection()?,
+            "SELECT record FROM peerbox_contributions WHERE peerbox_id = ?1 ORDER BY rowid DESC",
+            [&rec.peerbox_id],
+        )?;
+        for c in stored {
             let Some(person) = c.contributor.person_id.as_deref() else {
                 continue;
             };
