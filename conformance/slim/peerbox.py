@@ -977,7 +977,9 @@ def _():
     check(path.exists(), "no host.db in the copy")
     db = sqlite3.connect(str(path))
     current = db.execute("PRAGMA user_version").fetchone()[0]
-    check(current == MAIN_SCHEMA + 1, f"schema version {current}; this contract adds {MAIN_SCHEMA + 1} (update "
+    # Later contracts add versions after the peerbox one (PF-1(a) takes 33); the schema-31 state still upgrades
+    # to the current one.
+    check(current >= MAIN_SCHEMA + 1, f"schema version {current}; this contract adds {MAIN_SCHEMA + 1} (update "
                                       f"MAIN_SCHEMA and SCHEMA_TABLES if main moved)")
     counts = {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("networks", "network_statements")}
     db.close()
