@@ -541,7 +541,7 @@ def refuse_start(h):
     check(records(h) == before, "refused migration changed schema/version/logical state")
 
 
-@suite.case("schema27_additive_reserved_names_corruption_future32_and_rollback", "guided onboarding12 verification6")
+@suite.case("schema27_additive_reserved_names_corruption_future33_and_rollback", "guided onboarding12 verification6")
 def _():
     h, parent, code, person = fixture("migration")
     flow = prepare(h, parent, code, person); decide(h, flow, code, "decline")
@@ -575,9 +575,9 @@ def _():
         with closing(sqlite3.connect(db_path(corrupt))) as db, db:
             db.executescript(ddl)
         refuse_start(corrupt)
-    future = clone_state(h, "future32")
+    future = clone_state(h, "future34")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 32")
+        db.execute("PRAGMA user_version = 34")
     refuse_start(future)
 
 

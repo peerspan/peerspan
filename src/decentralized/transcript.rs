@@ -7,6 +7,13 @@ use super::{
 };
 use std::collections::BTreeMap;
 
+/// Packets and activations read recently. Reading either is a pure function
+/// of its exact bytes (and the descriptor, for an activation), and every
+/// projection, request load and catalog check rereads the same ones; each
+/// read parses, decodes and checks every field and signature again.
+static PACKETS: super::memo::Memo<Packet> = super::memo::Memo::sized(4096);
+static ACTIVATIONS: super::memo::Memo<Activation> = super::memo::Memo::sized(1024);
+
 #[derive(Clone, Debug)]
 pub(crate) struct Packet {
     pub id: String,
@@ -22,6 +29,15 @@ impl Packet {
         Self::read_mode(bytes, true)
     }
     fn read_mode(bytes: &[u8], template: bool) -> Result<Self> {
+        let key = super::memo::key([&[u8::from(template)][..], bytes]);
+        if let Some(hit) = PACKETS.get(&key) {
+            return Ok(hit);
+        }
+        let packet = Self::read_inner(bytes, template)?;
+        PACKETS.put(key, &packet, bytes.len());
+        Ok(packet)
+    }
+    fn read_inner(bytes: &[u8], template: bool) -> Result<Self> {
         let value = parse(bytes, MAX_OBJECT)?;
         let o = object(&value)?;
         fields(
@@ -279,6 +295,16 @@ pub(crate) struct Activation {
 }
 impl Activation {
     pub fn read(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
+        let encoded = serde_json::to_vec(descriptor).map_err(|_| Error::new("internal"))?;
+        let key = super::memo::key([encoded.as_slice(), bytes]);
+        if let Some(hit) = ACTIVATIONS.get(&key) {
+            return Ok(hit);
+        }
+        let activation = Self::read_inner(descriptor, bytes)?;
+        ACTIVATIONS.put(key, &activation, bytes.len());
+        Ok(activation)
+    }
+    fn read_inner(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
         let value = parse(bytes, MAX_OBJECT)?;
         let o = object(&value)?;
         fields(

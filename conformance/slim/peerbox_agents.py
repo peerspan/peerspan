@@ -36,8 +36,8 @@ REASON = "peerbox agent tools not implemented (peerbox contract, Agents)"
 TOOLS = {"peerbox_list", "peerbox_fetch", "peerbox_submit", "peerbox_status", "peerbox_withdraw", "peerbox_run"}
 
 
-def case(name, spec):
-    return suite.case(name, spec, known=REASON)
+def case(name, spec, known=REASON):
+    return suite.case(name, spec, known=known)
 
 
 def pbx():
@@ -218,7 +218,7 @@ def _():
     state["bea"] = bea
 
 
-@case("peerbox_setup", "peerbox CLI and local API: create; share read, submit and run with bob")
+@case("peerbox_setup", "peerbox CLI and local API: create; share read, submit and run with bob", known=None)
 def _():
     state["pbx"] = create(state["repo"], title="agents")
     share(pbx(), state["bob_principal"], actions=("read", "submit", "run"), hosts=[state["b"]])

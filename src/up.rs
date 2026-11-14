@@ -383,8 +383,10 @@ impl Setup {
         .await?;
         let private_join = if args.join.is_some() {
             let token = args.invitation.read().await?;
+            // A psb1- peerbox code carries the invite (peerbox contract).
+            let (inner, _) = crate::peerbox_cli::unwrap_code(&token)?;
             peerspan_host::decentralized::Invitation::read_token(
-                &token,
+                &inner,
                 &peerspan_host::decentralized::local_decision_time()?,
             )?;
             Some(token)
