@@ -2,7 +2,8 @@
 
 Written independently from docs/peerfs-pull-contract.md (cited "pull N"; with its amendment that a fetch stopped
 part way hands over the objects already held), decisions PF-07 to PF-11, the PF-3 paragraphs of
-docs/host-service-contract.md, and PeerFS's README for what a pull does of its source. CI has no PeerFS binary:
+docs/host-service-contract.md, and PeerFS's README for what a pull does of its source; the provider's answer is
+from pull 2 step 4 as amended (#253). CI has no PeerFS binary:
 
 - S (alice) serves its shared spaces through peerfs_read_common's fake provider, here `Source`, which can also
   serve a tampered object in place of the true one.
@@ -12,7 +13,8 @@ docs/host-service-contract.md, and PeerFS's README for what a pull does of its s
   (identity and kind); each commit's (abstract) signature is checked and its author key asked of bob's
   `host-keys/check` for L's binding; blobs are kept as they are checked, trees and commits only once the whole
   history is present, and the tracking reference `<host from /v1/space>/<branch>` is written last; it answers
-  `{remote, branch, head, objects, bytes}`, the shape a genuine PeerFS binary gives (the README names none). Everything
+  PeerFS's `PullResponse` as pull 2 step 4 gives it: 200 with exactly `{remote, branch, head, objects, bytes}`,
+  `remote` the proxy's `host`, or a non-200 `{code, error}`. ANSWER lets a case replace that answer. Everything
   it saw of the proxy (paths and statuses, bodies, the socket's and directory's mode and owner) is recorded.
 
 Refusals map as PeerFS's: a missing, mismatched or wrong-kind object or a failing source is 502 `remote`; a
@@ -106,7 +108,7 @@ class Destination(Provider):
         super().__init__(registration, graph, old)
         self.store, self.remotes, self.pulls = set(), {}, []
         self.store_lock = threading.Lock()
-        self.probe, self.foreign, self.host = False, None, None
+        self.probe, self.foreign, self.host, self.answer = False, None, None, None
         self.recognized = {}
 
     def _route(self, method, target, body):
@@ -117,6 +119,8 @@ class Destination(Provider):
     def _fail(self, record, status, code, why):
         record["outcome"] = why
         record["ended"] = time.monotonic()
+        if code == "replaced":
+            return http_reply(status, self.answer(None)[1])
         return http_reply(status, compact({"code": code, "error": why}).encode())
 
     def _pull(self, body):
@@ -204,13 +208,21 @@ class Destination(Provider):
                     else:
                         pending[oid] = True
                     frontier.extend(true[2])
+        response = {"remote": space.get("host"), "branch": branch, "head": head, "objects": record["fetched"],
+                    "bytes": record["bytes"]}
+        if self.answer:
+            # A case's answer in place of the pull's: (status, body); a refusal writes no reference.
+            status, data = self.answer(response)
+            if status != 200:
+                return self._fail(record, status, "replaced", "refused by the case")
+        else:
+            status, data = 200, compact(response).encode()
         with self.store_lock:
             self.store.update(pending)
             self.remotes[f"{space.get('host')}/{branch}"] = head
         record["outcome"], record["ended"] = "ok", time.monotonic()
-        # The answer of a genuine PeerFS pull (observed from the binary; the README does not give its shape).
-        return http_reply(200, compact({"remote": space.get("host"), "branch": branch, "head": head,
-                                        "objects": record["fetched"], "bytes": record["bytes"]}).encode())
+        # Pull 2 step 4: PeerFS's PullResponse.
+        return http_reply(status, data)
 
     def _verify(self, record, content):
         body = json.loads(content)
