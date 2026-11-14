@@ -1003,7 +1003,12 @@ impl Store {
         rec: Record,
         by: Option<String>,
     ) -> Result<Value, Error> {
-        let c = load(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
+        let c = {
+            let conn = self.connection()?;
+            // Deleted meanwhile: as for an unknown peerbox.
+            record(&conn, &rec.peerbox_id)?.ok_or(Error::NotFound)?;
+            load(&conn, id)?.ok_or(Error::NotFound)?
+        };
         if c.state != PENDING {
             return Err(conflict(
                 "not_pending",

@@ -733,17 +733,35 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
             artifact,
             activity,
             writes,
-        } => finish(
-            store,
-            sender,
-            id,
-            "succeeded",
-            None,
-            Some(output.to_string()),
-            artifact.map(|a| vec![a]),
-            activity,
-            &writes,
-        ),
+        } => {
+            let done = || {
+                finish(
+                    store,
+                    sender,
+                    id,
+                    "succeeded",
+                    None,
+                    Some(output.to_string()),
+                    artifact.map(|a| vec![a]),
+                    activity,
+                    &writes,
+                )
+            };
+            // A bundle is served only while its peerbox exists: a deletion
+            // during the Git work ends the fetch as the recheck would.
+            match (&checked.record, p.op.as_str()) {
+                (Some(rec), "fetch") => {
+                    contribution::with_lock(&rec.peerbox_id, || {
+                        match vanished(store, sender, id, rec) {
+                            Ok(Some(_)) => Ok(()),
+                            Ok(None) => done(),
+                            Err(f) => Err(Error::Internal(anyhow::anyhow!(f.to_string()))),
+                        }
+                    })
+                }
+                _ => done(),
+            }
+        }
         Outcome::Failed(f) => finish(
             store,
             sender,
@@ -1167,6 +1185,9 @@ fn store_locked(
         ));
     };
     let id = request.task_id.as_str();
+    if let Some(done) = vanished(store, sender, id, rec)? {
+        return Ok(done);
+    }
     if !still_queued(store, sender, id)? {
         // Cancelled meanwhile: finishing records the cancel, nothing else.
         finish(store, sender, id, "failed", None, None, None, None, &[]).map_err(internal)?;
@@ -1257,6 +1278,35 @@ fn store_locked(
     }
     saved.map_err(internal)?;
     Ok(Outcome::Done)
+}
+
+/// When the peerbox was deleted after the checks, the recheck fails for
+/// good: the task ends `rejected` with that reason (Checks), and nothing
+/// is stored. Called holding the peerbox's lock.
+fn vanished(
+    store: &Store,
+    sender: &str,
+    task: &str,
+    rec: &Record,
+) -> Result<Option<Outcome>, Failure> {
+    let found = crate::peerbox::record(&*store.connection().map_err(internal)?, &rec.peerbox_id)
+        .map_err(internal)?;
+    if found.is_some() {
+        return Ok(None);
+    }
+    finish(
+        store,
+        sender,
+        task,
+        "rejected",
+        Some(refusal(&unknown())),
+        None,
+        None,
+        None,
+        &[],
+    )
+    .map_err(internal)?;
+    Ok(Some(Outcome::Done))
 }
 
 /// Whether the received task is still queued with no cancel requested.
@@ -1379,6 +1429,9 @@ fn withdraw_inner(
                 "decided",
                 format!("the contribution is already {}", c.state),
             ));
+        }
+        if let Some(done) = vanished(store, sender, task, rec)? {
+            return Ok(done);
         }
         if !still_queued(store, sender, task)? {
             finish(store, sender, task, "failed", None, None, None, None, &[]).map_err(internal)?;

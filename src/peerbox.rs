@@ -595,6 +595,11 @@ impl Store {
     /// Deletes a peerbox's record and its member and contribution refs;
     /// contribution records stay.
     fn delete_peerbox(&self, id: &str) -> Result<Value, Error> {
+        // Under the peerbox's lock, so no review, withdrawal or submission
+        // is between its checks and its refs and record meanwhile.
+        contribution::with_lock(id, || self.delete_locked(id))
+    }
+    fn delete_locked(&self, id: &str) -> Result<Value, Error> {
         let r = record(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
         let git = Git::new(self.state_directory()).map_err(coded)?;
         let repo = PathBuf::from(&r.repository);
