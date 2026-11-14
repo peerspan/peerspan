@@ -567,15 +567,27 @@ fn left(op: &Operation) -> Result<Duration, Error> {
         .ok_or_else(unavailable)
 }
 
-/// One read from the provider within the operation's deadline; 0 at its end.
+/// The longest a provider read waits before checking whether its operation was
+/// cancelled.
+const CANCEL_CHECK: Duration = Duration::from_millis(250);
+
+/// One read from the provider within the operation's deadline, ending early when the
+/// operation is cancelled; 0 at its end.
 fn read(stream: &mut UnixStream, buf: &mut [u8], op: &Operation) -> Result<usize, Error> {
     loop {
+        op.check()?;
         stream
-            .set_read_timeout(Some(left(op)?))
+            .set_read_timeout(Some(left(op)?.min(CANCEL_CHECK)))
             .map_err(|_| unavailable())?;
         match stream.read(buf) {
             Ok(n) => return Ok(n),
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::Interrupted
+                        | std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                ) => {}
             Err(_) => return Err(unavailable()),
         }
     }

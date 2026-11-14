@@ -618,6 +618,16 @@ async fn fetch(source: &Source, body: &[u8]) -> Response {
     }
     if let Some(failure) = stopped {
         let failure = *source.state().failure.get_or_insert(failure);
+        // A stopped fetch never answers every object asked for, or PeerFS could complete
+        // the pull and write its reference behind the reported failure.
+        if next == wanted.len()
+            && let Some((_, ranges)) = answers.last_mut()
+        {
+            ranges.pop();
+            if ranges.is_empty() {
+                answers.pop();
+            }
+        }
         if answers.is_empty() {
             return failure.response();
         }
