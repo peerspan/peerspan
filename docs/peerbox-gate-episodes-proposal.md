@@ -1,10 +1,13 @@
 # Peerbox gates for collaborative reinforcement learning
 
-Status: **proposed on 2026-11-14.** Nothing is decided or implemented. It extends the
-[gate proposal](peerbox-gate-proposal.md) and the
-[peerbox contract's Gates section](peerbox-contract.md#gates) (PBX-9 to PBX-15), and needs a
-change to the [runtime task contract](runtime-task-contract.md) and to the separate Peerspan
-runtime (decision 2). Decisions 7 to 9 apply to every gate, not only to reinforcement
+Status: **accepted on 2026-11-14.** The owner chose the recommendation of each of the nine
+[decisions](#decisions), recorded as
+[PBX-25 to PBX-33](decision-log.md#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14);
+decision *N* is PBX-(24 + *N*). The [peerbox contract's Gates section](peerbox-contract.md#gates)
+and the [runtime task contract's Linked runs](runtime-task-contract.md#linked-runs) specify
+the result. Nothing is implemented yet. It extends the
+[gate proposal](peerbox-gate-proposal.md) (PBX-9 to PBX-15), and needs a change to the
+separate Peerspan runtime (decision 2). Decisions 7 to 9 apply to every gate, not only to reinforcement
 learning. The story uses a real, off-the-shelf game server as the environment.
 
 Peerboxes are meant for two kinds of collaboration: coding agents improving a program, and

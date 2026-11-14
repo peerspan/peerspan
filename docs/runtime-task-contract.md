@@ -17,7 +17,9 @@ networks; legacy coordinator networks are read-only history (spec section 14) an
 nothing. The Rust host at the repository root is the only host (DEC-OWN5).
 
 Not in this contract: guest network access, choosing a guest image, stdin, grants for
-runtime tasks, and delegating a runtime task onward. Agents in the VM are the
+runtime tasks, and delegating a runtime task onward. Runs that a peerbox gate submits to its
+own host's runtime may name an image and be linked in pairs ([Linked runs](#linked-runs),
+PBX-26 to PBX-28); runtime tasks from peers never do. Agents in the VM are the
 [runtime agent contract](runtime-agent-contract.md), which also adds fields to the runtime's
 local API below.
 
@@ -358,7 +360,7 @@ The runtime guarantees that:
   that workspace and the space's stored history; the space's server refuses other changes
   to the workspace until the run ends, and the runtime snapshots it before and after the
   command (Snapshots, above);
-- the guest has no network;
+- the guest has no network, except a linked run's link port ([Linked runs](#linked-runs));
 - `timeout_seconds` is enforced from `started`.
 
 The daemon copies each result file into its artifact store, verifying size and digest, then
@@ -373,6 +375,41 @@ last stored runtime event.
   `error: "the runtime restarted"`: from `running` as above, and from a dispatched `queued`
   task through `queued` to `failed`, with the run result of a run that never started. A lost
   run's peerfs workspace keeps what the command wrote, without a snapshot after it.
+
+### Linked runs
+
+A **linked pair** is two runs joined by one **link**, so that the program in one guest can
+reach a server in the other over TCP on loopback, and nothing else (PBX-26, PBX-27). Only a
+peerbox gate's episode measurements use it ([peerbox contract, Gates](peerbox-contract.md#gates));
+runtime tasks from peers never set it.
+
+`GET /v1/runtime` gains `links`, true when the runtime supports linked pairs. `POST /v1/runs`
+gains the optional `link`, `{id, role, port, max_connections, max_bytes}`:
+
+| Field | Rules |
+| --- | --- |
+| `id` | `lnk_` followed by 16 random bytes in lowercase hex; the two runs of a pair carry the same `id`, and no other run does. |
+| `role` | `listen` or `connect`: one run of each. |
+| `port` | 1 to 65,535, the same in both runs. |
+| `max_connections` | 1 to 64: connections open at once. |
+| `max_bytes` | 1 to 1,073,741,824: bytes carried in each direction over the pair's life, summed over its connections. |
+
+A runtime that reports `links` false, or that is asked for a `link` whose fields differ from
+its partner's or a third run with the same `id`, answers 422 `unavailable` or 400 `invalid`.
+The submitter starts the `listen` run first, then the `connect` run; if either is refused
+(429 or 422), it cancels the other and starts the pair again later.
+
+While both runs are `running`, a TCP connection that the `connect` guest opens to
+`127.0.0.1:PORT` is carried to `127.0.0.1:PORT` in the `listen` guest, as one ordered byte
+stream each way. The runtime carries it over a vsock port in each guest mapped to a host Unix
+socket, and splices the two on the host; guest init forwards the loopback port on each side.
+A connection opened while the `listen` guest has no listener on the port, or beyond
+`max_connections`, is refused at once; clients retry. When either direction reaches
+`max_bytes`, every connection of the link is closed and new ones are refused. The link ends,
+closing its connections, when either run exits; the other run goes on until it exits or
+times out. Nothing else crosses: no other port, no address beyond loopback, no file. Each run's
+`image`, as in the [runtime agent contract](runtime-agent-contract.md#the-runtimes-local-api),
+may differ from its partner's.
 
 ## Persistence
 
