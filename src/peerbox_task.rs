@@ -7,7 +7,11 @@ use crate::{
     artifact::{ArtifactEntry, RECEIVED, RESULT, STORED},
     model::Error,
     network::Member,
-    peerbox::{BUNDLE_TYPE, Failure, Git, MAX_FILE, Record, commit_id, valid_branch},
+    peerbox::{
+        BUNDLE_TYPE, Failure, Git, MAX_FILE, Record, commit_id,
+        contribution::{self, Contribution, Contributor, PENDING, SUPERSEDED},
+        valid_branch,
+    },
     policy::{PEERBOX_ACTIONS, PEERBOX_READ, PEERBOX_RUN, PEERBOX_SUBMIT, PolicyRef, peerbox_id},
     store::{Store, append_event, now},
     task::{TaskRequest, TaskStatus, is_final, received, record},
@@ -616,11 +620,28 @@ fn queued(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
         .map_err(Into::into)
 }
 
-/// Serves queued peerbox tasks until shutdown.
+/// Serves queued peerbox tasks until shutdown, and deletes contribution
+/// refs past their retention.
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    if let Err(e) = crate::api::blocking(store.clone(), contribution::sweep_orphans).await {
+        eprintln!("peerbox contribution refs: {e:?}");
+    }
+    let mut swept: Option<std::time::Instant> = None;
     loop {
         if let Err(e) = pass(&store).await {
             eprintln!("peerbox tasks: {e:?}");
+        }
+        // Retention is checked once a minute; it writes only when a
+        // contribution ref is due.
+        if swept.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+            swept = Some(std::time::Instant::now());
+            if let Err(e) = crate::api::blocking(store.clone(), |s| {
+                contribution::sweep(s, crate::clock::now())
+            })
+            .await
+            {
+                eprintln!("peerbox contribution refs: {e:?}");
+            }
         }
         tokio::select! {
             _ = shutdown.changed() => return,
@@ -645,8 +666,17 @@ enum Outcome {
         output: Value,
         artifact: Option<ArtifactEntry>,
         activity: Option<(&'static str, String)>,
+        /// Contribution records saved with the final state.
+        writes: Vec<Contribution>,
     },
     Failed(Failure),
+    /// The recheck before storing failed for good: the task ends
+    /// `rejected` with this reason.
+    Rejected(String),
+    /// The recheck could not be made yet: the task stays queued.
+    Queued,
+    /// The operation already finished the task.
+    Done,
 }
 
 /// Rechecks one queued task and runs its operation (Checks: again before
@@ -667,16 +697,20 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     if status.state != "queued" || status.cancel_requested {
         return Ok(());
     }
+    // A submission waits, unchecked, until its bundle is stored: the
+    // checks read the network's state, which is not free.
+    if request.peerbox.as_ref().is_some_and(|p| p.op == "submit")
+        && !inputs_stored(&conn, sender, id)?
+    {
+        return Ok(());
+    }
     let checked = match check(store, &conn, sender, &request) {
         Ok(c) => c,
         // Recoverable: left queued.
         Err(Error::Unavailable(_)) => return Ok(()),
         Err(e) => {
             drop(conn);
-            let reason = match e {
-                Error::Forbidden => "the peerbox rule no longer allows this operation".to_owned(),
-                _ => "the sender may no longer read this peerbox".to_owned(),
-            };
+            let reason = refusal(&e);
             return finish(
                 store,
                 sender,
@@ -686,6 +720,7 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
                 None,
                 None,
                 None,
+                &[],
             );
         }
     };
@@ -700,19 +735,11 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
             Ok(()) => return Ok(()),
             Err(Prepared::Failed(f)) => Outcome::Failed(f),
             Err(Prepared::Error(e)) => return Err(e),
-            Err(Prepared::Rejected(reason)) => {
-                return finish(
-                    store,
-                    sender,
-                    id,
-                    "rejected",
-                    Some(reason),
-                    None,
-                    None,
-                    None,
-                );
-            }
+            Err(Prepared::Rejected(reason)) => Outcome::Rejected(reason),
         },
+        "submit" => submit(store, &checked, &request, sender),
+        "status" => status_op(store, &checked, &p),
+        "withdraw" => withdraw(store, &checked, &p, sender, id),
         other => Outcome::Failed(Failure::new(
             NOT_IMPLEMENTED,
             format!("peerbox {other} is not implemented on this host yet"),
@@ -723,16 +750,36 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
             output,
             artifact,
             activity,
-        } => finish(
-            store,
-            sender,
-            id,
-            "succeeded",
-            None,
-            Some(output.to_string()),
-            artifact.map(|a| vec![a]),
-            activity,
-        ),
+            writes,
+        } => {
+            let done = || {
+                finish(
+                    store,
+                    sender,
+                    id,
+                    "succeeded",
+                    None,
+                    Some(output.to_string()),
+                    artifact.map(|a| vec![a]),
+                    activity,
+                    &writes,
+                )
+            };
+            // A bundle is served only while its peerbox exists: a deletion
+            // during the Git work ends the fetch as the recheck would.
+            match (&checked.record, p.op.as_str()) {
+                (Some(rec), "fetch") => {
+                    contribution::with_lock(&rec.peerbox_id, || {
+                        match vanished(store, sender, id, rec) {
+                            Ok(Some(_)) => Ok(()),
+                            Ok(None) => done(),
+                            Err(f) => Err(Error::Internal(anyhow::anyhow!(f.to_string()))),
+                        }
+                    })
+                }
+                _ => done(),
+            }
+        }
         Outcome::Failed(f) => finish(
             store,
             sender,
@@ -742,7 +789,20 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
             Some(f.output()),
             None,
             None,
+            &[],
         ),
+        Outcome::Rejected(reason) => finish(
+            store,
+            sender,
+            id,
+            "rejected",
+            Some(reason),
+            None,
+            None,
+            None,
+            &[],
+        ),
+        Outcome::Queued | Outcome::Done => Ok(()),
     }
 }
 
@@ -758,14 +818,35 @@ fn finish(
     output: Option<String>,
     artifacts: Option<Vec<ArtifactEntry>>,
     activity: Option<(&'static str, String)>,
+    writes: &[Contribution],
 ) -> Result<(), Error> {
+    finish_saved(
+        store, sender, id, kind, message, output, artifacts, activity, writes,
+    )
+    .map(|_| ())
+}
+
+/// [`finish`], saying whether `writes` were saved: not when the task was
+/// already final or ends cancelled.
+#[allow(clippy::too_many_arguments)]
+fn finish_saved(
+    store: &Store,
+    sender: &str,
+    id: &str,
+    kind: &str,
+    message: Option<String>,
+    output: Option<String>,
+    artifacts: Option<Vec<ArtifactEntry>>,
+    activity: Option<(&'static str, String)>,
+    writes: &[Contribution],
+) -> Result<bool, Error> {
     let mut conn = store.connection()?;
     let tx = conn.transaction()?;
     let Some((_, mut status)) = received(&tx, sender, id)? else {
-        return Ok(());
+        return Ok(false);
     };
     if is_final(&status.state) {
-        return Ok(());
+        return Ok(false);
     }
     let kind = if status.cancel_requested {
         "cancelled"
@@ -789,13 +870,15 @@ fn finish(
     if let Some(results) = &artifacts {
         crate::artifact::add_artifacts(&tx, RECEIVED, sender, id, RESULT, results, STORED)?;
     }
-    if kind != "cancelled"
-        && let Some((activity, subject)) = activity
-    {
-        append_event(&tx, activity, &subject, &now())?;
+    let saved = kind != "cancelled";
+    if saved {
+        contribution::save_all(&tx, writes)?;
+        if let Some((activity, subject)) = activity {
+            append_event(&tx, activity, &subject, &now())?;
+        }
     }
     tx.commit()?;
-    Ok(())
+    Ok(saved)
 }
 
 /// One `peerboxes` entry (Results), with its keys in the contract's order.
@@ -878,6 +961,7 @@ fn list(store: &Store, checked: &Checked, after: Option<&str>) -> Outcome {
             output: value,
             artifact: None,
             activity: None,
+            writes: Vec::new(),
         },
         Err(e) => Outcome::Failed(Failure::new("internal", e.to_string())),
     }
@@ -932,6 +1016,7 @@ fn fetch_inner(
             output: fetched(head, None, 0)?,
             artifact: None,
             activity,
+            writes: Vec::new(),
         });
     }
     // Only `have` commits reachable from the head shorten the bundle; any
@@ -979,6 +1064,453 @@ fn fetch_inner(
         output: fetched(bundled, Some(sha), size)?,
         artifact: Some(entry),
         activity,
+        writes: Vec::new(),
+    })
+}
+
+/// The reason a task the recheck refuses ends `rejected` with.
+fn refusal(e: &Error) -> String {
+    match e {
+        Error::Forbidden => "the peerbox rule no longer allows this operation".to_owned(),
+        _ => "the sender may no longer read this peerbox".to_owned(),
+    }
+}
+
+fn inputs_stored(conn: &Connection, sender: &str, task_id: &str) -> Result<bool, Error> {
+    Ok(conn.query_row(
+        "SELECT NOT EXISTS (SELECT 1 FROM task_artifacts WHERE side = 'received' AND peer = ?1 AND task_id = ?2 AND direction = 'input' AND json_extract(record, '$.state') != 'stored')",
+        params![sender, task_id],
+        |r| r.get(0),
+    )?)
+}
+
+fn internal(e: impl std::fmt::Display) -> Failure {
+    Failure::new("internal", e.to_string())
+}
+
+/// The peerbox and the sender's person in its network.
+fn subject(checked: &Checked) -> Result<(&Record, Option<&str>), Failure> {
+    let rec = checked
+        .record
+        .as_ref()
+        .ok_or_else(|| Failure::new("unknown", "unknown peerbox"))?;
+    let person = checked
+        .grants
+        .members
+        .get(&rec.network_id)
+        .and_then(|m| m.person_id.as_deref());
+    Ok((rec, person))
+}
+
+/// `submit` (Submit): steps 1 to 4, then the record, superseding a pending
+/// contribution at the same member ref.
+fn submit(store: &Store, checked: &Checked, request: &TaskRequest, sender: &str) -> Outcome {
+    match submit_inner(store, checked, request, sender) {
+        Ok(o) => o,
+        Err(f) => Outcome::Failed(f),
+    }
+}
+fn submit_inner(
+    store: &Store,
+    checked: &Checked,
+    request: &TaskRequest,
+    sender: &str,
+) -> Result<Outcome, Failure> {
+    let (rec, person) = subject(checked)?;
+    let person = person
+        .ok_or_else(|| Failure::new("unknown", "the sender has no person in this network"))?;
+    let p = request
+        .peerbox
+        .as_ref()
+        .ok_or_else(|| Failure::new("invalid", "peerbox"))?;
+    let (Some(branch), Some(base), Some(bundle)) = (&p.branch, &p.base, &p.bundle) else {
+        return Err(Failure::new(
+            "invalid",
+            "submit needs branch, base and bundle",
+        ));
+    };
+    // Step 1, checked again with the refreshed rule before storing.
+    pending_limit(store, rec, person, branch, checked.access.max_pending)?;
+    // Steps 2 and 3.
+    let git = Git::new(store.state_directory())?;
+    let file = store.artifact_dir().join(bundle);
+    let verified = contribution::verify(
+        &git,
+        rec,
+        &file,
+        branch,
+        base,
+        &store.state_directory().join("peerbox-tmp"),
+    )?;
+    // Past the deadline nothing is stored: the next pass expires the task.
+    if crate::task::time(&request.deadline).map_err(internal)? <= crate::clock::now() {
+        return Ok(Outcome::Queued);
+    }
+    // Step 4, under the peerbox's lock: the task must still be queued and
+    // not cancelled when the refs are published, and the refs and the
+    // record are kept only together.
+    contribution::with_lock(&rec.peerbox_id, || {
+        store_locked(store, &git, rec, &verified, request, sender, person)
+    })
+}
+
+/// Submit step 4 and the record, holding the peerbox's lock.
+fn store_locked(
+    store: &Store,
+    git: &Git,
+    rec: &Record,
+    verified: &contribution::Verified,
+    request: &TaskRequest,
+    sender: &str,
+    person: &str,
+) -> Result<Outcome, Failure> {
+    let p = request
+        .peerbox
+        .as_ref()
+        .ok_or_else(|| Failure::new("invalid", "peerbox"))?;
+    let (Some(branch), Some(base), Some(bundle)) = (&p.branch, &p.base, &p.bundle) else {
+        return Err(Failure::new(
+            "invalid",
+            "submit needs branch, base and bundle",
+        ));
+    };
+    let id = request.task_id.as_str();
+    if let Some(done) = vanished(store, sender, id, rec)? {
+        return Ok(done);
+    }
+    if !still_queued(store, sender, id)? {
+        // Cancelled meanwhile: finishing records the cancel, nothing else.
+        finish(store, sender, id, "failed", None, None, None, None, &[]).map_err(internal)?;
+        return Ok(Outcome::Done);
+    }
+    // Checks 1 and 2 again before storing (Checks), under the lock and
+    // with the rule as it is now: its actions, bundle bound, membership
+    // and pending bound, never the ones read when the task started.
+    // Nothing is published yet, so a refusal here ends the task as the
+    // recheck does: `rejected` with the reason, nothing stored.
+    let refreshed = {
+        let conn = store.connection().map_err(internal)?;
+        match check(store, &conn, sender, request) {
+            Ok(c) => c,
+            Err(Error::Unavailable(_)) => return Ok(Outcome::Queued),
+            Err(e) => return Ok(Outcome::Rejected(refusal(&e))),
+        }
+    };
+    if subject(&refreshed)?.1 != Some(person) {
+        return Ok(Outcome::Rejected(refusal(&unknown())));
+    }
+    pending_limit(store, rec, person, branch, refreshed.access.max_pending)?;
+    let repo = Path::new(&rec.repository);
+    let member = contribution::member_ref(&rec.peerbox_id, person, branch);
+    let before = git.head_of(repo, &member)?;
+    let contribution_id = crate::store::new_id("pbc").map_err(internal)?;
+    // Takes back what store_refs published, when it is not recorded.
+    let unpublish = || {
+        let _ = git.delete_ref(
+            repo,
+            &contribution::contribution_ref(&rec.peerbox_id, &contribution_id),
+            None,
+        );
+        let _ = match &before {
+            Some(old) => git
+                .text(
+                    repo,
+                    &["update-ref", &member, old, &verified.head],
+                    "unavailable",
+                )
+                .map(|_| ()),
+            None => git.delete_ref(repo, &member, Some(&verified.head)),
+        };
+    };
+    if let Err(f) = contribution::store_refs(git, rec, verified, &contribution_id, person, branch) {
+        unpublish();
+        return Err(f);
+    }
+    let at = contribution::stamp(crate::clock::now());
+    let pending = contribution::of_person(
+        &*store.connection().map_err(internal)?,
+        &rec.peerbox_id,
+        person,
+    )
+    .map_err(internal)?;
+    let mut writes: Vec<Contribution> = pending
+        .into_iter()
+        .filter(|c| c.state == PENDING && c.branch == *branch)
+        .map(|mut c| {
+            c.supersede(&at);
+            c
+        })
+        .collect();
+    let c = Contribution {
+        contribution_id: contribution_id.clone(),
+        peerbox_id: rec.peerbox_id.clone(),
+        contributor: Contributor {
+            person_id: Some(person.to_owned()),
+            host_id: Some(sender.to_owned()),
+            agent_id: request.origin.as_ref().map(|o| o.agent_id.clone()),
+            session_id: request.origin.as_ref().and_then(|o| o.session_id.clone()),
+        },
+        branch: branch.clone(),
+        base: base.clone(),
+        head: verified.head.clone(),
+        bundle_sha256: bundle.clone(),
+        submitted_at: at,
+        state: PENDING.into(),
+        decision: None,
+        runs: Vec::new(),
+        ended_at: None,
+        ref_deleted: false,
+    };
+    let output = c.view().to_string();
+    let activity = Some((
+        "peerbox.submitted",
+        format!("{}/{}", c.peerbox_id, c.contribution_id),
+    ));
+    writes.push(c);
+    let saved = finish_saved(
+        store,
+        sender,
+        id,
+        "succeeded",
+        None,
+        Some(output),
+        None,
+        activity,
+        &writes,
+    );
+    if !matches!(saved, Ok(true)) {
+        // Cancelled between the check and the record, or not recorded:
+        // the refs go too, so no ref is left that no record names.
+        unpublish();
+    }
+    saved.map_err(internal)?;
+    Ok(Outcome::Done)
+}
+
+/// When the peerbox was deleted after the checks, the recheck fails for
+/// good: the task ends `rejected` with that reason (Checks), and nothing
+/// is stored. Called holding the peerbox's lock.
+fn vanished(
+    store: &Store,
+    sender: &str,
+    task: &str,
+    rec: &Record,
+) -> Result<Option<Outcome>, Failure> {
+    let found = crate::peerbox::record(&*store.connection().map_err(internal)?, &rec.peerbox_id)
+        .map_err(internal)?;
+    if found.is_some() {
+        return Ok(None);
+    }
+    finish(
+        store,
+        sender,
+        task,
+        "rejected",
+        Some(refusal(&unknown())),
+        None,
+        None,
+        None,
+        &[],
+    )
+    .map_err(internal)?;
+    Ok(Some(Outcome::Done))
+}
+
+/// Submit step 1 (`pending_limit`): this submission and the person's
+/// pending contributions on other branches, a pending one it replaces at
+/// the same member ref not counted, are at most `max_pending`.
+fn pending_limit(
+    store: &Store,
+    rec: &Record,
+    person: &str,
+    branch: &str,
+    max_pending: i64,
+) -> Result<(), Failure> {
+    let others = contribution::of_person(
+        &*store.connection().map_err(internal)?,
+        &rec.peerbox_id,
+        person,
+    )
+    .map_err(internal)?
+    .iter()
+    .filter(|c| c.state == PENDING && c.branch != branch)
+    .count() as i64;
+    if others + 1 > max_pending {
+        return Err(Failure::new(
+            "pending_limit",
+            format!(
+                "{others} contributions are pending, and this peerbox allows {max_pending} per person"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether the received task is still queued with no cancel requested.
+fn still_queued(store: &Store, sender: &str, id: &str) -> Result<bool, Failure> {
+    let conn = store.connection().map_err(internal)?;
+    Ok(received(&conn, sender, id)
+        .map_err(internal)?
+        .is_some_and(|(_, s)| s.state == "queued" && !s.cancel_requested))
+}
+
+/// The sender's own contribution `id` on the peerbox, or `unknown`.
+fn own(
+    conn: &Connection,
+    rec: &Record,
+    person: Option<&str>,
+    id: &str,
+) -> Result<Contribution, Failure> {
+    contribution::load(conn, id)
+        .map_err(internal)?
+        .filter(|c| {
+            c.peerbox_id == rec.peerbox_id
+                && person.is_some()
+                && c.contributor.person_id.as_deref() == person
+        })
+        .ok_or_else(|| Failure::new("unknown", format!("unknown contribution {id}")))
+}
+
+/// At most this many records per `status` output.
+const STATUS_RECORDS: usize = 100;
+
+/// `status` (Status and withdraw): the sender's own contributions newest
+/// first, after `before` when given, as many whole records as fit one
+/// output; or the one named.
+fn status_op(store: &Store, checked: &Checked, p: &PeerboxOp) -> Outcome {
+    match status_inner(store, checked, p) {
+        Ok(o) => o,
+        Err(f) => Outcome::Failed(f),
+    }
+}
+fn status_inner(store: &Store, checked: &Checked, p: &PeerboxOp) -> Result<Outcome, Failure> {
+    let (rec, person) = subject(checked)?;
+    let conn = store.connection().map_err(internal)?;
+    let succeeded = |output: Value| Outcome::Succeeded {
+        output,
+        artifact: None,
+        activity: None,
+        writes: Vec::new(),
+    };
+    if let Some(id) = &p.contribution_id {
+        let c = own(&conn, rec, person, id)?;
+        return Ok(succeeded(
+            serde_json::json!({"contributions": [c.view()], "next": null}),
+        ));
+    }
+    let mut mine = match person {
+        Some(person) => {
+            contribution::of_person(&conn, &rec.peerbox_id, person).map_err(internal)?
+        }
+        None => Vec::new(),
+    };
+    if let Some(before) = &p.before {
+        let at = mine
+            .iter()
+            .position(|c| c.contribution_id == *before)
+            .ok_or_else(|| Failure::new("unknown", format!("unknown contribution {before}")))?;
+        mine.drain(..=at);
+    }
+    // `{"contributions":[` ... `],"next":` NEXT `}`
+    let mut used = r#"{"contributions":[],"next":}"#.len();
+    let mut entries: Vec<String> = Vec::new();
+    let mut next = None;
+    for (i, c) in mine.iter().enumerate() {
+        let text = c.view().to_string();
+        let more = i + 1 < mine.len();
+        let comma = usize::from(!entries.is_empty());
+        let tail = if more { c.contribution_id.len() + 2 } else { 4 };
+        if entries.len() == STATUS_RECORDS || used + comma + text.len() + tail > OUTPUT_LIMIT {
+            next = entries.last().map(|_| mine[i - 1].contribution_id.clone());
+            break;
+        }
+        used += comma + text.len();
+        entries.push(text);
+    }
+    let output = format!(
+        r#"{{"contributions":[{}],"next":{}}}"#,
+        entries.join(","),
+        serde_json::to_string(&next).unwrap_or_else(|_| "null".into())
+    );
+    Ok(succeeded(serde_json::from_str(&output).map_err(internal)?))
+}
+
+/// `withdraw` (Status and withdraw): the sender's pending contribution
+/// becomes superseded and its member ref is deleted; its contribution ref
+/// stays as for any superseded contribution.
+fn withdraw(store: &Store, checked: &Checked, p: &PeerboxOp, sender: &str, task: &str) -> Outcome {
+    match withdraw_inner(store, checked, p, sender, task) {
+        Ok(o) => o,
+        Err(f) => Outcome::Failed(f),
+    }
+}
+fn withdraw_inner(
+    store: &Store,
+    checked: &Checked,
+    p: &PeerboxOp,
+    sender: &str,
+    task: &str,
+) -> Result<Outcome, Failure> {
+    let (rec, person) = subject(checked)?;
+    let id = p
+        .contribution_id
+        .as_deref()
+        .ok_or_else(|| Failure::new("invalid", "contribution_id"))?;
+    // The state check, the member ref and the record hold the peerbox's
+    // lock, so a review in progress either finishes first (and this ends
+    // `decided`) or finds the contribution superseded.
+    contribution::with_lock(&rec.peerbox_id, || {
+        let mut c = own(&*store.connection().map_err(internal)?, rec, person, id)?;
+        if c.decided() {
+            return Err(Failure::new(
+                "decided",
+                format!("the contribution is already {}", c.state),
+            ));
+        }
+        if let Some(done) = vanished(store, sender, task, rec)? {
+            return Ok(done);
+        }
+        if !still_queued(store, sender, task)? {
+            finish(store, sender, task, "failed", None, None, None, None, &[]).map_err(internal)?;
+            return Ok(Outcome::Done);
+        }
+        let mut writes = Vec::new();
+        let mut deleted = None;
+        if c.state != SUPERSEDED {
+            let git = Git::new(store.state_directory())?;
+            if let Some(person) = &c.contributor.person_id {
+                let member = contribution::member_ref(&rec.peerbox_id, person, &c.branch);
+                if git.head_of(Path::new(&rec.repository), &member)?.as_deref() == Some(&c.head) {
+                    git.delete_ref(Path::new(&rec.repository), &member, Some(&c.head))?;
+                    deleted = Some((git, member));
+                }
+            }
+            c.supersede(&contribution::stamp(crate::clock::now()));
+            writes.push(c.clone());
+        }
+        let saved = finish_saved(
+            store,
+            sender,
+            task,
+            "succeeded",
+            None,
+            Some(c.view().to_string()),
+            None,
+            None,
+            &writes,
+        );
+        if !matches!(saved, Ok(true))
+            && let Some((git, member)) = deleted
+        {
+            // Not recorded (cancelled meanwhile): the member ref comes back.
+            let _ = git.text(
+                Path::new(&rec.repository),
+                &["update-ref", &member, &c.head, ""],
+                "unavailable",
+            );
+        }
+        saved.map_err(internal)?;
+        Ok(Outcome::Done)
     })
 }
 
@@ -1057,11 +1589,38 @@ fn prepare_run(
         .members
         .get(&rec.network_id)
         .and_then(|m| m.person_id.clone());
-    {
-        let conn = store.connection()?;
-        crate::peerbox::runnable_commit(&git, &conn, rec, person.as_deref(), &commit)
-            .map_err(Prepared::Failed)?;
-    }
+    // The peerbox's lock from the runnable-commit check to the recorded
+    // run, as a review or withdrawal holds it, so a contribution ref read
+    // here is not deleted under the archive, and a peerbox deleted meanwhile
+    // is noticed before the run is recorded.
+    contribution::with_lock(&rec.peerbox_id, || {
+        prepare_locked(
+            store,
+            request,
+            sender,
+            rec,
+            &commit,
+            person.as_deref(),
+            &git,
+            &rule,
+        )
+    })
+}
+
+/// `prepare_run` under the peerbox's lock.
+#[allow(clippy::too_many_arguments)]
+fn prepare_locked(
+    store: &Store,
+    request: &TaskRequest,
+    sender: &str,
+    rec: &Record,
+    commit: &str,
+    person: Option<&str>,
+    git: &Git,
+    rule: &crate::policy::RuntimeRule,
+) -> Result<(), Prepared> {
+    crate::peerbox::runnable_commit(store, git, rec, person, commit, crate::clock::now())
+        .map_err(Prepared::Failed)?;
     use std::os::unix::fs::DirBuilderExt;
     let dir = archive_dir(store);
     std::fs::DirBuilder::new()
@@ -1072,9 +1631,9 @@ fn prepare_run(
     let path = dir.join(format!("{sender}-{}.tar", request.task_id));
     let _ = std::fs::remove_file(&path);
     if let Err(f) = crate::peerbox::workspace_archive(
-        &git,
+        git,
         Path::new(&rec.repository),
-        &commit,
+        commit,
         &path,
         rule.max_artifact_bytes,
     ) {
@@ -1090,10 +1649,18 @@ fn prepare_run(
         let _ = std::fs::remove_file(&path);
         return Ok(());
     }
+    // Checks 1 again: a peerbox deleted during the Git work is unknown.
+    if crate::peerbox::record(&tx, &rec.peerbox_id)?.is_none() {
+        drop(tx);
+        let _ = std::fs::remove_file(&path);
+        return Err(Prepared::Rejected(
+            "the sender may no longer read this peerbox".into(),
+        ));
+    }
     let created_at = received(&tx, sender, &request.task_id)?
         .map(|(_, status)| status.created_at)
         .unwrap_or_else(now);
-    crate::peerbox::record_run(&tx, &rec.peerbox_id, &commit, &request.task_id, &created_at)?;
+    crate::peerbox::record_run(&tx, &rec.peerbox_id, commit, &request.task_id, &created_at)?;
     crate::runtime_task::peerbox_run_ready(&tx, sender, &request.task_id, path)?;
     tx.commit()?;
     store.runtime_wake.notify_one();

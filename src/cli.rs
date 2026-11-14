@@ -893,6 +893,56 @@ pub enum PeerboxCommand {
         #[arg(value_name = "COMMAND", last = true, required = true)]
         command: Vec<String>,
     },
+    /// Submit a branch of a local repository to a peer's peerbox
+    Submit {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        #[arg(long, value_name = "DIR")]
+        repository: PathBuf,
+        #[arg(long, value_name = "NAME")]
+        branch: String,
+        /// Leave out history reachable from this commit; default: the merge
+        /// base of the branch and the fetched peerbox ref
+        #[arg(long, value_name = "COMMIT")]
+        base: Option<String>,
+    },
+    /// Show your contributions to a peer's peerbox, newest first
+    Status {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        contribution: Option<String>,
+        /// Start below this contribution
+        #[arg(long, value_name = "CONTRIBUTION")]
+        before: Option<String>,
+        /// Print at most this many contributions; default 100
+        #[arg(long, value_name = "N", default_value_t = 100)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Withdraw a pending contribution
+    Withdraw {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        peerbox: String,
+        contribution: String,
+    },
+    /// List pending contributions, or accept or reject one
+    Review {
+        /// A peerbox (list its pending contributions) or a contribution
+        /// (with --accept or --reject)
+        target: Option<String>,
+        #[arg(long, conflicts_with = "reject")]
+        accept: bool,
+        #[arg(long)]
+        reject: bool,
+        #[arg(long, value_name = "TEXT")]
+        reason: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum RuntimeCommand {
@@ -2352,7 +2402,10 @@ impl Command {
             })
             | Self::Runtime(RuntimeCommand::Show { json })
             | Self::Peerbox(
-                PeerboxCommand::Show { json, .. } | PeerboxCommand::List { json, .. },
+                PeerboxCommand::Show { json, .. }
+                | PeerboxCommand::List { json, .. }
+                | PeerboxCommand::Status { json, .. }
+                | PeerboxCommand::Review { json, .. },
             )
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,

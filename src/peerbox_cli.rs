@@ -208,6 +208,93 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
                 .map(Some)
         }
         PeerboxCommand::Run { .. } => unreachable!("peerbox run exits with its own status"),
+        PeerboxCommand::Submit {
+            peer,
+            peerbox,
+            repository,
+            branch,
+            base,
+        } => submit(&local, directory, peer, peerbox, repository, branch, base)
+            .await
+            .map(Some),
+        PeerboxCommand::Status {
+            peer,
+            peerbox,
+            contribution,
+            before,
+            limit,
+            ..
+        } => {
+            let mut op = json!({"op": "status", "peerbox_id": peerbox});
+            if let Some(id) = contribution {
+                if before.is_some() {
+                    bail!("give a contribution or --before, not both");
+                }
+                op["contribution_id"] = json!(id);
+                let (value, _, _) = operation(&local, peer, op).await?;
+                return Ok(Some(value));
+            }
+            let mut all: Vec<Value> = Vec::new();
+            let mut before = before.clone();
+            let mut next = Value::Null;
+            while all.len() < *limit {
+                let mut op = op.clone();
+                if let Some(b) = &before {
+                    op["before"] = json!(b);
+                }
+                let (value, _, _) = operation(&local, peer, op).await?;
+                all.extend(
+                    value["contributions"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                next = value["next"].clone();
+                match next.as_str() {
+                    Some(n) if before.as_deref() != Some(n) => before = Some(n.to_owned()),
+                    _ => break,
+                }
+            }
+            // `next` names the last printed record when more remain: records
+            // cut by --limit, or another page on the home host.
+            let cut = all.len() > *limit;
+            all.truncate(*limit);
+            let more = cut || !next.is_null();
+            let next = if more {
+                all.last()
+                    .map(|r| r["contribution_id"].clone())
+                    .unwrap_or(Value::Null)
+            } else {
+                Value::Null
+            };
+            Ok(Some(json!({"contributions": all, "next": next})))
+        }
+        PeerboxCommand::Withdraw {
+            peer,
+            peerbox,
+            contribution,
+        } => {
+            let op =
+                json!({"op": "withdraw", "peerbox_id": peerbox, "contribution_id": contribution});
+            let (value, _, _) = operation(&local, peer, op).await?;
+            Ok(Some(value))
+        }
+        PeerboxCommand::Review {
+            target,
+            accept,
+            reject,
+            reason,
+            ..
+        } => review(
+            &local,
+            directory,
+            target.as_deref(),
+            *accept,
+            *reject,
+            reason,
+        )
+        .await
+        .map(Some),
     }
 }
 
@@ -587,6 +674,165 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     .await
 }
 
+/// A 409 from the daemon as its code and message, so the command exits 1
+/// printing the code.
+fn with_code(e: anyhow::Error) -> anyhow::Error {
+    match e.downcast_ref::<crate::integration::DaemonError>() {
+        Some(d) if !d.code.is_empty() => anyhow::anyhow!("{}: {}", d.code, d.message),
+        _ => e,
+    }
+}
+
+/// `peerbox review`: the pending contributions with `git diff --stat`, or
+/// the owner's decision on one.
+async fn review(
+    local: &Local<'_>,
+    directory: &Path,
+    target: Option<&str>,
+    accept: bool,
+    reject: bool,
+    reason: &Option<String>,
+) -> anyhow::Result<Value> {
+    if accept || reject {
+        let id = target.context("give the contribution to accept or reject")?;
+        let mut body = json!({"decision": if accept { "accepted" } else { "rejected" }});
+        if let Some(reason) = reason {
+            body["reason"] = json!(reason);
+        }
+        return local
+            .post(
+                format!("/v1/peerboxes/contributions/{}/decision", encoded(id)),
+                body,
+            )
+            .await
+            .map_err(with_code);
+    }
+    if reason.is_some() {
+        bail!("--reason goes with --accept or --reject");
+    }
+    let records: Vec<Value> = match target {
+        Some(id) => vec![local.get(format!("/v1/peerboxes/{}", encoded(id))).await?],
+        None => local
+            .get("/v1/peerboxes".into())
+            .await?
+            .as_array()
+            .cloned()
+            .unwrap_or_default(),
+    };
+    let git = Git::new(directory).map_err(failure)?;
+    let mut out = Vec::new();
+    for record in records {
+        let id = record["peerbox_id"]
+            .as_str()
+            .context("invalid daemon response")?;
+        let repo = PathBuf::from(record["repository"].as_str().unwrap_or_default());
+        let listed = local
+            .get(format!("/v1/peerboxes/{}/contributions", encoded(id)))
+            .await?;
+        for mut c in listed.as_array().cloned().unwrap_or_default() {
+            if c["state"] != "pending" {
+                continue;
+            }
+            let (base, head) = (
+                c["base"].as_str().unwrap_or_default().to_owned(),
+                c["head"].as_str().unwrap_or_default().to_owned(),
+            );
+            c["diff_stat"] = json!(
+                git.text(
+                    &repo,
+                    &["diff", "--stat", &base, &head, "--"],
+                    "unavailable"
+                )
+                .unwrap_or_default()
+            );
+            out.push(c);
+        }
+    }
+    Ok(Value::Array(out))
+}
+
+/// `peerbox submit` (CLI): bundles NAME in DIR without the history of the
+/// base, uploads it and submits it.
+async fn submit(
+    local: &Local<'_>,
+    directory: &Path,
+    peer: &str,
+    peerbox: &str,
+    repository: &Path,
+    branch: &str,
+    base: &Option<String>,
+) -> anyhow::Result<Value> {
+    if !peerspan_host::policy::peerbox_id(peerbox) {
+        bail!("{peerbox:?} is not a peerbox ID");
+    }
+    if !valid_branch(branch) {
+        bail!("--branch {branch:?} is not a branch name a peerbox accepts");
+    }
+    let dir = std::path::absolute(repository)?;
+    let git = Git::new(directory).map_err(failure)?;
+    let tip = git
+        .head(&dir, branch)
+        .map_err(failure)?
+        .with_context(|| format!("{} has no branch {branch:?}", dir.display()))?;
+    let base = match base {
+        Some(b) => git
+            .text(
+                &dir,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "-q",
+                    "--end-of-options",
+                    &format!("{b}^{{commit}}"),
+                ],
+                "invalid",
+            )
+            .map_err(|_| anyhow::anyhow!("--base {b:?} names no commit in {}", dir.display()))?,
+        None => {
+            let fetched = git
+                .text(
+                    &dir,
+                    &[
+                        "for-each-ref",
+                        "--format=%(refname)",
+                        &format!("refs/peerbox/{peerbox}/"),
+                    ],
+                    "invalid",
+                )
+                .map_err(failure)?;
+            let fetched: Vec<&str> = fetched
+                .lines()
+                .filter(|r| r.matches('/').count() == 3)
+                .collect();
+            let [fetched] = fetched.as_slice() else {
+                bail!(
+                    "fetch the peerbox into {} first, or give --base",
+                    dir.display()
+                );
+            };
+            git.text(&dir, &["merge-base", &tip, fetched], "invalid")
+                .map_err(|_| {
+                    anyhow::anyhow!("{branch} has no merge base with {fetched}; give --base")
+                })?
+        }
+    };
+    let scratch = Scratch::new(&directory.join("peerbox-tmp")).map_err(failure)?;
+    let file = scratch.path().join("contribution.bundle");
+    git.bundle(&dir, branch, std::slice::from_ref(&base), &file)
+        .map_err(failure)?;
+    let socket = directory.join("admin.sock");
+    let entry = crate::upload(&socket, &file, "contribution.bundle", BUNDLE_TYPE).await?;
+    let op = json!({
+        "op": "submit",
+        "peerbox_id": peerbox,
+        "base": base,
+        "branch": branch,
+        "bundle": entry["sha256"],
+    });
+    let (value, _, _) = operation_with(local, peer, op, Some(json!([entry]))).await?;
+    Ok(value)
+}
+
 /// `peerbox create`: the disclosure, the confirmation, then the record.
 async fn create(
     local: &Local<'_>,
@@ -680,18 +926,26 @@ async fn operation(
     peer: &str,
     op: Value,
 ) -> anyhow::Result<(Value, Value, String)> {
+    operation_with(local, peer, op, None).await
+}
+/// [`operation`] with input artifacts.
+async fn operation_with(
+    local: &Local<'_>,
+    peer: &str,
+    op: Value,
+    artifacts: Option<Value>,
+) -> anyhow::Result<(Value, Value, String)> {
     let name = op["op"].as_str().unwrap_or_default().to_owned();
-    let record = local
-        .post(
-            "/v1/tasks".into(),
-            json!({
-                "peer_host_id": peer,
-                "executor": "peerbox",
-                "peerbox": op,
-                "input": format!("peerbox {name}"),
-            }),
-        )
-        .await?;
+    let mut body = json!({
+        "peer_host_id": peer,
+        "executor": "peerbox",
+        "peerbox": op,
+        "input": format!("peerbox {name}"),
+    });
+    if let Some(artifacts) = artifacts {
+        body["artifacts"] = artifacts;
+    }
+    let record = local.post("/v1/tasks".into(), body).await?;
     let id = record["request"]["task_id"]
         .as_str()
         .context("invalid daemon response")?

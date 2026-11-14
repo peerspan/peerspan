@@ -23,6 +23,11 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+pub mod contribution;
+#[cfg(test)]
+mod tests;
+pub use contribution::runnable_commit;
+
 /// Database version 32: peerbox records, contributions with their
 /// decisions, and pending shares.
 pub(crate) const SCHEMA: &str = "
@@ -255,7 +260,7 @@ impl Git {
         }
     }
 }
-fn stderr_of(out: &Output) -> String {
+pub(crate) fn stderr_of(out: &Output) -> String {
     let text = String::from_utf8_lossy(&out.stderr);
     let text = text.trim();
     let mut cut: String = text.chars().take(1000).collect();
@@ -473,17 +478,13 @@ pub(crate) fn records(conn: &Connection) -> Result<Vec<Record>, Error> {
         .map(|r| Ok(serde_json::from_str(&r)?))
         .collect()
 }
-/// The contribution records of a peerbox, newest first.
+/// The contribution records of a peerbox as results return them, newest
+/// first.
 fn contributions(conn: &Connection, id: &str) -> Result<Vec<Value>, Error> {
-    let mut statement = conn.prepare(
-        "SELECT record FROM peerbox_contributions WHERE peerbox_id = ?1 ORDER BY json_extract(record, '$.submitted_at') DESC, contribution_id DESC",
-    )?;
-    let rows = statement
-        .query_map([id], |r| r.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    rows.into_iter()
-        .map(|r| Ok(serde_json::from_str(&r)?))
-        .collect()
+    Ok(contribution::of_peerbox(conn, id)?
+        .iter()
+        .map(contribution::Contribution::view)
+        .collect())
 }
 
 /// A record as `show` lists it: the record, its rules in this host's
@@ -594,6 +595,11 @@ impl Store {
     /// Deletes a peerbox's record and its member and contribution refs;
     /// contribution records stay.
     fn delete_peerbox(&self, id: &str) -> Result<Value, Error> {
+        // Under the peerbox's lock, so no review, withdrawal or submission
+        // is between its checks and its refs and record meanwhile.
+        contribution::with_lock(id, || self.delete_locked(id))
+    }
+    fn delete_locked(&self, id: &str) -> Result<Value, Error> {
         let r = record(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
         let git = Git::new(self.state_directory()).map_err(coded)?;
         let repo = PathBuf::from(&r.repository);
@@ -640,7 +646,7 @@ impl Store {
 
 /// A Git failure on a local route: `git_missing` and the others as coded
 /// refusals.
-fn coded(f: Failure) -> Error {
+pub(crate) fn coded(f: Failure) -> Error {
     let status = match f.code {
         "git_missing" | "unavailable" => 503,
         "invalid" | "branch_unknown" => 400,
@@ -660,6 +666,10 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/peerboxes/{id}", get(show).delete(delete))
         .route("/v1/peerboxes/{id}/contributions", get(list_contributions))
         .merge(crate::peerbox_invite::local_routes())
+        .route(
+            "/v1/peerboxes/contributions/{id}/decision",
+            axum::routing::post(decide),
+        )
 }
 async fn list(State(store): State<Arc<Store>>) -> Result<Json<Vec<Value>>, Error> {
     Ok(Json(
@@ -947,60 +957,6 @@ impl<W: std::io::Write> std::io::Write for Counted<W> {
     }
 }
 
-/// The runnable-commit rule (Runs): `commit` is the protected head, or the
-/// head of a contribution the sender's person may read (their own, or one
-/// accepted) whose contribution ref still exists. Otherwise
-/// `commit_unknown`.
-pub(crate) fn runnable_commit(
-    git: &Git,
-    conn: &Connection,
-    rec: &Record,
-    person: Option<&str>,
-    commit: &str,
-) -> Result<(), Failure> {
-    let repo = PathBuf::from(&rec.repository);
-    if git.head(&repo, &rec.branch)?.as_deref() == Some(commit) {
-        return Ok(());
-    }
-    // Contribution heads. HOOK for slice B (contributions): reconcile with
-    // its record type at rebase; this reads the contract's record fields.
-    let unknown = || {
-        Failure::new(
-            "commit_unknown",
-            "the commit is neither the protected head nor a runnable contribution head",
-        )
-    };
-    let candidates: Vec<String> = (|| -> rusqlite::Result<Vec<String>> {
-        let mut statement = conn.prepare(
-            "SELECT contribution_id FROM peerbox_contributions WHERE peerbox_id = ?1 AND json_extract(record, '$.head') = ?2 AND (json_extract(record, '$.state') = 'accepted' OR json_extract(record, '$.contributor.person_id') = ?3) ORDER BY contribution_id",
-        )?;
-        statement
-            .query_map(params![rec.peerbox_id, commit, person], |r| r.get(0))?
-            .collect()
-    })()
-    .map_err(|e| Failure::new("internal", e.to_string()))?;
-    for id in candidates {
-        let reference = format!(
-            "refs/peerbox/{}/contributions/{id}^{{commit}}",
-            rec.peerbox_id
-        );
-        let out = git.output(
-            &repo,
-            &[
-                "rev-parse",
-                "--verify",
-                "-q",
-                "--end-of-options",
-                &reference,
-            ],
-        )?;
-        if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == commit {
-            return Ok(());
-        }
-    }
-    Err(unknown())
-}
-
 /// Records a run on every contribution of the peerbox whose head is
 /// `commit` (Peerboxes and contributions: `runs`, oldest first).
 pub(crate) fn record_run(
@@ -1047,4 +1003,14 @@ pub(crate) fn update_run(
         )?;
     }
     Ok(())
+}
+async fn decide(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let request: contribution::DecisionRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.decide(&id, request)).await?,
+    ))
 }

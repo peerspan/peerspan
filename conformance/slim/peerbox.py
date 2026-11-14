@@ -390,7 +390,7 @@ def _():
 # Submit (peerbox Submit, Peerboxes and contributions).
 
 @case("submit_contribution", "peerbox Submit: stored under the member ref and the contribution ref; the record; "
-                             "CLI submit with the default base")
+                             "CLI submit with the default base", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     head = new_commit("feature", {"feature.txt": "bob's change\n"})
@@ -426,7 +426,7 @@ def _():
     check(status == 403 and member_ref(state["bob_pid"], "big") is None, f"a bundle over the bound: {status} {body}")
 
 
-@case("submit_base_errors", "peerbox Submit step 3: base_unknown, base_not_ancestor; a failed step stores nothing")
+@case("submit_base_errors", "peerbox Submit step 3: base_unknown, base_not_ancestor; a failed step stores nothing", known=None)
 def _():
     main = need("main")[0]
     before = refs(state["repo"])
@@ -438,7 +438,7 @@ def _():
 
 
 @case("submit_hostile_bundles", "peerbox Submit: a mutated byte (bundle_invalid), a ref outside refs/heads/, an "
-                                "option-like ref, two refs, .git paths and hooks; nothing stored, no hook run")
+                                "option-like ref, two refs, .git paths and hooks; nothing stored, no hook run", known=None)
 def _():
     main = need("main")[0]
     before = refs(state["repo"])
@@ -460,7 +460,7 @@ def _():
 
 
 @case("submit_pending_limit_and_supersede", "peerbox Submit step 1 (pending_limit; a replacement at the same member "
-                                            "ref accepted at the limit); superseding keeps the contribution ref")
+                                            "ref accepted at the limit); superseding keeps the contribution ref", known=None)
 def _():
     main, first = need("main", "first")
     second = contribute("feature2", {"f2.txt": "2\n"}, start=main)
@@ -478,7 +478,7 @@ def _():
 
 # Review (peerbox Review; CLI review).
 
-@case("review_accept", "peerbox Review: accept fast-forwards main and the clean worktree; the decision in status")
+@case("review_accept", "peerbox Review: accept fast-forwards main and the clean worktree; the decision in status", known=None)
 def _():
     a, main, feature = need("a", "main", "feature")
     listed = owner_cli("review", pbx()).json
@@ -499,7 +499,7 @@ def _():
     state["main"] = feature["head"]
 
 
-@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept")
+@case("review_conflicts", "peerbox Review: not_fast_forward, dirty_worktree, head_moved (409, exit 1); main kept", known=None)
 def _():
     a, main = need("a", "main")
     result = review(need("feature2")[0]["contribution_id"], "accept")
@@ -533,7 +533,7 @@ def _():
 
 
 @case("review_reject_and_withdraw", "peerbox Review (reject with a reason, no ref changed); Status and withdraw "
-                                    "(409 decided; withdraw supersedes and deletes the member ref)")
+                                    "(409 decided; withdraw supersedes and deletes the member ref)", known=None)
 def _():
     a, main, second, ahead = need("a", "main", "feature2", "feature4")
     before = refs(state["repo"])
@@ -554,7 +554,7 @@ def _():
 
 
 @case("status_paging", "peerbox Status: newest first by (submitted_at, contribution_id), whole records within "
-                       "65,536 bytes, at most 100, before and next with equal submitted_at (test clock); CLI status")
+                       "65,536 bytes, at most 100, before and next with equal submitted_at (test clock); CLI status", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     share(pbx(), state["bob_p"], actions=("read", "submit"), extra=("--max-pending", "20", "--max-bundle-bytes",
@@ -603,7 +603,7 @@ def _():
 # Several rules on one peerbox (peerbox Peerbox rules; CLI share).
 
 @case("several_rules", "peerbox Peerbox rules: two people with different actions and bounds, share for one leaves "
-                       "the other unchanged, person and network rules give the union and the largest bound")
+                       "the other unchanged, person and network rules give the union and the largest bound", known=None)
 def _():
     a, c, main = need("a", "c", "main")
     bob_before = rules_for(pbx(), state["bob_p"])
@@ -764,7 +764,7 @@ def _():
 
 # Restarts and withdrawal.
 
-@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records")
+@case("restarts_during_fetch_and_submit", "peerbox Requests (task durability); restarts of both hosts keep records", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     task_id = submit_op({"op": "fetch", "peerbox_id": pbx()})
