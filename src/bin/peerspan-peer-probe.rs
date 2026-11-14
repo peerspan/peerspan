@@ -14,8 +14,10 @@
 //!     --request JSON --chain JSON
 //! ```
 //!
-//! The exchange prints `{"body":…,"status":N}`, or `{"body_base64":…,"status":N}`
-//! with `--raw-body`. sign-link prints the link
+//! The exchange prints `{"body":…,"status":N}`, or with `--raw-body`
+//! `{"body_base64":…,"headers":{…},"status":N}`, where `headers` maps each response
+//! header's lowercase name to its value (repeated headers joined with `, `). sign-link
+//! prints the link
 //! signed with that host key exactly as given: principals keep their order and
 //! nothing is validated. link-hash prints the `previous` value a following
 //! link names. submit-task posts the request to `/peer/v1/tasks` with
@@ -292,7 +294,7 @@ fn exchange(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let (status, data) = runtime.block_on(async {
+    let (status, headers, data) = runtime.block_on(async {
         tokio::time::timeout(
             Duration::from_secs(8),
             request(key, address, alpn, method, path, payload),
@@ -304,7 +306,11 @@ fn exchange(
         let mut out = std::io::stdout().lock();
         serde_json::to_writer(
             &mut out,
-            &serde_json::json!({"status": status, "body_base64": STANDARD.encode(&data)}),
+            &serde_json::json!({
+                "status": status,
+                "headers": headers,
+                "body_base64": STANDARD.encode(&data),
+            }),
         )?;
         writeln!(out)?;
         return Ok(());
@@ -330,7 +336,7 @@ async fn request(
     method: &str,
     path: &str,
     payload: Option<Vec<u8>>,
-) -> anyhow::Result<(u16, Vec<u8>)> {
+) -> anyhow::Result<(u16, Headers, Vec<u8>)> {
     let remote = tokio::net::lookup_host(address)
         .await?
         .next()
@@ -363,6 +369,8 @@ async fn request(
     endpoint.wait_idle().await;
     result
 }
+/// A response's headers: each lowercase name with its value, repeated headers joined.
+type Headers = std::collections::BTreeMap<String, String>;
 /// One HTTP/1.1 request framed as Go's client writes it, then one bounded
 /// response under the route's peer response limit.
 async fn stream_request(
@@ -371,7 +379,7 @@ async fn stream_request(
     method: &str,
     path: &str,
     payload: Option<Vec<u8>>,
-) -> anyhow::Result<(u16, Vec<u8>)> {
+) -> anyhow::Result<(u16, Headers, Vec<u8>)> {
     let (mut send, mut recv) = connection.open_bi().await?;
     let path = if path.is_empty() { "/" } else { path };
     let mut head = format!(
@@ -397,7 +405,27 @@ async fn stream_request(
             break;
         }
     }
-    peerspan_host::quic::parse_limited(&response, limit)
+    let (status, body) = peerspan_host::quic::parse_limited(&response, limit)?;
+    Ok((status, headers(&response), body))
+}
+/// The headers of a response that [`peerspan_host::quic::parse_limited`] accepted.
+fn headers(data: &[u8]) -> Headers {
+    let mut parsed = [httparse::EMPTY_HEADER; 64];
+    let mut response = httparse::Response::new(&mut parsed);
+    let mut headers = Headers::new();
+    if response.parse(data).is_ok() {
+        for h in response.headers.iter() {
+            let value = String::from_utf8_lossy(h.value).trim().to_owned();
+            headers
+                .entry(h.name.to_ascii_lowercase())
+                .and_modify(|v| {
+                    v.push_str(", ");
+                    v.push_str(&value);
+                })
+                .or_insert(value);
+        }
+    }
+    headers
 }
 /// Whether a response with a declared length (or chunked framing) is whole,
 /// so a server that keeps its stream open does not stall the probe.
