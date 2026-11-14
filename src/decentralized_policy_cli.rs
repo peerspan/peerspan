@@ -38,6 +38,10 @@ impl Provider {
 }
 pub(crate) struct Reservation {
     pub policy: Option<PolicyBody>,
+    /// The newest stored policy when it no longer counts (expired, or its
+    /// authority lapsed): `policy` is then None, as an expired policy reads
+    /// as no policy (spec 4.4), but `access renew` revives these rules.
+    pub inactive: Option<PolicyBody>,
     pub version: u64,
     pub seq: u64,
     pub decision_time: String,
@@ -283,11 +287,12 @@ pub(crate) async fn reserve(
         v["person_public_key"] == provider.person,
         "reservation changed owner"
     );
-    let (_, d, catalog) = planning(local, network).await?;
+    let (plan, d, catalog) = planning(local, network).await?;
     ensure!(
         v["context_id"] == d.context_id(),
         "reservation changed context"
     );
+    let version = v["version"].as_u64().context("invalid native version")?;
     let policy = if v["policy"] == "-" {
         None
     } else {
@@ -322,15 +327,74 @@ pub(crate) async fn reserve(
         );
         Some(serde_json::from_value(body)?)
     };
+    let inactive = match policy {
+        None if version > 0 => inactive_head(&plan, &catalog, network, provider, version)?,
+        _ => None,
+    };
     Ok(Reservation {
         policy,
-        version: v["version"].as_u64().context("invalid native version")?,
+        inactive,
+        version,
         seq: v["seq"]
             .as_u64()
             .filter(|s| *s > 0)
             .context("invalid native edit number")?,
         decision_time: text(&v, "created_at")?.into(),
     })
+}
+/// The single head of the owner's policy stream at `version`, from the same
+/// planning snapshot, when the plan named no current policy. None when the
+/// stream has no single head at that version.
+fn inactive_head(
+    plan: &Value,
+    catalog: &Catalog,
+    network: &str,
+    provider: &Provider,
+    version: u64,
+) -> anyhow::Result<Option<PolicyBody>> {
+    head_body(&plan["streams"], network, &provider.person, version, |id| {
+        let statement = catalog.get(id)?;
+        ensure!(statement.kind == "policy", "invalid native policy head");
+        Ok(statement
+            .payload
+            .get("body_base64")
+            .and_then(Value::as_str)
+            .context("invalid native policy head")?
+            .to_owned())
+    })
+}
+/// The body of PERSON's single policy head at VERSION among planning
+/// STREAMS; BODY_OF gives a statement's `body_base64`.
+fn head_body(
+    streams: &Value,
+    network: &str,
+    person: &str,
+    version: u64,
+    body_of: impl Fn(&str) -> anyhow::Result<String>,
+) -> anyhow::Result<Option<PolicyBody>> {
+    let stream = streams
+        .as_array()
+        .context("invalid planning streams")?
+        .iter()
+        .find(|s| s["stream_kind"] == "policy" && s["subject"] == person);
+    let Some(stream) = stream else {
+        return Ok(None);
+    };
+    let heads = stream["head_ids"]
+        .as_array()
+        .context("invalid planning streams")?;
+    if stream["version"].as_u64() != Some(version) || heads.len() != 1 {
+        return Ok(None);
+    }
+    let head = heads[0].as_str().context("invalid planning streams")?;
+    let body: Value = serde_json::from_slice(&decode(&body_of(head)?)?)?;
+    ensure!(
+        body["person_public_key"] == person
+            && body["network_id"] == network
+            && body["version"].as_u64() == Some(version),
+        "native policy head owner mismatch"
+    );
+    Ok(Some(serde_json::from_value(body)?))
 }
 pub(crate) async fn reapply(
     local: &Local<'_>,
@@ -796,4 +860,73 @@ pub(crate) async fn current_policy(
         "native policy subject mismatch"
     );
     Ok(Some((statement, body)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NET: &str = "net_x";
+    const BOB: &str = "bob-key";
+
+    fn body(version: u64, person: &str) -> String {
+        STANDARD.encode(
+            serde_json::to_vec(&json!({
+                "format": 2, "network_id": NET, "person_public_key": person, "version": version,
+                "issued_at": "2026-11-01T00:00:00Z", "valid_until": "2026-11-02T00:00:00Z",
+                "rules": [{"agent": "alice", "principals": ["person:p"], "actions": ["message.append"],
+                           "max_message_bytes": 65536, "allow_disconnected": false}],
+                "edits": [{"host": "host_a", "seq": 1}],
+            }))
+            .unwrap(),
+        )
+    }
+    fn streams(version: u64, heads: &[&str]) -> Value {
+        json!([
+            {"stream_kind": "root", "subject": "-", "head_ids": ["dp_root"], "version": 9},
+            {"stream_kind": "policy", "subject": BOB, "head_ids": heads, "version": version},
+        ])
+    }
+
+    /// `access renew` revives the newest stored policy that no longer counts:
+    /// its single head at the retained maximum, rules unchanged.
+    #[test]
+    fn an_expired_policy_head_is_found_for_renewal() {
+        let found = head_body(&streams(3, &["dp_head"]), NET, BOB, 3, |id| {
+            assert_eq!(id, "dp_head");
+            Ok(body(3, BOB))
+        })
+        .unwrap()
+        .expect("the expired head");
+        assert_eq!(found.version, 3);
+        assert_eq!(found.rules.len(), 1);
+        assert_eq!(found.rules[0].agent, "alice");
+        assert_eq!(found.edits().len(), 1);
+    }
+
+    /// A person who never had a policy has no stream: renew still reports
+    /// "you have no policy". A fork or another version is not revived.
+    #[test]
+    fn no_single_head_at_the_version_is_no_policy() {
+        let never = |_: &str| -> anyhow::Result<String> { panic!("no statement is read") };
+        let none = json!([{"stream_kind": "policy", "subject": "carol", "head_ids": ["dp_c"], "version": 1}]);
+        assert!(head_body(&none, NET, BOB, 1, never).unwrap().is_none());
+        assert!(head_body(&json!([]), NET, BOB, 1, never).unwrap().is_none());
+        let fork = streams(3, &["dp_a", "dp_b"]);
+        assert!(head_body(&fork, NET, BOB, 3, never).unwrap().is_none());
+        assert!(
+            head_body(&streams(4, &["dp_head"]), NET, BOB, 3, never)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// A head whose body names another owner, network or version is refused.
+    #[test]
+    fn a_mismatched_head_body_is_refused() {
+        let s = streams(3, &["dp_head"]);
+        assert!(head_body(&s, NET, BOB, 3, |_| Ok(body(3, "mallory"))).is_err());
+        assert!(head_body(&s, NET, BOB, 3, |_| Ok(body(2, BOB))).is_err());
+        assert!(head_body(&s, "net_y", BOB, 3, |_| Ok(body(3, BOB))).is_err());
+    }
 }
