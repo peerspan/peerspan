@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 
-from harness import UnixHTTPConnection, check, wait_for
+from harness import UnixHTTPConnection, check, ssh_key, ssh_public_base64, wait_for
 import peerfs_read_common as common
 from peerfs_read_common import (BLOB, COMMIT, FILE, TREE, Graph, Provider, binding, compact, decode, encode,
                                 http_reply, rule, state)
@@ -81,9 +81,9 @@ def signed_commit(g, tree, parents, message, author=None, bad=False):
 
 
 def stranger():
-    """A self-consistent host identity no context admitted: its ID is its key's hash."""
-    raw = os.urandom(32)
-    return "host_" + hashlib.sha256(raw).hexdigest(), base64.b64encode(raw).decode()
+    """A self-consistent host identity no context admitted: a genuine Ed25519 key, its ID the key's hash."""
+    key = ssh_public_base64(ssh_key(state["roots"].parent, "stranger"))
+    return "host_" + hashlib.sha256(base64.b64decode(key)).hexdigest(), key
 
 
 def history(g, name, commits=2, blobs=(24, 30), last=(), author=None, bad=False, parent=None):
