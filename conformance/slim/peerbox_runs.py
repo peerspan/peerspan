@@ -16,12 +16,13 @@ strict expected failure.
 import json
 import os
 import stat
+from datetime import timedelta
 from pathlib import Path
 
-from harness import Suite, check, wait_for
-from runtime_common import (bind, enable, has_kind, need, policy_statement, receiver_events, refused, result_of, run_id,
-                            setup_network, state, stream)
-from peerbox_fixtures import commit_on, expected_workspace, runs_repo, self_check, worktree
+from harness import Suite, check, rfc3339, wait_for
+from runtime_common import (bind, cancel, enable, has_kind, need, new_task_id, occupy, policy_statement,
+                            receiver_events, refused, result_of, run_id, setup_network, state, stream)
+from peerbox_fixtures import commit_on, expected_workspace, run_workspaces, runs_repo, self_check, worktree
 from peerbox_common import (REASON, bundle, check_record, create, git, op_ok, outcome, raw_op, refs, rev, settle,
                             share, submit_bundle, submit_op)
 
@@ -92,7 +93,7 @@ def contribute(branch, files):
 
 def workspace(task_id):
     """The directory the fake runtime unpacked the run's archive into (kept until the daemon deletes the run)."""
-    found = sorted(state["rt"].dir.glob(run_id(state["b"], task_id)[:16] + "-*/workspace"))
+    found = run_workspaces(state["rt"].dir, run_id(state["b"], task_id))
     check(len(found) == 1, f"the fake runtime holds {len(found)} workspaces for {task_id}")
     return found[0]
 
@@ -289,6 +290,40 @@ def _():
               f"a started run after the runtime rule's withdrawal: {[e['kind'] for e in events]}")
     finally:
         enable("--for", state["alice_principal"], "--for", state["bob_principal"])
+
+
+@case("deadline_past_and_expiry", "task contract (deadline in the future at the receiver; queued at its deadline "
+                                  "becomes expired); peerbox Requests; runtime Running (expired before dispatch); "
+                                  "test clock")
+def _():
+    a, b, rt, main = need("a", "b", "rt", "main")
+    need("ready")
+    past = rfc3339(a.now() - timedelta(minutes=1))
+    for op in ({"op": "fetch", "peerbox_id": pbx()},
+               {"op": "run", "peerbox_id": pbx(), "commit": main, "run": {"argv": ["echo", "late"]}}):
+        status, body = raw_op(op, deadline=past)
+        refused(status, body, 400, "invalid", "deadline")
+    holder = occupy(60)  # the fake runtime's one slot: the peerbox run below stays queued
+    try:
+        task_id = new_task_id()
+        op = {"op": "run", "peerbox_id": pbx(), "commit": main, "run": {"argv": ["echo", "never"]}}
+        status, record = b.api("POST", "/v1/tasks", {
+            "peer_host_id": a.id, "executor": "peerbox", "task_id": task_id, "peerbox": op, "input": "peerbox run",
+            "deadline": rfc3339(a.now() + timedelta(minutes=10))})
+        check(status in (200, 201), f"POST /v1/tasks with a 10-minute deadline: {status} {record}")
+        receiver_events(task_id, until=lambda evs: bool(evs), timeout=30)
+        clock.set(clock.offset + 11 * 60)
+        events = receiver_events(task_id, timeout=30)
+        last = events[-1]
+        check([e["kind"] for e in events] == ["queued", "expired"] and last["state"] == "expired"
+              and last.get("output") is None and not last.get("artifacts"),
+              f"a run queued past its deadline: {[(e['kind'], e.get('output')) for e in events]}")
+        rid = run_id(b, task_id)
+        check(not rt.entries("started", rid) and not [p for p in rt.entries("post", rid) if p["status"] in (200, 201)],
+              "an expired run was started")
+    finally:
+        cancel(holder)
+        receiver_events(holder, timeout=30)
 
 
 @case("superseded_runnable_window", "peerbox Peerboxes and contributions: a superseded contribution runnable through "

@@ -14,7 +14,8 @@ networks. The Rust host at the repository root is the only host (DEC-OWN5).
 
 Not in this contract: a membership class other than full member for invited people, several branches or path filtering in one
 peerbox, merging, replicas of the home host, PeerFS-backed peerboxes, signed run receipts,
-agent tools for review or invitations, and grants for peerbox operations.
+agent tools for review, agent tools that create, share or invite without the owner's approval
+(see [Agent proposals](#agent-proposals)), and grants for peerbox operations.
 
 Both hosts need `git` 2.34 or later on `PATH` for peerbox commands; without it they fail
 with `git_missing`. Every Git command a host runs for a peerbox runs with
@@ -479,7 +480,9 @@ public result).
 Agents use peerboxes through the adapter, as they use runtime tasks: an owner-defined route
 names the home host, and the adapter does the local Git work under the agent's own
 permissions. Review and invitations stay with people: no agent tool accepts or rejects a
-contribution, shares a peerbox or creates an invite.
+contribution, shares a peerbox or creates an invite by itself. Under
+[Agent proposals](#agent-proposals), an agent can prepare a create, share or invite that runs
+only after the owner approves it at a terminal.
 
 **Routes.** Routes accept the actions `peerbox.read`, `peerbox.submit` and `peerbox.run`,
 set with `adapter route add --action` or in session setup, and shown in route records and
@@ -508,6 +511,300 @@ The tools wait for a task's final event up to its deadline, except `peerbox_run`
 `{error, message}` for a failed one. `repository_path` is a local path the agent can write;
 the adapter never writes outside it and never changes its checked-out branch or worktree.
 
+### Agent proposals
+
+Accepted 2026-11-13: PBX-16 to PBX-21 in the
+[decision log](decision-log.md#pbx-16-to-pbx-21-agent-proposed-owner-confirmed-peerbox-changes-2026-11-13),
+each chosen as recommended.
+
+An agent can **prepare** a `peerbox create`, `peerbox share` or `peerbox invite` on its own
+host; the person confirms it with one approval at a terminal on that host; only then does the
+host carry it out, exactly as prepared, and the agent receives the result. A prepared change is
+a **proposal**. It reuses the per-call approval of the
+[capabilities contract](capabilities-contract.md#per-call-approval-slice-3): the same
+`approvals`, `approve` and `deny` commands, the same terminal rule, single use, expiry, and the
+call-update notification pattern for telling the agent the outcome. Review (accept and
+reject), `unshare`, `delete`, gates, `invite --cancel` and `share --pending` stay owner-only;
+no agent tool prepares them.
+
+A proposal is local to the host whose adapter made it, and that host is the peerbox's home
+host: `create` makes this host the home host, and `share` and `invite` name a peerbox whose
+record is on this host. No peer route creates, lists or decides a proposal, and no message,
+task, reply or call another host sends is ever turned into one.
+
+#### Who may propose
+
+The adapter credential gains `peerbox_proposals`, a boolean, default false (PBX-17).
+`POST /v1/adapters/setup` takes it, and the adapter record shows it. `attach` gains
+`--peerbox-proposals` and `--no-peerbox-proposals`, with exactly the prompt, terminal and
+re-attach rules of `--calls`, and the prompt
+`Let this agent prepare peerbox changes (create, share, invite) for you to approve? [y/N] `.
+Its output gains `peerbox_proposals`, as on the adapter record, as it gains `calls`.
+A credential created any other way has it false. Every route below answers 403
+`{code: "no_peerbox_proposals", error}` without it. Routes, grants and peerbox route actions
+neither give nor need it.
+
+#### The proposal record
+
+| Field | Rules |
+| --- | --- |
+| `proposal_id` | `pbp_` followed by 32 lowercase hex digits, chosen by the adapter (Repeats). |
+| `op` | `create`, `share` or `invite`. |
+| `args` | The operation's arguments with every default filled in (below), so the record states the whole change. |
+| `review` | Facts the host computed itself when the proposal was made (below). Never text the agent supplied, other than the fields of `args` it repeats. |
+| `request_sha256` | SHA-256 of the request body exactly as the agent sent it, `{"proposal_id", "op", "args"}` with `args` as given (before any default is filled in or any path resolved), in the same encoding as `proposal_sha256`, as lowercase hex. Used only for Repeat (step 2); not shown in the view. |
+| `proposal_sha256` | SHA-256 of `{"op", "args", "review"}` in the call view's result-text encoding (keys sorted by UTF-8 bytes, no whitespace), as lowercase hex. |
+| `origin` | `{adapter_id, agent_id, session_id}` of the proposing session. |
+| `state` | `pending`, `approved`, `executed`, `failed`, `denied`, `expired` or `cancelled`. |
+| `requested_at`, `expires_at`, `decided_at` | RFC3339. `expires_at` is `requested_at` plus 1 hour (PBX-19). `decided_at` is when `state` left `pending`, else null. |
+| `reason` | The person's denial reason (0 to 1,024 bytes of UTF-8), else null. |
+| `result` | Null, or on `executed` the operation's result (Execution). |
+| `error` | Null, or on `failed` `{code, message}`. |
+
+The record holds no free-text note from the agent (PBX-20): the agent explains itself to the
+person in the session, not in the approval.
+
+**`args` and `review` by operation.** Each argument has the range of the CLI flag it stands for.
+
+| `op` | `args` | `review` |
+| --- | --- | --- |
+| `create` | `{repository, branch, title, network_id}`: `repository` the path given, made absolute and resolved through symbolic links when proposed, at most 4,096 bytes; `title` defaulting to the directory's name; `network_id`, when absent or null, the host's only coordinator-free network; absent or null when the host is in none or in several is 400 `invalid` with `field: "network_id"`. | `create`'s disclosure: `{head, commits, identities, identities_total, bundle_bytes}`, with `identities` the distinct `{name, email}` author and committer pairs sorted by `name`, then by `email`, each compared as UTF-8 bytes, the first 100 of that order, and `identities_total` their number. |
+| `share` | `{peerbox_id, principals, actions, max_bundle_bytes, max_pending, allow_disconnected}`, with `share`'s defaults. `principals` is 1 to 64 distinct `person:PERSON_ID` (PBX-18), in any order; the host sorts them by UTF-8 bytes. | `{title, network_id, people, before}`: `people` is `[{principal, person_id, label}]` from the network's signed membership map; `before` is, per principal in the same order, its current `{actions, max_bundle_bytes, max_pending, allow_disconnected}` on this peerbox, or null. |
+| `invite` | `{peerbox_id, label, actions, max_bundle_bytes, max_pending, expires_in_seconds}`: `label` as for `peerspan invite`; `expires_in_seconds` 60 to 86,400, default 3,600, counted from execution. | `{title, network_id}`. |
+
+`actions` takes the short names `read`, `submit` and `run`, as `--action` and the MCP tools
+take them, never `peerbox.read`; they are distinct, the host writes them in the order `read`,
+`submit`, `run`, and the default is `["read"]`. The host fills defaults, sorts `principals`,
+orders `actions`, resolves `repository` (and `title` from it) and fills `network_id` at step 1
+of Proposing; the record's `args` is that result.
+
+#### Adapter routes
+
+They require the adapter's credential and lease, as `/adapter/v1/next` does, and work before
+the channel is verified, except `proposal-updates/next`.
+
+| Adapter request | Behavior |
+| --- | --- |
+| `POST /adapter/v1/peerbox/proposals` with `{proposal_id, op, args}` | Checks and persists one proposal (Proposing) and returns 200 with the proposal view. It never waits for a decision. |
+| `GET /adapter/v1/peerbox/proposals/{id}` | The proposal view. Answers for proposals made through any credential of this session's agent on this host; any other ID is 404. |
+| `POST /adapter/v1/peerbox/proposals/{id}/cancel` with `{}` | A `pending` proposal becomes `cancelled`; any other state is 409 `{code: "conflict", error: "the proposal is no longer pending", proposal: VIEW}`. Same scope and 404 as the `GET`. |
+| `POST /adapter/v1/peerbox/proposal-updates/next` with `{}`, `POST /adapter/v1/peerbox/proposal-updates/{id}/forwarded` with `{}` | As `call-updates/next` and its `forwarded`, for proposal-update notifications (Telling the agent): `next` returns `{delivery, proposal, redelivered}`, where `delivery` is the notification record and `proposal` the proposal view, or `null`. |
+
+**Proposing.** `POST /adapter/v1/peerbox/proposals` takes these steps, in order; a refusal
+persists nothing. A `proposal_id` already used on this host goes straight to Repeat (step 2),
+before any other step, so a retry never depends on what has changed since:
+1. **Shape.** `proposal_id`, `op` and `args` as above, `args` with exactly that operation's
+   keys, optional ones absent or null; otherwise 400 `{code: "invalid", field}`. `field` is
+   `proposal_id`, `op` or `args` for the request's own keys (`args` when it is not an object);
+   for an argument it is the key inside `args` alone, as in `field: "repository"` (step 4):
+   `principals`, `expires_in_seconds`, an unknown key's own name, and the array's key, never an
+   index, for a bad element. A `network` principal, any other principal that is not `person:`
+   and a person ID, a repeated principal, and more than 64 principals are each 400 `invalid`
+   with `field: "principals"` (PBX-18). Then the host normalizes `args` (above).
+2. **Repeat.** A `proposal_id` already used on this host returns the existing view, whatever its
+   state, when it was made by this agent and the request's `request_sha256`, computed from the
+   body as received, equals the record's; otherwise 409 `{code: "conflict"}`. Nothing is
+   validated, normalized or looked up again, so a default that would now resolve differently
+   (the host joined a second network) or a repository symlink retargeted since does not turn an
+   identical retry into a refusal. Neither outcome counts against the limits.
+3. **Limits.** At most 5 proposals `pending` per credential and 20 per host: 429
+   `{code: "limit", error: "too many proposals are waiting for approval", limit:
+   "max_pending_proposals"}`. At most 20 proposals made through one credential in the
+   preceding 60 minutes: 429 `{code: "rate_limited", error, retry_after}` as for calls. When
+   both apply, the pending limit answers.
+4. **Target.** For `share` and `invite`, `peerbox_id` must name a peerbox record on this host:
+   404 `{code: "unknown"}`. For `share`, every principal must be a person in the current signed
+   membership of the peerbox's network: 400 `{code: "unknown_principal", principal}`. For
+   `create`, `git` must be present (503 `git_missing`) and the branch must have a commit (400
+   `branch_unknown`); a path that is not a Git repository is 400 `{code: "invalid", field:
+   "repository"}`.
+5. **Review.** The host computes `review`. When that cannot finish within the
+   [wait limit](capabilities-contract.md#the-wait-limit) of receipt, 503
+   `{code: "timeout", error}`: such a repository is created by the person with `peerbox create`.
+6. **Duplicate.** A `pending` proposal of the same agent with the same `proposal_sha256` is 409
+   `{code: "duplicate", proposal_id: ITS_ID}`, so the person is not asked twice.
+7. **Persist.** In one transaction: the record as `pending` and the activity `peerbox.proposed` (subject: the proposal ID).
+
+**The proposal view** is the record without `origin`, plus `note`, one of these exact texts,
+with `PROPOSAL_ID` replaced by the proposal's ID:
+- `pending`: `The person must approve this in a terminal on this machine (peerspan approve PROPOSAL_ID); it has not been done, and you cannot approve it. Tell the person what you prepared and why. Its outcome arrives as a kind=peerbox_proposal_update event; peerbox_proposal_status reports it at any time. Do not propose it again.`
+- `approved`: `The person approved this; it is being carried out.`
+- `executed` for `invite`: `The invite was created. Give the code only to the person it is for, privately: whoever holds it can ask to join the network and receive this access once an administrator admits them.`; for `create` and `share`: null.
+- `failed`: `The person approved this, but it could not be carried out (see error). Nothing was changed.`
+- `denied`, `expired`, `cancelled`: `This was not done, and nothing was changed. Proposing again makes a new proposal.`
+
+#### MCP tools
+
+The shared adapter adds five tools, listed whatever the credential, and refused with the
+`no_peerbox_proposals` refusal without it. Each generates `proposal_id` when it is absent;
+an agent that lost a response calls again with the same `proposal_id` (Repeat).
+
+| Tool | Arguments | Behavior |
+| --- | --- | --- |
+| `peerbox_propose_create` | `repository_path`, `branch`, `title?`, `network_id?`, `proposal_id?` | Posts `op: "create"`. Returns the proposal view. |
+| `peerbox_propose_share` | `peerbox_id`, `principals`, `actions?`, `max_bundle_bytes?`, `max_pending?`, `allow_disconnected?`, `proposal_id?` | Posts `op: "share"`. `actions` are `read`, `submit`, `run`, as `--action` takes them. |
+| `peerbox_propose_invite` | `peerbox_id`, `label`, `actions?`, `max_bundle_bytes?`, `max_pending?`, `expires_in_seconds?`, `proposal_id?` | Posts `op: "invite"`. |
+| `peerbox_proposal_status` | `proposal_id` | `GET .../proposals/{id}`. A 404 returns, without an error, `{proposal_id, state: "not_recorded", note: "The host has no record of this proposal for this agent; nothing was done."}`. |
+| `peerbox_proposal_cancel` | `proposal_id` | `POST .../proposals/{id}/cancel`. |
+
+Schemas have `additionalProperties: false`. Refusals return a tool error
+`{proposal_id, code, error, recovery}` with `recovery` `Nothing was proposed or recorded.`, as
+call refusals do; `no_peerbox_proposals` uses exactly `This session may not prepare peerbox
+changes. The person enables it with peerspan attach --peerbox-proposals.` A proposal view is
+never a tool error, whatever its state.
+
+#### Approving
+
+The person decides with the per-call approval commands, which accept a third `ID` form,
+`pbp_` and 32 lowercase hex digits (PBX-16). `deny` treats such an argument as a proposal, as
+it treats call IDs.
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| `approvals [--all] [--json]` | `GET /v1/peerbox-proposals?state=pending\|all`, beside `GET /v1/approvals` | Also lists proposals, in a second block after the calls. The route returns `{peerbox_proposals: [RECORD]}`: `state` defaults to `pending`, any other value is 400; `pending` lists the pending proposals and `all` adds every other one whose `decided_at` is within the last 7 days; sorted oldest first by `requested_at`, then `proposal_id`. `--json` prints `{approvals: [...], peerbox_proposals: [RECORD]}`, the two routes' lists side by side. One readable line each: the ID, `op`, the peerbox title or repository, the people or invite label, the actions, the proposing agent, the age and the time left. |
+| `approvals show pbp_… [--json]` | `GET /v1/peerbox-proposals/{id}` | The whole record, readable (below). |
+| `approve pbp_… [--person-key PATH]` | `POST /v1/peerbox-proposals/{id}/approve` with `{proposal_sha256, person_key}`: `person_key` is null, or a string, the absolute path of the OpenSSH private-key file `--person-key` names (the CLI makes it absolute); the daemon reads it for this signing only and never stores it, and with null signs through the network's provider as `peerbox share` without `--person-key` does | Needs a terminal, has no `--yes`, and refuses as call `approve` does. Prints what `approvals show` prints to stderr, then asks the operation's question (below), reading one line; on `y` or `yes` (any case) sends the digest it displayed. The route holds until execution ends and returns 200 with the record, `executed` or `failed`; the CLI prints it as JSON and exits 0 for `executed`, 1 for `failed`. |
+| `deny pbp_… [--reason TEXT]` | `POST /v1/peerbox-proposals/{id}/deny` with `{reason}` | As call `deny`: no prompt, terminal or not; the proposal becomes `denied`. |
+
+**Route refusals.** An unknown ID is 404. A proposal not `pending`, or past `expires_at`, is 409
+`{code: "conflict", error: "the proposal is no longer pending", proposal: RECORD}`, so
+approving twice changes nothing. A `proposal_sha256` other than the record's is 409
+`{code: "proposal_changed"}`. For `share` and `invite`, when signing would need the person's
+interaction and `person_key` does not provide it, 409 `{code: "person_key_needed", error}`,
+checked before anything changes: the proposal stays `pending` and the CLI says to run
+`approve` again with `--person-key`. `reason` over 1,024 bytes is 400.
+
+**What the person sees.** `approvals show` and `approve` print, in this order:
+1. `Prepared by agent AGENT_ID in session SESSION_ID. It may be acting on what other people told it; only the lines below are what will happen.`
+2. The operation: for `create`, the repository, branch, head, commit count, every identity (all
+   of `identities`, then `and N more` when `identities_total` is larger), the bundle size and
+   the network; for `share`, the peerbox, then per person their label, `person_id`, and the
+   access before and after; for `invite`, the peerbox, network, label, actions, bounds and how
+   long the code works.
+3. For `share`, the compatibility line `peerbox share` prints before signing.
+4. The question, exactly: `Create this peerbox? [y/N] `, `Sign a policy giving these people this access? [y/N] `, or
+   `Create this invite? Your agent will receive the code and choose who gets it. [y/N] `.
+
+Every piece of text the host did not choose itself is written **quoted**: a `"`, then the text
+with each `\` written as `\\` and each `"` as `\"`, and each character below U+0020 (line
+breaks included), U+007F and U+0080 to U+009F written as `\u` and four lowercase hex digits,
+as [Showing untrusted text](capabilities-contract.md#approving) writes them, then a `"`. So
+a value can neither close its quotes early nor print an escape that reads as one the host
+wrote. This covers values the agent supplied
+(`repository`, `branch`, `title`, `label`), labels from the membership map, and text read from
+the repository, which is each identity's `name` and `email` in the `create` disclosure. IDs, hashes and numbers are printed whole.
+
+**Telling the person.** `GET /v1/status` gains, at the top level, `peerbox_proposals_pending`, the number of
+`pending` proposals, and the attention item `peerbox_proposal_pending`, numbered after the
+last item in use when this merges: one item while any proposal is pending; subject the number
+as a decimal string; detail the oldest one's `op`, peerbox or repository and `expires_at`;
+command `peerspan approvals`. No notice event is sent: the proposing session already has the
+`pending` note, which tells the agent to ask the person.
+
+#### Execution
+
+`approve` moves the proposal `pending` to `approved` in one transaction with the activity
+`peerbox.proposal_approved`, then carries out exactly `args`:
+
+| `op` | Carried out as | `result` |
+| --- | --- | --- |
+| `create` | `peerbox create --yes` with `args`, after computing the disclosure again: when it differs from `review` in any field (the branch moved, for example), the proposal fails with `review_changed`. | `{peerbox_id}` |
+| `share` | `peerbox share PEERBOX --for ...` with `args` and `person_key`. The whole share review is computed again from the policy the signature will build on: each `person_id` must still be a member with the same principal, and each principal's `before` access must equal the reviewed `before`; any difference fails with `review_changed`, so an approval never overwrites access that changed after the person saw it. A `state_conflict` reloads, computes the review again from the reloaded policy (failing with `review_changed` on any difference) and tries again, at most 3 times, then fails with `state_conflict`. When every principal already holds exactly this access, nothing is signed. | `{policy_version}`: the version signed, or the current one when nothing was signed |
+| `invite` | `peerbox invite PEERBOX LABEL ...` with `args`, the expiry counted from now. | `{code, invitation_id, expires_at}`: the `psb1-` code |
+
+- **All or nothing.** The operation's own stored change (the peerbox record, the signed policy
+  version, or the network invite with its pending share) and the proposal's `executed` state
+  with `result` are written in one transaction, with `peerbox.proposal_executed`. A failure
+  writes `failed` with `error` and `peerbox.proposal_failed`, and nothing else. A peerbox
+  removed before execution fails with `unknown`; other codes are those the command returns
+  (`git_missing`, `branch_unknown`, signing failures as the network's provider reports them).
+- **Restart.** A proposal found `approved` when the daemon starts becomes `failed` with
+  `interrupted`: by the rule above, its change was not stored.
+- **Single use.** One approval executes once. A proposal never returns to `pending`; the same
+  change again needs a new proposal and a new approval.
+- **Provenance.** The peerbox record and the pending share gain `proposal_id`, null when the
+  person ran the command; `peerbox show` and `invite --list` show it.
+- **Expiry.** A `pending` proposal past `expires_at` becomes `expired`, with
+  `peerbox.proposal_expired`; the daemon checks at least every 5 seconds. Denial records
+  `peerbox.proposal_denied`, cancellation `peerbox.proposal_cancelled`. Activity holds no
+  argument values and no reason.
+- **The code.** `result.code` is set to null at the invite's `expires_at`. Only the proposing
+  agent's sessions (through the view) and the person (`approvals show`) read it.
+
+#### Telling the agent
+
+When a proposal becomes `executed`, `failed`, `denied` or `expired`, the daemon creates, in the
+same transaction, a **proposal-update notification**, a call-update notification in all but
+name: same record shape with `proposal_id` in place of `call_id`, same seen, redelivery and
+late-arrival rules, and seen when the holding session gets a final view through
+`peerbox_proposal_status` or calls `mark_seen` with the proposal ID. The event has
+`meta.kind` `peerbox_proposal_update` and `meta` `{proposal_id, notification_id, op, state,
+error_code, session_id, redelivered}`; its content is the proposal view as JSON text. A
+cancellation makes none. `pending_work`, `GET /adapter/v1/pending` and
+`GET /v1/sessions/{id}/pending` gain `peerbox_proposals`, `{proposal_id, op, state,
+expires_at, session_id, redelivered}`, listed as `calls` are: those not final, and those whose
+notification this session holds unseen.
+
+#### Routes and budgets
+
+A proposal uses no route and counts against no route's `max_messages`, no
+`max_sends_per_hour` and no `max_calls_per_hour`; its only bounds are the limits under
+Proposing. Executing a `share` changes the policy only: it creates no adapter route, so another
+person's agent still needs its own owner's `peerbox.*` route to use the access, and the home
+host still checks its peerbox rules on every task. An `invite` changes nothing about
+admission: an administrator admits the joiner as for any peerbox invite, and the rule is signed
+then (Invitations for new participants).
+
+#### Why text from others cannot approve
+
+- Only `POST /v1/peerbox-proposals/{id}/approve` on the local administration socket moves a
+  proposal out of `pending` towards execution, and `approve`, its only CLI, needs a terminal and
+  has no `--yes`. No adapter route, MCP tool, peer route or channel event approves, and a
+  proposal-update event carries no input from anyone but the person.
+- A proposal comes only from an adapter credential with `peerbox_proposals`; nothing a peer
+  sends is parsed into one.
+- The approval names the digest of what was displayed, and execution uses only `args`, with
+  `review` rechecked, so what runs is what the person saw.
+- The approval display is built from `args` and Peerspan's own lookups, with agent-supplied
+  values quoted and escaped, and carries no agent-written explanation.
+- The remaining limit is that of call approvals: a process running as the same OS user can
+  reach the administration socket itself.
+
+#### Not in this amendment
+
+Agent proposals for review, `unshare`, `delete`, gates, `invite --cancel` or
+`share --pending`; principals other than `person:`; proposals from another host of the person;
+approving from another machine; one approval covering several proposals.
+
+#### Decisions
+
+The owner chose each recommendation on 2026-11-13 (decision log PBX-16 to PBX-21).
+
+1. **PBX-16. Where the person approves.** (a) The existing `approvals`, `approve` and `deny`
+   commands, with a `pbp_` ID form. (b) New `peerbox proposals`, `peerbox approve` and
+   `peerbox decline` commands. **Chosen (a):** one place to look, and the terminal rule and
+   its tests already exist; the local API stays separate, so `GET /v1/approvals` is unchanged.
+2. **PBX-17. What lets an agent propose.** (a) A credential flag, `peerbox_proposals`, asked at
+   `attach` and default no, like `calls`. (b) A route action `peerbox.propose` naming this
+   host. (c) Every credential. **Chosen (a):** routes name a peer and cite its policy, and a
+   proposal has neither; (c) puts approval requests in front of people who never chose them.
+3. **PBX-18. Whom an agent may propose to share with.** (a) `person:` principals that are
+   current members, at most 64. (b) Every principal a rule accepts, `network` included.
+   **Chosen (a):** each person is named and resolved in the review; giving the whole network
+   access stays a deliberate command.
+4. **PBX-19. How long a proposal waits.** (a) 1 hour, fixed. (b) Chosen by the agent, up to
+   24 hours. (c) 15 minutes, as a call. **Chosen (a):** the person is usually in the session
+   that asked; a longer wait leaves stale requests in the list, and `review_changed` already
+   covers a repository that moved.
+5. **PBX-20. An explanation from the agent.** (a) None in the record; the agent explains in its
+   session. (b) A `note` of up to 1,024 bytes, shown quoted and marked as the agent's.
+   **Chosen (a):** the agent may be repeating another person's text, and the approval screen
+   should show only what will happen.
+6. **PBX-21. When the review changes before approval.** (a) Recompute at execution and fail
+   with `review_changed` on any difference. (b) Show the new facts in the `approve` prompt and
+   execute on them. **Chosen (a):** the approval then covers exactly what the person saw; (b)
+   turns the digest into a check of the arguments only.
+
 ## Persistence
 
 The host schema version increments by one: the next free version on `main` when the
@@ -520,6 +817,16 @@ Older binaries reject the new version. Route records accept the three peerbox ac
 `peerbox.deleted`, each recorded on the home host: when a record is created or deleted, an
 invite created, a bundle served, a contribution stored, and a decision recorded. A share
 is a policy edit and shows as one.
+
+The [Agent proposals](#agent-proposals) amendment, when accepted, adds in the same or the
+next schema version: a table `peerbox_proposals` (`proposal_id` primary key, `adapter_id`,
+`agent_id`, `session_id`, `op`, `state`, `expires_at`, `record`), indexed by
+`(state, expires_at)`; proposal-update notifications stored as call-update notifications are;
+`peerbox_proposals` on adapter credentials, false for existing ones; and a nullable
+`proposal_id` on peerbox records and pending shares. Final proposals are kept 30 days after
+`decided_at`, then deleted. New activity kinds are `peerbox.proposed`,
+`peerbox.proposal_approved`, `peerbox.proposal_executed`, `peerbox.proposal_failed`,
+`peerbox.proposal_denied`, `peerbox.proposal_expired` and `peerbox.proposal_cancelled`.
 
 ## Verification
 
@@ -568,7 +875,30 @@ suites do: routes with each peerbox action, a `peerbox.read` route refused for `
 `run` (403), the route budget; `peerbox_list`, `peerbox_fetch` into a repository (the ref set,
 the checked-out branch untouched, a repeat with nothing new), `peerbox_submit` and
 `peerbox_status`, `peerbox_withdraw`, and `peerbox_run` with output notifications; no tool
-that reviews, shares or invites.
+that reviews, shares or invites by itself.
+
+`peerbox_proposals` (second tier), when the [Agent proposals](#agent-proposals) amendment is
+accepted, covers through the adapter socket, MCP and a pseudo-terminal for `approve`: the
+credential flag and `no_peerbox_proposals`; each operation proposed, approved and executed,
+with the invite's `psb1-` code reaching the agent and joining as `peerbox join` does; `deny`,
+expiry (test clock) and cancel, each changing nothing; `approve` without a terminal, with a
+wrong digest, twice, and after expiry; `review_changed` for a branch moved, a person
+removed, and a recipient's access changed (granted, revoked or altered) before approval, with
+the newer policy left in place; `person_key_needed` leaving the proposal pending; repeats (an identical retry of a `create`
+without `network_id` still returning the proposal after the host joins a second network),
+conflicts,
+`duplicate` and the pending and hourly limits, the pending limit answering when both apply;
+`unknown_principal`, and `network` and 65 principals refused as `invalid` naming
+`principals`; principals given out of order stored sorted;
+a restart while `approved` giving `interrupted` with nothing stored; one
+`peerbox_proposal_update` event per final state and none for a cancel; `pending_work`; the
+attention item; the untrusted text a test can reach, each shown quoted and escaped by
+`approvals show` and `approve`: the repository path and the default title (its directory's
+name) holding control characters, terminal escapes, `"` and `\`, and a repository author's
+and committer's name and email holding control characters and terminal escapes (Git refnames,
+`peerspan invite` labels and membership labels cannot hold control characters, so `branch`,
+`label` and membership labels are covered by the rule, not by a case); no route budget consumed; and no adapter or peer route that
+approves.
 
 `peerbox_gate` (second tier) covers, with the fake runtime: a candidate writing outputs and a
 checker echoing a `PEERBOX-GATE` line; promotion with enough gain and the frontier moved,

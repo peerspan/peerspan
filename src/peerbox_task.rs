@@ -517,6 +517,13 @@ pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<Task
     validate(&r)?;
     let mut connection = store.connection()?;
     let tx = connection.transaction()?;
+    // A new task's deadline is in the future at the receiver (task
+    // contract); a past one is a request field error, before the checks.
+    if received(&tx, sender, &r.task_id)?.is_none()
+        && crate::task::time(&r.deadline)? <= crate::clock::now()
+    {
+        return Err(invalid("deadline"));
+    }
     let checked = check(store, &tx, sender, &r)?;
     if let (Some(rec), Some(p)) = (&checked.record, &r.peerbox) {
         check_lengths(store, rec, p)?;
@@ -539,11 +546,6 @@ pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<Task
             tx.commit()?;
         }
         return Ok(status);
-    }
-    // A new task's deadline is in the future at the receiver, refused as
-    // the task routes refuse it for agent tasks.
-    if crate::task::time(&r.deadline)? <= crate::clock::now() {
-        return Err(Error::Forbidden);
     }
     if let Some(manifest) = &r.artifacts {
         store.reserve(&tx, manifest)?;
