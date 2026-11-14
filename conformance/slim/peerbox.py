@@ -735,7 +735,7 @@ def _():
 # Invitations (peerbox Invitations for new participants).
 
 @case("invite_code_and_refusals", "peerbox Invitations 1, 2: the psb1- code; a code as an argument refused; a "
-                                  "member refused; the pending share kept across a home restart")
+                                  "member refused; the pending share kept across a home restart", known=None)
 def _():
     a, b = need("a", "b")
     code, inner, invitation = invite_code(pbx(), "dan", "--action", "read", "--action", "submit", "--max-pending",
@@ -760,7 +760,7 @@ def _():
 
 
 @case("invite_join", "peerbox Invitations 2 to 5: peerbox join and join accept the code; the rule signed for "
-                     "exactly the admitted person; other rules unchanged; the joiner lists and fetches")
+                     "exactly the admitted person; other rules unchanged; the joiner lists and fetches", known=None)
 def _():
     a, d, code, net = need("a", "d", "dan_code", "net")
     e = state["e"] = suite.host("erin")
@@ -799,7 +799,7 @@ def _():
 
 
 @case("invite_expired_and_cancelled", "peerbox Invitations: a share ending with its invite's expiry (test clock); "
-                                      "a cancelled share giving membership and no access")
+                                      "a cancelled share giving membership and no access", known=None)
 def _():
     a, net = need("a", "net")
     _, _, late = invite_code(pbx(), "late", "--expires-in", "1h")
@@ -857,7 +857,7 @@ def waited_and_signed(a, b, net, bpbx, code, invitation):
 
 
 @case("share_waiting_for_owner", "peerbox Invitations 4: with the owner's provider an SSH person key, "
-                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending")
+                                 "peerbox_share_waiting, kept across a restart, completed by peerbox share --pending", known=None)
 def _():
     a, b, net = need("a", "b", "net")
     brepo = init_repo(suite.work / "bob-repo")
@@ -941,7 +941,7 @@ def _():
 
 
 @case("withdrawal", "peerbox Withdrawal and Checks 1: fetch and submit refused, status kept for the former "
-                    "contributor's own records, 404 unknown for a former reader who never submitted")
+                    "contributor's own records, 404 unknown for a former reader who never submitted", known=None)
 def _():
     b, d, main = need("b", "d", "main")
     unshare(pbx(), state["bob_p"])

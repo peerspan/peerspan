@@ -665,6 +665,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/peerboxes", get(list).post(create))
         .route("/v1/peerboxes/{id}", get(show).delete(delete))
         .route("/v1/peerboxes/{id}/contributions", get(list_contributions))
+        .merge(crate::peerbox_invite::local_routes())
         .route(
             "/v1/peerboxes/contributions/{id}/decision",
             axum::routing::post(decide),
@@ -719,6 +720,354 @@ async fn list_contributions(
         })
         .await?,
     ))
+}
+
+// ---------------------------------------------------------------------
+// Runs (peerbox contract, Runs).
+
+/// The archive bytes each listed path costs at least: its pax header
+/// block, its tar header block, and the path itself in the pax record.
+const ENTRY_COST: u64 = 1024;
+
+/// Writes the workspace archive of `commit` to `out`: the commit's tree
+/// read entry by entry (`git ls-tree -r -z`, blobs through
+/// `git cat-file --batch`), never `git archive`, so no attribute, filter
+/// or configuration from the commit applies. Each blob is a regular file,
+/// 0755 when executable and 0644 otherwise; each symbolic link a link;
+/// each submodule an empty directory; no `.git`. Fails `too_large` as soon
+/// as the archive passes `limit` bytes (Runs). Returns its size.
+///
+/// Everything is produced as the listing streams, and nothing read from
+/// the commit is held beyond the entry being written, the ancestor
+/// directories of the current path (a prefix of it) and a link target, each
+/// charged against `limit` before it is read or held:
+/// - a listing record is read at most up to the bound still left;
+/// - every listed path, `.git` ones included, costs at least
+///   `ENTRY_COST` plus its length, so the listing's length is bounded;
+/// - directories are emitted from the listing's order (Git lists each
+///   directory's entries together), tracking only the current ancestors,
+///   each written (and so counted) as it is entered;
+/// - a blob's declared size is checked against the bound left before any
+///   of it is read; a regular file is copied through, a link target held.
+pub fn workspace_archive(
+    git: &Git,
+    repo: &FsPath,
+    commit: &str,
+    out: &FsPath,
+    limit: i64,
+) -> Result<u64, Failure> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::fs::OpenOptionsExt;
+    let limit = u64::try_from(limit).unwrap_or(0);
+    let internal = |e: std::io::Error| Failure::new("internal", e.to_string());
+    let over = || {
+        Failure::new(
+            "too_large",
+            format!(
+                "the workspace archive is over the runtime rule's max_artifact_bytes of {limit} bytes"
+            ),
+        )
+    };
+    let spawn = |args: &[&str], stdin: Stdio| {
+        git.command(repo)
+            .args(args)
+            .stdin(stdin)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    git_missing()
+                } else {
+                    Failure::new("internal", format!("git: {e}"))
+                }
+            })
+    };
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(out)
+        .map_err(internal)?;
+    let mut tar = Counted {
+        inner: std::io::BufWriter::new(file),
+        written: 0,
+        limit,
+    };
+    let mut list = spawn(
+        &[
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            "--end-of-options",
+            commit,
+        ],
+        Stdio::null(),
+    )?;
+    let mut batch = spawn(&["cat-file", "--batch"], Stdio::piped())?;
+    let result = (|| -> Result<(), Failure> {
+        let mut listing = BufReader::new(
+            list.stdout
+                .take()
+                .ok_or_else(|| Failure::new("internal", "git stdout"))?,
+        );
+        let mut ask = batch
+            .stdin
+            .take()
+            .ok_or_else(|| Failure::new("internal", "git stdin"))?;
+        let mut objects = BufReader::new(
+            batch
+                .stdout
+                .take()
+                .ok_or_else(|| Failure::new("internal", "git stdout"))?,
+        );
+        // What the listing has cost so far, `.git` paths included.
+        let mut listed: u64 = 0;
+        // The directory being filled, `a/b/`, and where each of its
+        // ancestors ends in it.
+        let mut current: Vec<u8> = Vec::new();
+        let mut ends: Vec<usize> = Vec::new();
+        let mut item = Vec::new();
+        loop {
+            item.clear();
+            let room = limit
+                .saturating_sub(listed.max(tar.written))
+                .saturating_add(1);
+            let n = (&mut listing)
+                .take(room)
+                .read_until(0, &mut item)
+                .map_err(internal)?;
+            if n == 0 {
+                break;
+            }
+            if item.last() == Some(&0) {
+                item.pop();
+            } else if n as u64 >= room {
+                return Err(over());
+            }
+            if item.is_empty() {
+                continue;
+            }
+            let tab = item.iter().position(|b| *b == b'\t').ok_or_else(|| {
+                Failure::new("unavailable", "git ls-tree: an entry without a path")
+            })?;
+            let (head, path) = (&item[..tab], &item[tab + 1..]);
+            listed = listed
+                .saturating_add(ENTRY_COST)
+                .saturating_add(path.len() as u64);
+            if listed > limit {
+                return Err(over());
+            }
+            // No `.git`, whatever the tree holds.
+            if path
+                .split(|b| *b == b'/')
+                .any(|c| c.eq_ignore_ascii_case(b".git"))
+            {
+                continue;
+            }
+            let head = std::str::from_utf8(head)
+                .map_err(|_| Failure::new("unavailable", "git ls-tree: a malformed entry"))?;
+            let mut fields = head.split(' ');
+            let (Some(mode), Some(kind), Some(object)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                return Err(Failure::new(
+                    "unavailable",
+                    "git ls-tree: a malformed entry",
+                ));
+            };
+            // Leave the directories this path is not in, then enter the
+            // ones it is, writing each as it is entered.
+            let parent = path
+                .iter()
+                .rposition(|b| *b == b'/')
+                .map_or(&path[..0], |i| &path[..=i]);
+            while !parent.starts_with(&current) {
+                ends.pop();
+                current.truncate(ends.last().copied().unwrap_or(0));
+            }
+            while current.len() < parent.len() {
+                let next = parent[current.len()..]
+                    .iter()
+                    .position(|b| *b == b'/')
+                    .map_or(parent.len(), |i| current.len() + i + 1);
+                current.extend_from_slice(&parent[current.len()..next]);
+                ends.push(current.len());
+                crate::tar::entry(&mut tar, &current, crate::tar::DIRECTORY, 0o755, 0, b"")
+                    .map_err(|x| tar.failure(x))?;
+            }
+            match kind {
+                "commit" => {
+                    let mut name = path.to_vec();
+                    name.push(b'/');
+                    crate::tar::entry(&mut tar, &name, crate::tar::DIRECTORY, 0o755, 0, b"")
+                        .map_err(|x| tar.failure(x))?;
+                }
+                "blob" => {
+                    writeln!(ask, "{object}").map_err(internal)?;
+                    ask.flush().map_err(internal)?;
+                    let mut line = String::new();
+                    (&mut objects)
+                        .take(256)
+                        .read_line(&mut line)
+                        .map_err(internal)?;
+                    let mut parts = line.trim_end().split(' ');
+                    let (Some(found), Some("blob"), Some(size)) =
+                        (parts.next(), parts.next(), parts.next())
+                    else {
+                        return Err(Failure::new(
+                            "unavailable",
+                            format!("git cat-file: {}", line.trim_end()),
+                        ));
+                    };
+                    let size: u64 = size.parse().map_err(|_| {
+                        Failure::new("unavailable", "git cat-file: a malformed size")
+                    })?;
+                    if found != object {
+                        return Err(Failure::new(
+                            "unavailable",
+                            "git cat-file: an unexpected object",
+                        ));
+                    }
+                    // The declared size counts before a byte is read.
+                    if tar.written.saturating_add(size) > limit {
+                        return Err(over());
+                    }
+                    let mut data = (&mut objects).take(size);
+                    if mode == "120000" {
+                        let mut target = Vec::new();
+                        data.read_to_end(&mut target).map_err(internal)?;
+                        crate::tar::entry(&mut tar, path, crate::tar::SYMLINK, 0o777, 0, &target)
+                            .map_err(|x| tar.failure(x))?;
+                    } else {
+                        let mode = if mode == "100755" { 0o755 } else { 0o644 };
+                        crate::tar::entry(&mut tar, path, crate::tar::FILE, mode, size, b"")
+                            .map_err(|x| tar.failure(x))?;
+                        let copied =
+                            std::io::copy(&mut data, &mut tar).map_err(|x| tar.failure(x))?;
+                        if copied != size {
+                            return Err(Failure::new("unavailable", "git cat-file: a short blob"));
+                        }
+                        crate::tar::pad(&mut tar, size).map_err(|x| tar.failure(x))?;
+                    }
+                    // The newline after each object.
+                    let mut newline = [0u8; 1];
+                    objects.read_exact(&mut newline).map_err(internal)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    })();
+    // A listing or batch cut short is stopped; one read to its end exits.
+    if result.is_err() {
+        let _ = list.kill();
+        let _ = batch.kill();
+    }
+    let listed = list.wait().map_err(internal)?;
+    let _ = batch.wait();
+    result?;
+    if !listed.success() {
+        return Err(Failure::new(
+            "unavailable",
+            "git ls-tree could not list the commit's tree",
+        ));
+    }
+    crate::tar::end(&mut tar).map_err(|e| tar.failure(e))?;
+    tar.inner.flush().map_err(|e| tar.failure(e))?;
+    tar.inner.get_ref().sync_all().map_err(internal)?;
+    Ok(tar.written)
+}
+/// A writer that refuses to grow past `limit` bytes.
+struct Counted<W> {
+    inner: W,
+    written: u64,
+    limit: u64,
+}
+const OVER: &str = "the archive is over the bound";
+impl<W> Counted<W> {
+    fn failure(&self, e: std::io::Error) -> Failure {
+        if e.to_string() == OVER {
+            Failure::new(
+                "too_large",
+                format!(
+                    "the workspace archive is over the runtime rule's max_artifact_bytes of {} bytes",
+                    self.limit
+                ),
+            )
+        } else {
+            Failure::new("internal", e.to_string())
+        }
+    }
+}
+impl<W: std::io::Write> std::io::Write for Counted<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.written + buf.len() as u64 > self.limit {
+            return Err(std::io::Error::other(OVER));
+        }
+        let n = self.inner.write(buf)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Records a run on every contribution of the peerbox whose head is
+/// `commit` (Peerboxes and contributions: `runs`, oldest first), with its
+/// task's identity: the sender and the task ID (task contract).
+pub(crate) fn record_run(
+    conn: &Connection,
+    peerbox: &str,
+    commit: &str,
+    sender: &str,
+    task_id: &str,
+    created_at: &str,
+) -> Result<(), Error> {
+    let run = json!({"task_id": task_id, "state": "queued", "exit_code": null, "created_at": created_at, "sender": sender});
+    conn.execute(
+        "UPDATE peerbox_contributions SET record = json_set(record, '$.runs', json_insert(COALESCE(json_extract(record, '$.runs'), json('[]')), '$[#]', json(?1))) WHERE peerbox_id = ?2 AND json_extract(record, '$.head') = ?3",
+        params![run.to_string(), peerbox, commit],
+    )?;
+    Ok(())
+}
+/// Updates the state and exit code of the run of the received task
+/// (`sender`, `task_id`): a task ID alone names no run, since senders
+/// choose their task IDs.
+pub(crate) fn update_run(
+    conn: &Connection,
+    sender: &str,
+    task_id: &str,
+    state: &str,
+    exit_code: Option<i64>,
+) -> Result<(), Error> {
+    let rows: Vec<(String, String)> = {
+        let mut statement = conn.prepare(
+            "SELECT contribution_id, record FROM peerbox_contributions WHERE EXISTS (SELECT 1 FROM json_each(record, '$.runs') WHERE json_extract(value, '$.task_id') = ?1 AND json_extract(value, '$.sender') = ?2)",
+        )?;
+        statement
+            .query_map([task_id, sender], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (id, raw) in rows {
+        let mut record: Value = serde_json::from_str(&raw)?;
+        if let Some(runs) = record["runs"].as_array_mut() {
+            for run in runs
+                .iter_mut()
+                .filter(|r| r["task_id"] == task_id && r["sender"] == sender)
+            {
+                run["state"] = json!(state);
+                run["exit_code"] = json!(exit_code);
+            }
+        }
+        conn.execute(
+            "UPDATE peerbox_contributions SET record = ?1 WHERE contribution_id = ?2",
+            params![record.to_string(), id],
+        )?;
+    }
+    Ok(())
 }
 async fn decide(
     State(store): State<Arc<Store>>,

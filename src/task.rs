@@ -154,6 +154,12 @@ impl TaskRequest {
     pub fn is_runtime(&self) -> bool {
         self.executor.as_deref() == Some(crate::runtime_task::EXECUTOR)
     }
+    /// Whether this is a peerbox task's `run`, which the host's runtime
+    /// runs (peerbox contract, Runs).
+    pub fn is_peerbox_run(&self) -> bool {
+        self.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+            && self.peerbox.as_ref().is_some_and(|p| p.op == "run")
+    }
     pub(crate) fn authz(&self) -> Authz<'_> {
         Authz {
             action: TASK_ACTION,
@@ -344,11 +350,12 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
 /// The stored record of a received task: the status record plus what the
 /// authorization checked at acceptance allowed, which is never served: the
 /// artifact bound and whether the agent may pass the task on.
-const INTERNAL_KEYS: [&str; 4] = [
+const INTERNAL_KEYS: [&str; 5] = [
     "max_artifact_bytes",
     "delegable",
     "runtime",
     "runtime_agent",
+    "peerbox_run",
 ];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
@@ -551,6 +558,11 @@ pub(crate) fn expire(
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
+    // A peerbox run's entry on its contribution ends with it (peerbox
+    // contract, Peerboxes and contributions: `runs`).
+    if request.is_peerbox_run() {
+        crate::peerbox::update_run(tx, sender, &status.task_id, "expired", None)?;
+    }
     Ok(true)
 }
 /// The rejection reason when authorization lapses before an agent accepts.
@@ -725,7 +737,9 @@ impl Store {
         let tx = connection.transaction()?;
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
-        let run = request.is_runtime() || crate::runtime_task::is_agent_task(&tx, sender, id)?;
+        let run = request.is_runtime()
+            || request.is_peerbox_run()
+            || crate::runtime_task::is_agent_task(&tx, sender, id)?;
         let mut children = Vec::new();
         if !status.cancel_requested && !is_final(&status.state) {
             record(
@@ -741,7 +755,9 @@ impl Store {
             if run {
                 crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
             }
-            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR) {
+            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+                && !request.is_peerbox_run()
+            {
                 crate::peerbox_task::cancel_requested(&tx, sender, &mut status)?;
             }
         }

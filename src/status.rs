@@ -23,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 25] = [
+pub const ATTENTION_ORDER: [&str; 26] = [
     "policy_expired",
     "credential_expiring",
     "tasks_failed",
@@ -46,6 +46,7 @@ pub const ATTENTION_ORDER: [&str; 25] = [
     "capability_name_conflict",
     "policy_edit_unsettled",
     "policy_edit_dropped",
+    "peerbox_share_waiting",
     "call_approval_pending",
     "conversation_invites",
     "peer_delivery_failing",
@@ -410,6 +411,9 @@ impl Store {
         }
         for (kind, subject, detail, command) in self.edit_attention(connection, now)? {
             attention.push(item(&kind, subject, detail, command));
+        }
+        for (subject, detail, command) in crate::peerbox_invite::attention(connection)? {
+            attention.push(item("peerbox_share_waiting", subject, detail, command));
         }
         if let Some((subject, detail, command)) = self.approval_attention(connection)? {
             attention.push(item("call_approval_pending", subject, detail, command));

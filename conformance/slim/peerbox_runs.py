@@ -32,8 +32,8 @@ clock = suite.use_clock()
 DAY, HOUR = 86400, 3600
 
 
-def case(name, spec):
-    return suite.case(name, spec, known=REASON)
+def case(name, spec, known=REASON):
+    return suite.case(name, spec, known=known)
 
 
 def pbx():
@@ -143,7 +143,7 @@ def _():
 
 
 @case("run_needs_both_rules_and_switch", "peerbox Checks 2 and 4: peerbox.run, a runtime rule matching the sender "
-                                         "and the local switch, each required")
+                                         "and the local switch, each required", known=None)
 def _():
     a, rt, main = need("a", "rt", "main")
     status, body = raw_run(main)
@@ -178,7 +178,7 @@ def _():
 
 
 @case("bounds_from_runtime_rule", "peerbox Checks 4 and Runs: the runtime rule's bounds, its maximums as defaults, "
-                                  "max_artifact_bytes over the archive")
+                                  "max_artifact_bytes over the archive", known=None)
 def _():
     b, rt, main = need("b", "rt", "main")
     need("ready")
@@ -197,7 +197,7 @@ def _():
 
 
 @case("workspace_is_the_tree", "peerbox Runs: the archive is the commit's tree byte for byte, modes, links, "
-                               "submodules as empty directories, no .git, no attribute applied")
+                               "submodules as empty directories, no .git, no attribute applied", known=None)
 def _():
     main = need("main")[0]
     need("ready")
@@ -219,7 +219,7 @@ def _():
 
 
 @case("commit_unknown", "peerbox Runs: commit_unknown for an unknown commit and one outside the protected branch; "
-                        "a commit ID of another length 400")
+                        "a commit ID of another length 400", known=None)
 def _():
     main = need("main")[0]
     need("ready")
@@ -231,7 +231,7 @@ def _():
     refused(status, body, 400, "invalid", "workspace")
 
 
-@case("run_changes_no_ref", "peerbox Runs: a run never changes a ref; the owner's repository unchanged")
+@case("run_changes_no_ref", "peerbox Runs: a run never changes a ref; the owner's repository unchanged", known=None)
 def _():
     work = need("work")[0]
     need("ready")
@@ -243,7 +243,7 @@ def _():
 
 
 @case("runs_recorded", "peerbox Peerboxes and contributions: runs recorded oldest first, cut to the latest 8, "
-                       "runs_total")
+                       "runs_total", known=None)
 def _():
     work = need("work")[0]
     need("ready")
@@ -266,7 +266,7 @@ def _():
 
 
 @case("withdrawal_cancels_run", "peerbox Withdrawal (PBX-4): losing peerbox.run cancels a started run with "
-                                "`access withdrawn`; a runtime rule's withdrawal does not")
+                                "`access withdrawn`; a runtime rule's withdrawal does not", known=None)
 def _():
     b, rt, main = need("b", "rt", "main")
     need("ready")
@@ -328,7 +328,7 @@ def _():
 
 @case("superseded_runnable_window", "peerbox Peerboxes and contributions: a superseded contribution runnable through "
                                     "its contribution ref; the ref kept 30 days (test clock), then deleted, the "
-                                    "record kept")
+                                    "record kept", known=None)
 def _():
     a = need("a")[0]
     need("ready")

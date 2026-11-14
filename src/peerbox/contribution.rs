@@ -63,6 +63,20 @@ pub struct RunEntry {
     pub state: String,
     pub exit_code: Option<i64>,
     pub created_at: String,
+    /// The host that sent the run's task: with `task_id`, the received
+    /// task's identity (task contract). Stored, never returned.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sender: String,
+}
+
+/// A run as a returned record lists it (peerbox contract, Peerboxes and
+/// contributions: `runs`).
+#[derive(Serialize)]
+struct RunView<'a> {
+    task_id: &'a str,
+    state: &'a str,
+    exit_code: Option<i64>,
+    created_at: &'a str,
 }
 
 /// A contribution as stored: the contract's record and, never returned,
@@ -102,7 +116,7 @@ struct View<'a> {
     submitted_at: &'a str,
     state: &'a str,
     decision: &'a Option<Decision>,
-    runs: &'a [RunEntry],
+    runs: Vec<RunView<'a>>,
     runs_total: usize,
 }
 
@@ -121,7 +135,15 @@ impl Contribution {
             submitted_at: &self.submitted_at,
             state: &self.state,
             decision: &self.decision,
-            runs: &self.runs[cut..],
+            runs: self.runs[cut..]
+                .iter()
+                .map(|r| RunView {
+                    task_id: &r.task_id,
+                    state: &r.state,
+                    exit_code: r.exit_code,
+                    created_at: &r.created_at,
+                })
+                .collect(),
             runs_total: self.runs.len(),
         })
         .unwrap_or(Value::Null)
@@ -1132,12 +1154,20 @@ impl Store {
 /// withdrawing changes only a pending one.
 pub(crate) fn save_all(tx: &Transaction<'_>, writes: &[Contribution]) -> Result<(), Error> {
     for c in writes {
+        let current = load(tx, &c.contribution_id)?;
         if c.state == SUPERSEDED
-            && load(tx, &c.contribution_id)?.is_some_and(|current| current.state != PENDING)
+            && current
+                .as_ref()
+                .is_some_and(|current| current.state != PENDING)
         {
             continue;
         }
-        save(tx, c)?;
+        // Runs recorded meanwhile are the runtime's and stay.
+        let mut c = c.clone();
+        if let Some(current) = current {
+            c.runs = current.runs;
+        }
+        save(tx, &c)?;
     }
     Ok(())
 }

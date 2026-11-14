@@ -26,6 +26,7 @@ mod memo;
 mod migration;
 mod observer;
 pub(crate) mod peer;
+pub(crate) mod peerbox_share;
 mod probe;
 pub(crate) mod product;
 mod project_access;

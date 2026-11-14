@@ -197,13 +197,30 @@ fn waiting(store: &Store) -> Result<Vec<Waiting>> {
 fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<bool> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
+    let packet = super::transcript::Packet::read(&code.request_packet)?;
+    let p = &packet.payload;
+    // A peerbox invite's pending share notes whose request came through it
+    // (peerbox contract, Invitations for new participants 4), whether or
+    // not the request is new here.
+    if text(p, "mode")? == "new" {
+        crate::peerbox_invite::came_through(
+            store,
+            &tx,
+            &invite.id,
+            &code.request_id,
+            text(p, "expected_network_id")?,
+            text(p, "expected_person_public_key")?,
+        )
+        .map_err(|_| Error::new("internal"))?;
+    }
     match requests::load(&tx, &code.request_id) {
-        Ok(_) => return Ok(false),
+        Ok(_) => {
+            tx.commit().map_err(db)?;
+            return Ok(false);
+        }
         Err(e) if e.code == "not_found" => {}
         Err(e) => return Err(e),
     }
-    let packet = super::transcript::Packet::read(&code.request_packet)?;
-    let p = &packet.payload;
     let network = text(p, "expected_network_id")?;
     let person = text(p, "expected_person_public_key")?;
     check(

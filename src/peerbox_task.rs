@@ -532,6 +532,14 @@ pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<Task
     if let (Some(rec), Some(p)) = (&checked.record, &r.peerbox) {
         check_lengths(store, rec, p)?;
     }
+    // Checks 4: a run is also everything a runtime task's checks are, with
+    // the request's `run` in place of a runtime task's.
+    let runtime_rule = match r.peerbox.as_ref().and_then(|p| p.run.as_ref()) {
+        Some(run) if r.is_peerbox_run() => Some(crate::runtime_task::authorize_run(
+            store, &tx, sender, &r, run,
+        )?),
+        _ => None,
+    };
     if let Some((old, mut status)) = received(&tx, sender, &r.task_id)? {
         if old != r {
             return Err(Error::Conflict(
@@ -568,6 +576,9 @@ pub(crate) fn accept(store: &Store, sender: &str, r: TaskRequest) -> Result<Task
             serde_json::to_string(&status)?
         ],
     )?;
+    if let Some(rule) = runtime_rule {
+        crate::runtime_task::mark_peerbox_run(&tx, sender, &r.task_id, rule)?;
+    }
     record(&tx, sender, &mut status, "queued", None, None, None)?;
     if let Some(manifest) = &r.artifacts {
         crate::artifact::add_artifacts(
@@ -601,7 +612,7 @@ pub(crate) fn cancel_requested(
 /// Queued peerbox tasks, in `created_at` order.
 fn queued(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
     let mut statement = conn.prepare(
-        "SELECT sender, task_id FROM received_tasks WHERE json_extract(request, '$.executor') = 'peerbox' AND json_extract(record, '$.state') = 'queued' ORDER BY json_extract(record, '$.created_at'), rowid",
+        "SELECT sender, task_id FROM received_tasks WHERE json_extract(request, '$.executor') = 'peerbox' AND json_extract(record, '$.state') = 'queued' AND COALESCE(json_extract(record, '$.peerbox_run'), 0) = 0 ORDER BY json_extract(record, '$.created_at'), rowid",
     )?;
     statement
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -620,9 +631,9 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
         if let Err(e) = pass(&store).await {
             eprintln!("peerbox tasks: {e:?}");
         }
-        // Retention is checked once a minute; it writes only when a
-        // contribution ref is due.
-        if swept.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+        // Retention is checked every 15 seconds, one query; it writes only
+        // when a contribution ref is due.
+        if swept.is_none_or(|t| t.elapsed() >= Duration::from_secs(15)) {
             swept = Some(std::time::Instant::now());
             if let Err(e) = crate::api::blocking(store.clone(), |s| {
                 contribution::sweep(s, crate::clock::now())
@@ -641,6 +652,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
 }
 
 async fn pass(store: &Arc<Store>) -> Result<(), Error> {
+    crate::api::blocking(store.clone(), sweep_archives).await?;
     let tasks = crate::api::blocking(store.clone(), |s| queued(&*s.connection()?)).await?;
     for (sender, id) in tasks {
         crate::api::blocking(store.clone(), move |s| serve(s, &sender, &id)).await?;
@@ -719,6 +731,12 @@ fn serve(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     let outcome = match p.op.as_str() {
         "list" => list(store, &checked, p.after.as_deref()),
         "fetch" => fetch(store, &checked, &p, sender),
+        "run" => match prepare_run(store, &checked, &request, sender) {
+            Ok(()) => return Ok(()),
+            Err(Prepared::Failed(f)) => Outcome::Failed(f),
+            Err(Prepared::Error(e)) => return Err(e),
+            Err(Prepared::Rejected(reason)) => Outcome::Rejected(reason),
+        },
         "submit" => submit(store, &checked, &request, sender),
         "status" => status_op(store, &checked, &p),
         "withdraw" => withdraw(store, &checked, &p, sender, id),
@@ -1494,4 +1512,292 @@ fn withdraw_inner(
         saved.map_err(internal)?;
         Ok(Outcome::Done)
     })
+}
+
+// ---------------------------------------------------------------------
+// Runs (Runs; Withdrawal).
+
+/// Why a run was not handed to the runtime.
+enum Prepared {
+    /// A final `failed` outcome before any run.
+    Failed(Failure),
+    /// The recheck failed for good.
+    Rejected(String),
+    /// Left as it is: recoverable, or a host error.
+    Error(Error),
+}
+impl From<Error> for Prepared {
+    fn from(e: Error) -> Self {
+        Self::Error(e)
+    }
+}
+impl From<rusqlite::Error> for Prepared {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Error(e.into())
+    }
+}
+
+/// The directory of the workspace archives of peerbox runs.
+fn archive_dir(store: &Store) -> PathBuf {
+    store.state_directory().join("peerbox-runs")
+}
+
+/// `run` before the runtime (Runs): the runtime rule's current bounds, the
+/// runnable-commit rule, and the workspace archive built from the commit's
+/// tree within `max_artifact_bytes`. Then the task is the runtime
+/// worker's, which follows the runtime task contract from its queue on.
+fn prepare_run(
+    store: &Store,
+    checked: &Checked,
+    request: &TaskRequest,
+    sender: &str,
+) -> Result<(), Prepared> {
+    let rec = checked
+        .record
+        .as_ref()
+        .ok_or_else(|| Prepared::Failed(Failure::new("unknown", "unknown peerbox")))?;
+    let commit = request
+        .peerbox
+        .as_ref()
+        .and_then(|p| p.commit.clone())
+        .ok_or_else(|| Prepared::Error(invalid("commit")))?;
+    // A run still queued at its deadline ends `expired` before any
+    // workspace is built or start sent, as a runtime task does.
+    {
+        let mut conn = store.connection()?;
+        let tx = conn.transaction()?;
+        let Some((stored, mut status)) = received(&tx, sender, &request.task_id)? else {
+            return Ok(());
+        };
+        if crate::task::expire(&tx, sender, &stored, &mut status)? {
+            tx.commit()?;
+            return Ok(());
+        }
+    }
+    let rule = {
+        let conn = store.connection()?;
+        match recheck_run(store, &conn, sender, request) {
+            Ok((rule, _)) => rule,
+            Err(Error::Unavailable(_)) => return Ok(()),
+            Err(Error::Coded { message, .. }) => return Err(Prepared::Rejected(message)),
+            Err(e) => return Err(Prepared::Error(e)),
+        }
+    };
+    let git = Git::new(store.state_directory()).map_err(Prepared::Failed)?;
+    let person = checked
+        .grants
+        .members
+        .get(&rec.network_id)
+        .and_then(|m| m.person_id.clone());
+    // The peerbox's lock from the runnable-commit check to the recorded
+    // run, as a review or withdrawal holds it, so a contribution ref read
+    // here is not deleted under the archive, and a peerbox deleted meanwhile
+    // is noticed before the run is recorded.
+    contribution::with_lock(&rec.peerbox_id, || {
+        prepare_locked(
+            store,
+            request,
+            sender,
+            rec,
+            &commit,
+            person.as_deref(),
+            &git,
+            &rule,
+        )
+    })
+}
+
+/// `prepare_run` under the peerbox's lock.
+#[allow(clippy::too_many_arguments)]
+fn prepare_locked(
+    store: &Store,
+    request: &TaskRequest,
+    sender: &str,
+    rec: &Record,
+    commit: &str,
+    person: Option<&str>,
+    git: &Git,
+    rule: &crate::policy::RuntimeRule,
+) -> Result<(), Prepared> {
+    crate::peerbox::runnable_commit(store, git, rec, person, commit, crate::clock::now())
+        .map_err(Prepared::Failed)?;
+    use std::os::unix::fs::DirBuilderExt;
+    let dir = archive_dir(store);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|e| Prepared::Error(Error::Internal(e.into())))?;
+    let path = dir.join(format!("{sender}-{}.tar", request.task_id));
+    let _ = std::fs::remove_file(&path);
+    if let Err(f) = crate::peerbox::workspace_archive(
+        git,
+        Path::new(&rec.repository),
+        commit,
+        &path,
+        rule.max_artifact_bytes,
+    ) {
+        let _ = std::fs::remove_file(&path);
+        return Err(Prepared::Failed(f));
+    }
+    let mut conn = store.connection()?;
+    let tx = conn.transaction()?;
+    let still = received(&tx, sender, &request.task_id)?
+        .is_some_and(|(_, status)| status.state == "queued" && !status.cancel_requested);
+    if !still {
+        drop(tx);
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    // Checks 1 again: a peerbox deleted during the Git work is unknown.
+    if crate::peerbox::record(&tx, &rec.peerbox_id)?.is_none() {
+        drop(tx);
+        let _ = std::fs::remove_file(&path);
+        return Err(Prepared::Rejected(
+            "the sender may no longer read this peerbox".into(),
+        ));
+    }
+    let created_at = received(&tx, sender, &request.task_id)?
+        .map(|(_, status)| status.created_at)
+        .unwrap_or_else(now);
+    crate::peerbox::record_run(
+        &tx,
+        &rec.peerbox_id,
+        commit,
+        sender,
+        &request.task_id,
+        &created_at,
+    )?;
+    crate::runtime_task::peerbox_run_ready(&tx, sender, &request.task_id, path)?;
+    tx.commit()?;
+    store.runtime_wake.notify_one();
+    Ok(())
+}
+
+/// The checks before a peerbox run starts: Checks 1 and 2 again, then the
+/// runtime task contract's (Checks 4). Returns the runtime rule and the
+/// owner's policy version it holds under. A final failure is a coded
+/// refusal whose message is the reason; `Unavailable` can recover.
+pub(crate) fn recheck_run(
+    store: &Store,
+    conn: &Connection,
+    sender: &str,
+    request: &TaskRequest,
+) -> Result<(crate::policy::RuntimeRule, u64), Error> {
+    let refused = |message: &str| Error::Coded {
+        status: 403,
+        code: "forbidden",
+        message: message.into(),
+        extra: Default::default(),
+    };
+    let checked = match check(store, conn, sender, request) {
+        Ok(c) => c,
+        Err(Error::Unavailable(m)) => return Err(Error::Unavailable(m)),
+        Err(Error::Forbidden) => {
+            return Err(refused("the peerbox rule no longer allows this operation"));
+        }
+        Err(_) => return Err(refused("the sender may no longer read this peerbox")),
+    };
+    let run = request
+        .peerbox
+        .as_ref()
+        .and_then(|p| p.run.as_ref())
+        .ok_or_else(|| invalid("run"))?;
+    let rule = match crate::runtime_task::authorize_run(store, conn, sender, request, run) {
+        Ok(rule) => rule,
+        Err(Error::Unavailable(m)) => return Err(Error::Unavailable(m)),
+        Err(Error::Coded { message, .. }) => return Err(refused(&message)),
+        Err(_) => return Err(refused(crate::task::LAPSED)),
+    };
+    let version = match &checked.record {
+        Some(rec) => owner_policy(store, conn, &rec.network_id, request)?.map_or(0, |p| p.version),
+        None => 0,
+    };
+    Ok((rule, version))
+}
+
+/// The home host's stored policy of the cited person in `network`.
+fn owner_policy(
+    store: &Store,
+    conn: &Connection,
+    network: &str,
+    request: &TaskRequest,
+) -> Result<Option<crate::decentralized::product::Policy>, Error> {
+    let Some(cited) = &request.policy else {
+        return Ok(None);
+    };
+    let Some(key) = store.product_person_key(conn, network, &cited.person_id)? else {
+        return Ok(None);
+    };
+    store.product_policy(conn, network, &key)
+}
+
+/// Whether a started peerbox run's sender no longer matches `peerbox.run`
+/// under a policy version the home host stored since the run was
+/// dispatched (Withdrawal, PBX-4). Only the rule counts: a policy lapsing,
+/// a ban, a lapsed membership or a runtime rule's withdrawal does not.
+pub(crate) fn run_withdrawn(store: &Store, sender: &str, id: &str) -> Result<bool, Error> {
+    let conn = store.connection()?;
+    let Some(dispatched) = crate::runtime_task::dispatched_policy_version(&conn, sender, id)?
+    else {
+        return Ok(false);
+    };
+    let Some((request, _)) = received(&conn, sender, id)? else {
+        return Ok(false);
+    };
+    let Some(pbx) = request.peerbox.as_ref().and_then(|p| p.peerbox_id.clone()) else {
+        return Ok(false);
+    };
+    let Some(rec) = crate::peerbox::record(&conn, &pbx)? else {
+        // A deleted peerbox has no rules left.
+        return Ok(true);
+    };
+    let Some(policy) = owner_policy(store, &conn, &rec.network_id, &request)? else {
+        return Ok(false);
+    };
+    if policy.version <= dispatched {
+        return Ok(false);
+    }
+    let me = store.identity().id;
+    let member = match store.product_member(&conn, &rec.network_id, sender)? {
+        Some(m) => m,
+        None => match store.product_lapsed_member(&conn, &rec.network_id, sender)? {
+            Some(m) => m,
+            None => return Ok(false),
+        },
+    };
+    let groups = store.product_groups(&conn, &rec.network_id)?;
+    let matches = policy.peerbox_rules().iter().any(|rule| {
+        rule.host == me
+            && rule.peerbox == pbx
+            && rule.has(PEERBOX_RUN)
+            && rule.principals.iter().any(|p| {
+                crate::decentralized::product::principal_matches(
+                    p,
+                    &member,
+                    &groups,
+                    request.origin.as_ref(),
+                )
+            })
+    });
+    Ok(!matches)
+}
+
+/// Removes the archives of runs that are final or unknown.
+fn sweep_archives(store: &Store) -> Result<(), Error> {
+    let Ok(entries) = std::fs::read_dir(archive_dir(store)) else {
+        return Ok(());
+    };
+    let conn = store.connection()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some((sender, id)) = name.strip_suffix(".tar").and_then(|n| n.split_once('-')) else {
+            continue;
+        };
+        let keep = received(&conn, sender, id)?.is_some_and(|(_, status)| !is_final(&status.state));
+        if !keep {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    Ok(())
 }

@@ -388,6 +388,33 @@ impl Store {
         result.sort_by(|a, b| a.person_id.cmp(&b.person_id));
         Ok(result)
     }
+    /// The person key a network administrator admitted as a new person
+    /// through join request `request_id`, from the network's verified
+    /// activations: an activation of that request that carries an
+    /// administrator offer, for a `new` request. A request that folded into
+    /// an existing person carries none and gives `None`.
+    pub(crate) fn product_admitted_new_person(
+        &self,
+        c: &Connection,
+        network: &str,
+        request_id: &str,
+    ) -> std::result::Result<Option<String>, ModelError> {
+        if !is_decentralized(c, network)? {
+            return Ok(None);
+        }
+        let s = Context::read(self, c, network).map_err(model)?;
+        Ok(s.projection
+            .activated
+            .values()
+            .filter(|a| a.request_id == request_id && a.packets.contains_key("administrator"))
+            .find_map(|a| {
+                let request = &a.packets.get("request")?.payload;
+                (text(request, "mode").ok()? == "new")
+                    .then(|| text(request, "expected_person_public_key").ok())
+                    .flatten()
+                    .map(str::to_owned)
+            }))
+    }
     /// Person keys with a current admin grant on a coordinator-free network.
     pub(crate) fn product_admins(
         &self,
