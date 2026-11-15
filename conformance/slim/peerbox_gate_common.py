@@ -1,5 +1,5 @@
-"""Shared fixtures and helpers of the episode-mode peerbox gate suites (peerbox_gate_episodes.py,
-peerbox_gate_paired.py).
+"""Shared fixtures and helpers of the peerbox gate suites (peerbox_gate_episodes.py, peerbox_gate_paired.py, and the
+outputs-mode peerbox_gate.py and peerbox_gate_queue.py).
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), Gates, with the runtime task contract's
 Linked runs. It builds on runtime_common.py and peerbox_common.py and shares their `state`.
@@ -13,14 +13,22 @@ commit it submits, the only input of an evaluation that the host does not make. 
 holds the frontier's version of every case's file and a contribution changes only its own, so a promotion in one case
 leaves the other cases' frontiers as they were. The fake runtime logs each start request, each run's unpacked
 workspace and the link's connections, which the cases read as their oracle of what ran where.
+
+An `outputs` gate (Outputs mode, below) has no link: its candidate command writes the frontier's result line to
+`.peerbox-gate/out/r.txt` and then a case's own line through a directory VAR, which a contribution makes a symbolic
+link to `.peerbox-gate` (a tree entry that is not under `.peerbox-gate/`), so its line replaces the frontier's; in a
+commit without that link VAR is an ordinary directory and the line lands outside `.peerbox-gate/out/`, where it is
+ignored. The checker cats the output, so again the submitted commit chooses the scores.
 """
 import base64
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import stat
+import tarfile
 import tempfile
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -28,7 +36,7 @@ from harness import check, wait_for
 from runtime_common import make_tar, need, setup_network, state
 import runtime_common
 from peerbox_common import (bundle, check_record, commit_files, create, git, init_repo, op_ok, outcome, owner_cli, rev,
-                            share, submit_bundle)
+                            share, status_all, submit_bundle)
 from peerbox_fixtures import commit_on, worktree
 
 REASON = "peerbox gates not implemented (peerbox contract, Gates; PBX-25 to PBX-33)"
@@ -87,15 +95,15 @@ def pbx():
 
 # Setup (the network, the fake runtime and peerboxes are implemented; gates are not).
 
-def gate_setup(suite, frontier):
+def gate_setup(suite, frontier, checker=CHECKER):
     """The network, the fake runtime with linked pairs, the owner's repository whose main holds FRONTIER {NAME: text}
-    as f/NAME.txt, the two snapshot directories, and the runtime's local switch on."""
+    as f/NAME.txt, the two snapshot directories (CHECKER the checker's), and the runtime's local switch on."""
     setup_network(**RUNTIME)
     repo = init_repo(suite.work / "alice-repo")
     files = {"README.md": "a gated peerbox\n", "claim.txt": "no claim\n",
              **{f"f/{name}.txt": text for name, text in frontier.items()}}
     state.update(repo=repo, main=commit_files(repo, files, "every case's frontier"), learners=[state["b"]], pending=[])
-    for key, tree in (("inputs", INPUTS), ("checker", CHECKER)):
+    for key, tree in (("inputs", INPUTS), ("checker", checker)):
         root = suite.work / key
         for path, text in tree.items():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
@@ -180,15 +188,26 @@ def tidy():
     state["pending"] = []
 
 
-def set_gate(name, **kw):
-    """`peerbox gate set` for case NAME; returns `gate show` after it."""
+def set_gate(name, args=None, mode="episode", **kw):
+    """`peerbox gate set` for case NAME with ARGS (default: gate_args(NAME, **KW)); returns `gate show` after it."""
     tidy()
-    owner_cli("gate", "set", pbx(), *gate_args(name, **kw))
+    owner_cli("gate", "set", pbx(), *(gate_args(name, **kw) if args is None else args))
     shown = show()
     rec = record(shown)
-    check(rec.get("state") == "active" and rec.get("mode") == "episode" and rec.get("frontier") is None,
+    check(rec.get("state") == "active" and rec.get("mode") == mode and rec.get("frontier") is None,
           f"the gate after gate set: {rec}")
     return shown
+
+
+def refused_set(args, code, field):
+    """`gate set ARGS` refused as How the CLI reports a refusal says: `error: CODE: MESSAGE` on stderr, MESSAGE's first
+    word FIELD when given (Naming the field), nothing on stdout, exit 1."""
+    result = owner_cli("gate", "set", pbx(), *args, ok=False)
+    lines = [x for x in result.stderr.splitlines() if x.strip()]
+    want = re.compile(rf"^error: {code}: {field}(?=[\s:,;]|$)" if field else rf"^error: {code}: \S")
+    check(result.code == 1 and result.stdout == "" and lines and want.match(lines[-1]),
+          f"gate set {[str(a)[:40] for a in args[-4:]]}: exit {result.code}, stdout {result.stdout[:100]!r}, stderr "
+          f"{' '.join(result.stderr.split())[-200:]!r}, want exit 1 and `error: {code}: {field or 'MESSAGE'}`")
 
 
 def show():
@@ -267,7 +286,7 @@ def decided(cid, timeout=90):
     return rec
 
 
-def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None):
+def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None, score="checker"):
     """peerbox Verdict: a decision by the gate with the public result; returns that result. CHECKER_REASON is the
     result line's `reason` (every environment here gives "" unless a case says otherwise), None when no result line
     was read."""
@@ -284,9 +303,9 @@ def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None):
     reasons = ({f"{code}: {checker_reason}"} if checker_reason
                else {code, f"{code}: "} if checker_reason == "" else {code})
     check(g["code"] == code and g["checker_reason"] == checker_reason and d["reason"] in reasons
-          and g["score"] == "checker", f"code {g['code']!r}, checker_reason {g['checker_reason']!r}, reason "
-                                       f"{d['reason']!r}, score {g['score']!r}: want {code!r}, {checker_reason!r}, "
-                                       f"one of {sorted(reasons)}, checker")
+          and g["score"] == score, f"code {g['code']!r}, checker_reason {g['checker_reason']!r}, reason "
+                                    f"{d['reason']!r}, score {g['score']!r}: want {code!r}, {checker_reason!r}, "
+                                    f"one of {sorted(reasons)}, {score}")
     if frontier is not None:
         check(d["old_head"] == frontier, f"old_head {d['old_head']}, want the evaluation's frontier {frontier}")
     if verdict == "promoted":
@@ -513,3 +532,166 @@ def jcs_check(work):
     halves = {0.125: 0.13, -0.125: -0.13, 0.375: 0.38, -2.625: -2.63, 1.234: 1.23, -1.236: -1.24}
     check(all(hundredths(v) == w for v, w in halves.items()), f"hundredths {[hundredths(v) for v in halves]}")
     digest_check(work)
+
+
+# Outputs mode (peerbox Evaluation, outputs mode; the module docstring says how a commit chooses its scores).
+
+OUT = ".peerbox-gate/out/r.txt"
+CHECKER_MARK = "the-owners-checker"  # in every outputs checker, so that a reader's view can be searched for it
+CHECK = ["stderr", CHECKER_MARK, ";", "cat", OUT]
+OUTPUTS_CHECKER = {"check.txt": "the owner's checker\n", "expected/r.txt": "held-out expected outputs\n"}
+
+
+def written(score, passed=True, reason=""):
+    """A result line as a `write` step leaves it in a file: without a line feed."""
+    return line(score, passed=passed, reason=reason).rstrip("\n")
+
+
+def outputs_command(frontier, variants=(), tail=()):
+    """An outputs gate's candidate command: FRONTIER to OUT, then each (VAR, TEXT) to VAR/out/r.txt, which is OUT
+    only in a commit where VAR is a symbolic link to .peerbox-gate; then the steps TAIL."""
+    argv = ["write", OUT, frontier]
+    for var, text in variants:
+        argv += [";", "write", f"{var}/out/r.txt", text]
+    return argv + list(tail)
+
+
+def outputs_args(command, checker=CHECK, score="checker", direction="lower", min_gain=10, extra=()):
+    """`gate set` arguments of an outputs gate (the default mode, so no --mode)."""
+    return ["--inputs-dir", state["inputs"], "--command", json.dumps(command), "--checker-dir", state["checker"],
+            "--checker", json.dumps(checker), "--score", score, "--direction", direction, "--min-gain",
+            str(min_gain), *map(str, extra)]
+
+
+def set_outputs(command, **kw):
+    """`gate set` of an outputs gate; returns `gate show` after it."""
+    return set_gate(None, args=outputs_args(command, **kw), mode="outputs")
+
+
+def contribute_link(branch, var=None, files=None, start=None):
+    """bob's commit on BRANCH from START (default: the protected head) with FILES, making VAR a symbolic link to
+    .peerbox-gate; submitted, returns the record."""
+    wt = state["wt"]
+    git(wt, "checkout", "-q", "-B", branch, start or state["main"])
+    if var:
+        os.symlink(".peerbox-gate", wt / var)
+    return submit_tip(branch, commit_files(wt, files or {}, f"{branch}: {var} {sorted(files or {})}"))
+
+
+def posts(since=0, until=None):
+    """The runs the fake accepted between log positions SINCE and UNTIL, in start order, with `at_index`."""
+    return [{**e, "at_index": i} for i, e in enumerate(state["rt"].entries()[since:until], start=since)
+            if e.get("event") == "post" and e.get("status") == 201]
+
+
+def kind_of(entry, command, checker, generator=None):
+    """`candidate` (COMMAND, results changes), `check` (CHECKER, output) or `generator` (GENERATOR, changes)."""
+    r = entry["request"]
+    known = {("candidate", "changes"): command, ("check", "output"): checker, ("generator", "changes"): generator}
+    found = [k for (k, results), argv in known.items() if argv is not None and r["argv"] == argv
+             and r["results"] == results and r.get("link") is None]
+    check(len(found) == 1, f"a run that is no outputs gate's: argv {r['argv'][:6]} results {r['results']}")
+    return found[0]
+
+
+def measurements(found, command, checker, generator=None):
+    """peerbox Evaluation, outputs mode: FOUND is a generator run when GENERATOR is set, then (candidate run, check
+    run) pairs, each run started once the one before it exited. Returns (generator entry or None, the pairs)."""
+    kinds = [kind_of(e, command, checker, generator) for e in found]
+    lead = 1 if generator is not None else 0
+    want = ["generator"] * lead + [("candidate", "check")[i % 2] for i in range(len(found) - lead)]
+    check(kinds == want, f"runs {kinds}, want {want}")
+    entries = state["rt"].entries()
+    for before, after in zip(found, found[1:]):
+        done = [i for i, e in enumerate(entries) if e.get("event") == "exited" and e.get("run_id") == before["run_id"]]
+        check(done and done[0] < after["at_index"], "a gate run started before the run before it had exited")
+    return (found[0] if lead else None), [(found[i], found[i + 1]) for i in range(lead, len(found) - 1, 2)]
+
+
+def run_result(entry):
+    """The fake's run result of a run (its `exited` log entry)."""
+    found = logged("exited", entry["run_id"])
+    check(len(found) == 1, f"{len(found)} exited entries for {entry['run_id'][:16]}")
+    return found[0]["result"]
+
+
+def time_score(entry):
+    """peerbox Evaluation: a candidate run's time is its `duration_ms`, at least 1."""
+    return max(1, run_result(entry)["duration_ms"])
+
+
+def files_of(entry):
+    """A run's unpacked regular files {path: SHA-256}, without its symbolic links."""
+    return {k: v for k, v in workspace(entry["run_id"]).items() if not v.startswith("link:")}
+
+
+def run_ids(evaluation):
+    """The fake's run IDs of a `gate show` evaluation's runs: the home host submits each to itself (peerbox
+    Evaluation), so each is run_ and the SHA-256 of `<home host ID>/<task_id>` (runtime, The runtime's local API)."""
+    return [runtime_common.run_id(state["a"], r["task_id"]) for r in evaluation["runs"]]
+
+
+def paused_with(reason, cid):
+    """peerbox Verdict, Generator: the gate pauses with REASON and CID stays pending and queued."""
+    wait_for(lambda: record(show()).get("state") == "paused", timeout=60, interval=1, message="the gate to pause")
+    shown = show()
+    rec = status_of(cid)
+    check(record(shown).get("paused_reason") == reason and rec["state"] == "pending" and rec["decision"] is None
+          and shown["queue"] == [cid], f"paused_reason {record(shown).get('paused_reason')}, want {reason}; the "
+                                       f"contribution {rec['state']} {rec['decision']}, queue {shown['queue']}")
+    return shown
+
+
+def queue_order(records):
+    """peerbox Evaluation: queued contributions are evaluated oldest first by (submitted_at, contribution_id)."""
+    return [r["contribution_id"] for r in sorted(records, key=lambda r: (r["submitted_at"], r["contribution_id"]))]
+
+
+def started(argv, since, timeout=60):
+    """The first run with ARGV accepted after log position SINCE, once the fake has started it."""
+    def ready():
+        found = [e for e in posts(since) if e["request"]["argv"] == argv]
+        return found[0] if found and logged("started", found[0]["run_id"]) else None
+    return wait_for(ready, timeout=timeout, interval=0.2, message=f"a {argv[:2]} run to start")
+
+
+def listed():
+    """bob's `list` entry's `gate`, and the whole `list` answer and every `status` record as one text."""
+    value, _, _ = op_ok({"op": "list"})
+    entry = [p for p in value["peerboxes"] if p["peerbox_id"] == pbx()]
+    check(len(entry) == 1 and "gate" in entry[0], f"list entry {str(entry)[:300]}")
+    records, _ = status_all(pbx())
+    return entry[0]["gate"], json.dumps(value) + json.dumps(records)
+
+
+def outputs_check(work):
+    """The outputs trick on the suite's fake before any gate exists: without the link the case's line lands outside
+    .peerbox-gate/out/, with it the line replaces the frontier's, as changes.tar shows."""
+    rt = state["rt"]
+    for linked, want in ((False, {OUT: b"F", "v/out/r.txt": b"C"}), (True, {OUT: b"C"})):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as tar:
+            info = tarfile.TarInfo(".peerbox-gate/inputs/seed.txt")
+            info.size = 5
+            tar.addfile(info, io.BytesIO(b"seed\n"))
+            if linked:
+                info = tarfile.TarInfo("v")
+                info.type, info.linkname = tarfile.SYMTYPE, ".peerbox-gate"
+                tar.addfile(info)
+        archive = work / f"outputs-{linked}.tar"
+        archive.write_bytes(buffer.getvalue())
+        rid = "run_" + os.urandom(32).hex()
+        status, body = rt.api("POST", "/v1/runs", {
+            "run_id": rid, "argv": outputs_command("F", [("v", "C")]), "cwd": "/workspace", "env": {},
+            "resources": DEFAULT_RESOURCES, "workspace_archive": str(archive), "peerfs_workspace": None,
+            "results": "changes"})
+        check(status == 201, f"the fake refused a run: {status} {body}")
+        wait_for(lambda: logged("exited", rid), timeout=30, message="the outputs helper run")
+        _, events = rt.api("GET", f"/v1/runs/{rid}/events?after=0")
+        tars = [a["path"] for e in events if e["kind"] == "results" for a in e["artifacts"]
+                if a["name"] == "changes.tar"]
+        check(len(tars) == 1, f"no changes.tar in {events[-1:]}")
+        with tarfile.open(tars[0]) as tar:
+            got = {m.name: tar.extractfile(m).read() for m in tar if m.isfile()}
+        check(got == want, f"changes with the link {linked}: {got}, want {want}")
+        rt.api("DELETE", f"/v1/runs/{rid}")
