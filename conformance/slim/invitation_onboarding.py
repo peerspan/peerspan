@@ -647,7 +647,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (33,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(migrated["$version"] == (34,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),
@@ -684,9 +684,9 @@ def _():
             db.execute(f"DROP TABLE {TABLE}")
             db.execute(f"CREATE TABLE {TABLE} (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future34")
+    future = clone_state(source, "future35")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 34")
+        db.execute("PRAGMA user_version = 35")
     refuse_start(future)
 
 

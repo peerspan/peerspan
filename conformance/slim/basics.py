@@ -332,7 +332,7 @@ def _():
     # The peerbox contract (Persistence) adds tables for peerbox records, contributions and pending shares but
     # names none, so only the tables the other contracts name are checked here.
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 33, f"{path.name}: schema version {version}, want 33")
+    check(version == 34, f"{path.name}: schema version {version}, want 34")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 
@@ -349,7 +349,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 34")
+    db.execute("PRAGMA user_version = 35")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -358,10 +358,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 34 database")
+    check(code not in (None, 0), "a daemon opened a schema 35 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 34, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 35, "the refused database was changed")
     finally:
         db.close()
 
