@@ -66,6 +66,36 @@ above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`
 - `--requests FILE` appends one JSON line per `POST /v1/runs`, `{at, status, body}`, with `body` the request's raw
   text: its fields, `secrets` paths included but never their contents, so a suite can compare resends byte for byte.
 
+Linked pairs (docs/runtime-task-contract.md, "Linked runs"; PBX-26, PBX-27). `GET /v1/runtime` reports `links` true
+unless started with `--links 0`; such a fake answers a run with a `link` 422 `unavailable`. `link` is
+`{id, role, port, max_connections, max_bytes}`, each checked as that section says (otherwise 400 `invalid` naming
+`link`); a run whose `link` takes a role its partner holds, differs from its partner's `port`, `max_connections` or
+`max_bytes`, or is the third with that `id`, is 400 `invalid`. The fake stands for each guest's `127.0.0.1:PORT` with
+a real loopback port of its own: the link listens on one for the `connect` side, and the `listen` side's `serve` step
+listens on another, which the link dials, splicing each connection it accepts to it as one ordered byte stream each
+way. A connection is refused at once (a TCP reset) while the `listen` side has no listener on the link's port, beyond
+`max_connections` open at once, or once the link is closed. When either direction has carried `max_bytes` (summed over
+the pair's connections and its life), every connection is closed and new ones are refused; the link ends, closing its
+connections, when either run exits, and the other run goes on. Two steps use it:
+
+    serve PORT COUNT          (listen side) listens on the guest's 127.0.0.1:PORT and reads each accepted connection
+                              to its end; once COUNT connections have ended, or the link has ended and every
+                              accepted one has, it stops listening and writes each connection's bytes, in accept
+                              order, to stdout
+    connect PORT COUNT PATH   (connect side) opens COUNT connections to 127.0.0.1:PORT one after the other, keeping
+                              each open; until the first is open a refused one is retried every 0.1 s for up to 30 s
+                              (the listener may not be up yet), and after it a refused one is counted, not retried.
+                              Then it sends PATH's content on each open connection and half-closes it, reads each to
+                              its end, writing what came back to stdout, and writes `connect: N open, M refused, K cut`
+                              to stderr (K: connections whose send failed)
+
+A connection to any other port, or from a run without a link, is refused at once: nothing else crosses. The log
+records `link_open`, `link_refused` (`reason`: `no_listener`, `max_connections` or `closed`), `link_closed` (`reason`
+`max_bytes` or `exited`, with the bytes `carried` from each side), `serve` (`accepted`, and `bytes` per connection)
+and `connect` (`opened`, `refused`, `cut`). `--log-workspaces 1` adds, once a run's workspace is unpacked, a
+`workspace` entry whose `entries` map each path to its file's SHA-256, `dir` or `link:TARGET`.
+`python3 fake_runtime.py self-check` checks the linked pair host-free (`self_check`).
+
 Standalone, standard library only. Every request and run step is appended to `--log` as one JSON line, which the
 suite reads as its oracle (what was started, resent, cancelled, and whether a command ran).
 """
@@ -79,7 +109,9 @@ import os
 import re
 import shutil
 import signal
+import socket
 import socketserver
+import struct
 import sys
 import tarfile
 import tempfile
@@ -105,6 +137,11 @@ SECRET_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 SECRET_BYTES = 65536
 STDIN_BYTES = 65536
+# runtime-task-contract, Linked runs.
+LINK_ID = re.compile(r"^lnk_[0-9a-f]{32}$")
+LINK_FIELDS = ("id", "role", "port", "max_connections", "max_bytes")
+LINK_MAX_BYTES = 1_073_741_824
+PROBE = 0.2  # seconds a new connection is watched for the link's reset
 
 
 def now_text():
@@ -154,6 +191,8 @@ class Run:
         else:
             self.workspace = runtime.peerfs.get(self.peerfs)  # None: a name it was not given
         self.secrets = {}  # name -> content, in memory only
+        self.link = None  # its Link, set by Runtime.start
+        self.guest_listeners = {}  # guest port -> the real loopback port standing for it (serve)
         self.stdout = open(os.path.join(self.dir, "stdout.log"), "wb")
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
@@ -208,6 +247,8 @@ class Run:
             if self.peerfs is not None and self.workspace is None:
                 raise RefusedEntry(f"no peerfs workspace named {self.peerfs!r}")
             self.unpack()
+            if self.runtime.args.log_workspaces and self.workspace is not None:
+                self.runtime.log(event="workspace", run_id=self.run_id, entries=self.listing())
             self.before = self.snapshot()
             self.before_digest = self.peerfs_digest() if self.peerfs is not None else None
             if self.cancel.is_set():
@@ -254,6 +295,8 @@ class Run:
         self.stdout.close()
         self.stderr.close()
         artifacts = self.results(started)
+        if self.link is not None:
+            self.link.close("exited")  # Linked runs: either run's exit ends the link
         # Logged before the run frees its slot or workspace and before the daemon can see `exited`, so the log's
         # order is the order the daemon could observe.
         self.runtime.log(event="exited", run_id=self.run_id, started=started, result=result,
@@ -358,6 +401,22 @@ class Run:
                         files[rel] = hashlib.sha256(f.read()).hexdigest()
         return files, links
 
+    def listing(self):
+        """`--log-workspaces`: {path: SHA-256 of a file, `dir`, or `link:TARGET`} of the unpacked workspace."""
+        out = {}
+        for base, dirs, names in os.walk(self.workspace):
+            for name in sorted(dirs + names):
+                full = os.path.join(base, name)
+                rel = os.path.relpath(full, self.workspace)
+                if os.path.islink(full):
+                    out[rel] = "link:" + os.readlink(full)
+                elif os.path.isdir(full):
+                    out[rel] = "dir"
+                else:
+                    with open(full, "rb") as f:
+                        out[rel] = hashlib.sha256(f.read()).hexdigest()
+        return out
+
     def peerfs_digest(self, message=None):
         """SHA-256 of the workspace's sorted paths and contents (a symbolic link's content is its target), and of
         MESSAGE when given (a commit's ID)."""
@@ -448,6 +507,10 @@ class Run:
                 if self.cancel.wait(left):
                     break
             self.check()
+        elif name == "serve":
+            self.serve(int(args[0]), int(args[1]))
+        elif name == "connect":
+            self.connect(int(args[0]), int(args[1]), args[2])
         elif name == "exit":
             raise Stop(exit_code=int(args[0]))
         elif name == "kill":
@@ -455,6 +518,118 @@ class Run:
         else:
             self.write("stderr", f"{name}: unknown step\n".encode())
             raise Stop(exit_code=127)
+
+    # Linked runs: the two steps.
+
+    def serve(self, port, count):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(64)
+        listener.settimeout(0.05)
+        self.guest_listeners[port] = listener.getsockname()[1]
+        received, ended = [], []
+        try:
+            while True:
+                self.check()
+                finished = sum(1 for e in ended if e.is_set())
+                if finished >= count or (finished == len(ended) and self.link is not None and self.link.ended):
+                    break
+                try:
+                    conn, _ = listener.accept()
+                except socket.timeout:
+                    continue
+                received.append(bytearray())
+                ended.append(threading.Event())
+                threading.Thread(target=self.drain, args=(conn, received[-1], ended[-1]), daemon=True).start()
+        finally:
+            self.guest_listeners.pop(port, None)
+            listener.close()
+        self.runtime.log(event="serve", run_id=self.run_id, port=port, accepted=len(received),
+                         bytes=[len(b) for b in received])
+        for data in received:
+            self.write("stdout", bytes(data))
+
+    @staticmethod
+    def drain(conn, buffer, ended):
+        conn.settimeout(None)
+        try:
+            while True:
+                data = conn.recv(65536)
+                if not data:
+                    break
+                buffer += data
+        except OSError:
+            pass
+        finally:
+            conn.close()
+            ended.set()
+
+    def connect(self, port, count, path):
+        try:
+            with open(self.resolve(path), "rb") as f:
+                data = f.read()
+        except OSError as failure:
+            self.write("stderr", f"connect: {path}: {failure.strerror}\n".encode())
+            raise Stop(exit_code=1)
+        conns, refused, cut = [], 0, 0
+        for _ in range(count):
+            conn = self.dial(port, retry=not conns)
+            if conn is None:
+                refused += 1
+            else:
+                conns.append(conn)
+        for conn in conns:
+            try:
+                conn.sendall(data)
+                conn.shutdown(socket.SHUT_WR)
+            except OSError:
+                cut += 1
+        for conn in conns:
+            reply = bytearray()
+            try:
+                conn.settimeout(max(0.1, self.deadline - time.monotonic()))
+                while True:
+                    part = conn.recv(65536)
+                    if not part:
+                        break
+                    reply += part
+            except OSError:
+                pass
+            conn.close()
+            self.write("stdout", bytes(reply))
+        self.runtime.log(event="connect", run_id=self.run_id, port=port, opened=len(conns), refused=refused, cut=cut)
+        self.write("stderr", f"connect: {len(conns)} open, {refused} refused, {cut} cut\n".encode())
+        self.check()
+
+    def dial(self, port, retry):
+        """A connection from this guest to its 127.0.0.1:PORT, or None when refused (retried while RETRY)."""
+        link = self.link
+        if link is None or self.request["link"]["role"] != "connect" or port != link.port:
+            return None  # the guest has no network but its link port
+        end = time.monotonic() + (30 if retry else 0)
+        while True:
+            self.check()
+            try:
+                conn = socket.create_connection(("127.0.0.1", link.front_port), timeout=2)
+            except OSError:
+                conn = None
+            if conn is not None:
+                conn.settimeout(PROBE)
+                try:
+                    if conn.recv(1, socket.MSG_PEEK) == b"":
+                        conn.close()
+                        conn = None
+                except socket.timeout:
+                    pass
+                except OSError:
+                    conn.close()
+                    conn = None
+            if conn is not None:
+                conn.settimeout(None)
+                return conn
+            if time.monotonic() >= end or link.ended:
+                return None
+            self.cancel.wait(0.1)
 
     def check(self):
         if self.cancel.is_set():
@@ -496,6 +671,121 @@ class Run:
                 "media_type": media_type}
 
 
+class Link:
+    """One linked pair's link (runtime-task-contract, Linked runs): a real loopback port standing for the `connect`
+    guest's 127.0.0.1:PORT, spliced to the `listen` side's `serve` listener."""
+
+    def __init__(self, runtime, spec):
+        self.runtime = runtime
+        self.id, self.port = spec["id"], spec["port"]
+        self.max_connections, self.max_bytes = spec["max_connections"], spec["max_bytes"]
+        self.shape = {k: spec[k] for k in ("port", "max_connections", "max_bytes")}
+        self.runs = {}  # role -> Run
+        self.carried = {"connect": 0, "listen": 0}  # bytes each side sent through the link
+        self.pairs = []  # open connections: [client, server, directions still open]
+        self.ended = False  # a run exited
+        self.cut = False  # a direction reached max_bytes
+        self.lock = threading.Lock()
+        self.front = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.front.bind(("127.0.0.1", 0))
+        self.front.listen(64)
+        self.front.settimeout(0.1)
+        self.front_port = self.front.getsockname()[1]
+        threading.Thread(target=self.accept, daemon=True).start()
+
+    def accept(self):
+        while not self.ended:
+            try:
+                client, _ = self.front.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            self.admit(client)
+        self.front.close()
+
+    def admit(self, client):
+        pair = [client, None, 2]
+        with self.lock:
+            listen = self.runs.get("listen")
+            real = listen.guest_listeners.get(self.port) if listen is not None else None
+            if self.ended or self.cut:
+                reason = "closed"
+            elif real is None:
+                reason = "no_listener"
+            elif len(self.pairs) >= self.max_connections:
+                reason = "max_connections"
+            else:
+                reason = None
+                self.pairs.append(pair)  # counted from here, so two at once cannot pass the bound
+        if reason is None:
+            try:
+                pair[1] = socket.create_connection(("127.0.0.1", real), timeout=2)
+            except OSError:
+                reason = "no_listener"
+                with self.lock:
+                    self.pairs.remove(pair)
+        if reason is not None:
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            client.close()  # a reset: refused at once
+            self.runtime.log(event="link_refused", link=self.id, reason=reason)
+            return
+        pair[1].settimeout(None)
+        client.settimeout(None)
+        self.runtime.log(event="link_open", link=self.id, open=len(self.pairs))
+        threading.Thread(target=self.carry, args=(pair, client, pair[1], "connect"), daemon=True).start()
+        threading.Thread(target=self.carry, args=(pair, pair[1], client, "listen"), daemon=True).start()
+
+    def carry(self, pair, src, dst, side):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                with self.lock:
+                    if self.ended or self.cut:
+                        break
+                    part = data[:self.max_bytes - self.carried[side]]
+                    self.carried[side] += len(part)
+                    full = self.carried[side] >= self.max_bytes
+                if part:
+                    dst.sendall(part)
+                if full:
+                    self.close("max_bytes")
+                    break
+            dst.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        finally:
+            with self.lock:
+                pair[2] -= 1
+                last = pair[2] == 0
+                if last and pair in self.pairs:
+                    self.pairs.remove(pair)
+            if last:
+                for conn in pair[:2]:
+                    conn.close()
+
+    def close(self, reason):
+        """`max_bytes`: every connection closed, new ones refused. `exited`: a run exited and the link ends."""
+        with self.lock:
+            if self.ended or (reason == "max_bytes" and self.cut):
+                return
+            if reason == "max_bytes":
+                self.cut = True
+            else:
+                self.ended = True
+            pairs = list(self.pairs)
+            carried = dict(self.carried)
+        for pair in pairs:
+            for conn in pair[:2]:
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        self.runtime.log(event="link_closed", link=self.id, reason=reason, carried=carried)
+
+
 class Runtime:
     def __init__(self, args):
         self.args = args
@@ -520,6 +810,7 @@ class Runtime:
                     else:
                         self.peerfs.setdefault(name, os.path.join(self.peerfs_root, name))
         self.runs = {}
+        self.links = {}  # link id -> Link, kept so that no third run takes an id
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.log_lock = threading.Lock()
@@ -579,12 +870,12 @@ class Runtime:
                 "max_memory_mib": self.args.max_memory_mib, "max_seconds": self.args.max_seconds,
                 "max_concurrent_runs": self.args.max_concurrent_runs, "running": running,
                 "peerfs": bool(self.args.peerfs_workspace), "max_network": self.args.max_network,
-                "images": bool(self.args.images)}
+                "images": bool(self.args.images), "links": bool(self.args.links)}
 
     def validate(self, body):
         if not isinstance(body, dict):
             raise ApiError(400, "invalid", "the body is not a JSON object")
-        unknown = sorted(set(body) - set(RUN_FIELDS) - set(AGENT_DEFAULTS))
+        unknown = sorted(set(body) - set(RUN_FIELDS) - set(AGENT_DEFAULTS) - {"link"})
         if unknown:
             raise ApiError(400, "invalid", f"unknown field {unknown[0]}")
         for field in RUN_FIELDS:
@@ -625,6 +916,23 @@ class Runtime:
         if name is not None and body["results"] == "changes":
             raise ApiError(400, "invalid", "results changes on a peerfs workspace")
         self.validate_agent_fields(body)
+        self.validate_link(body)
+
+    @staticmethod
+    def validate_link(body):
+        """runtime-task-contract, Linked runs: the optional `link` (400 invalid naming it)."""
+        link = body.setdefault("link", None)
+        if link is None:
+            return
+
+        def number(key, low, high):
+            value = link.get(key)
+            return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+        if (not isinstance(link, dict) or set(link) != set(LINK_FIELDS) or not isinstance(link["id"], str)
+                or not LINK_ID.match(link["id"]) or link["role"] not in ("listen", "connect")
+                or not number("port", 1, 65535) or not number("max_connections", 1, 64)
+                or not number("max_bytes", 1, LINK_MAX_BYTES)):
+            raise ApiError(400, "invalid", "link")
 
     @staticmethod
     def validate_agent_fields(body):
@@ -694,6 +1002,17 @@ class Runtime:
                 raise ApiError(422, "unavailable", "this runtime serves no peerfs space")
             if body["image"] is not None and not self.args.images:
                 raise ApiError(422, "unavailable", "this runtime boots only its own image")
+            link = body["link"]
+            if link is not None and not self.args.links:
+                raise ApiError(422, "unavailable", "this runtime has no linked pairs")
+            partner = self.links.get(link["id"]) if link is not None else None
+            if partner is not None:
+                if len(partner.runs) >= 2:
+                    raise ApiError(400, "invalid", "link: a third run with this id")
+                if link["role"] in partner.runs:
+                    raise ApiError(400, "invalid", "link: its partner has this role")
+                if partner.shape != {k: link[k] for k in partner.shape}:
+                    raise ApiError(400, "invalid", "link: its fields differ from its partner's")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
                 raise ApiError(429, "busy", "every run slot is busy")
             if body["peerfs_workspace"] is not None and any(
@@ -701,6 +1020,12 @@ class Runtime:
                 raise ApiError(429, "busy", "another run holds the peerfs workspace")
             run = Run(self, body)
             self.runs[run_id] = run
+            if link is not None:
+                if partner is None:
+                    partner = self.links[link["id"]] = Link(self, link)
+                with partner.lock:
+                    partner.runs[link["role"]] = run
+                run.link = partner
         run.thread.start()
         return 201, run.record()
 
@@ -857,8 +1182,9 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("serve", nargs="?", default="serve", help="the only command, for parity with the runtime")
-    parser.add_argument("--socket", required=True)
+    parser.add_argument("serve", nargs="?", default="serve", choices=("serve", "self-check"),
+                        help="serve, for parity with the runtime; self-check checks linked pairs host-free")
+    parser.add_argument("--socket", default=None)
     parser.add_argument("--dir", default=None, help="where run directories go (default: the system temp dir)")
     parser.add_argument("--log", default=None, help="append one JSON line per request and run step")
     parser.add_argument("--max-cpus", type=int, default=8)
@@ -878,7 +1204,16 @@ def main():
                         help="an image reference it cannot pull (repeatable): such runs fail before started")
     parser.add_argument("--requests", default=None,
                         help="append each POST /v1/runs body, as sent, as one JSON line (secret paths, no contents)")
+    parser.add_argument("--links", type=int, choices=(0, 1), default=1,
+                        help="0: GET /v1/runtime reports links false and runs may not have a link (Linked runs)")
+    parser.add_argument("--log-workspaces", type=int, choices=(0, 1), default=0,
+                        help="1: log each run's unpacked workspace (paths and file digests)")
     args = parser.parse_args()
+    if args.serve == "self-check":
+        print(f"linked pairs checked in {self_check(args.dir):.1f}s")
+        return 0
+    if not args.socket:
+        parser.error("--socket is required")
     runtime = Runtime(args)
     if os.path.exists(args.socket):
         os.unlink(args.socket)
@@ -905,6 +1240,180 @@ def main():
         except OSError:
             pass
         shutil.rmtree(runtime.root, ignore_errors=True)
+
+
+# The linked pair's host-free self-check (runtime-task-contract, Linked runs; its Verification lists the cases).
+
+def self_check(directory=None):
+    """Start the fake twice (with and without links) on private sockets and check its linked pairs: `links` in the
+    report, a pair joined on its port with several connections, connections refused before the listener and beyond
+    `max_connections`, the link closed at `max_bytes` and by either run's exit while the other goes on, other ports
+    unreachable, and the refusals of a third run, a mismatched partner and malformed fields. Returns the seconds."""
+    import http.client
+    import io
+    import subprocess
+
+    began = time.monotonic()
+    work = tempfile.mkdtemp(prefix="fake-runtime-links-", dir=directory)
+    log = os.path.join(work, "log.jsonl")
+    archive = os.path.join(work, "ws.tar")
+    with tarfile.open(archive, "w") as tar:
+        for name, data in {"msg.txt": b"hello\n", "big.txt": b"0123456789" * 10}.items():
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), 0o644
+            tar.addfile(info, io.BytesIO(data))
+
+    class Unix(http.client.HTTPConnection):
+        def __init__(self, path):
+            super().__init__("localhost", timeout=40)
+            self.path = path
+
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.path)
+
+    def call(sock, method, path, body=None):
+        conn = Unix(sock)
+        try:
+            data = None if body is None else json.dumps(body).encode()
+            conn.request(method, path, body=data, headers={"Content-Type": "application/json"} if data else {})
+            response = conn.getresponse()
+            raw = response.read()
+        finally:
+            conn.close()
+        return response.status, json.loads(raw) if raw.strip() else None
+
+    def serve(name, *extra):
+        sock = os.path.join(work, name + ".sock")
+        process = subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "serve", "--socket", sock,
+                                    "--dir", work, "--log", log, "--max-concurrent-runs", "4", *extra],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                if call(sock, "GET", "/v1/runtime")[0] == 200:
+                    return process, sock
+            except OSError:
+                pass
+            if time.monotonic() > deadline:
+                raise AssertionError(f"the fake runtime {name} did not start")
+            time.sleep(0.05)
+
+    def want(condition, message):
+        if not condition:
+            raise AssertionError(f"linked pairs: {message}")
+
+    counter = [0]
+
+    def body(argv, link=None):
+        counter[0] += 1
+        out = {"run_id": "run_" + hashlib.sha256(f"self-check/{counter[0]}".encode()).hexdigest(), "argv": argv,
+               "cwd": "/workspace", "env": {}, "resources": {"cpus": 1, "memory_mib": 256, "timeout_seconds": 40},
+               "workspace_archive": archive, "peerfs_workspace": None, "results": "output"}
+        if link is not None:
+            out["link"] = link
+        return out
+
+    def new_link(side, **fields):
+        return {"id": "lnk_" + os.urandom(16).hex(), "role": side, "port": 7000, "max_connections": 16,
+                "max_bytes": 1 << 20, **fields}
+
+    def start(sock, argv, link=None, status=201):
+        request = body(argv, link)
+        got, answer = call(sock, "POST", "/v1/runs", request)
+        want(got == status, f"POST /v1/runs {argv} {link}: {got} {answer}, want {status}")
+        return request["run_id"], answer
+
+    def finish(sock, run_id):
+        """(stdout, stderr, exit_code) once the run has its results."""
+        events, deadline = [], time.monotonic() + 45
+        while not events or events[-1]["kind"] != "results":
+            want(time.monotonic() < deadline, f"{run_id[:12]} did not end: {[e['kind'] for e in events]}")
+            events += call(sock, "GET", f"/v1/runs/{run_id}/events?after={len(events)}&wait=20")[1]
+        text = {k: b"".join(base64.b64decode(e["data"]) for e in events if e["kind"] == k)
+                for k in ("stdout", "stderr")}
+        result = next(e["result"] for e in events if e["kind"] == "exited")
+        return text["stdout"], text["stderr"], result["exit_code"]
+
+    def pair(sock, listen_argv, connect_argv, **fields):
+        link = new_link("listen", **fields)
+        env, _ = start(sock, listen_argv, link)
+        bot, _ = start(sock, connect_argv, {**link, "role": "connect"})
+        return link["id"], finish(sock, env), finish(sock, bot)
+
+    def logged(event, link_id):
+        with open(log) as f:
+            return [e for e in map(json.loads, f) if e.get("event") == event and e.get("link") == link_id]
+
+    process, sock = serve("links")
+    try:
+        want(call(sock, "GET", "/v1/runtime")[1].get("links") is True, "GET /v1/runtime does not report links true")
+        # Joined on the port: three connections reach the listener, each a byte stream, and nothing else is changed.
+        lid, env, bot = pair(sock, ["serve", "7000", "3"], ["connect", "7000", "3", "msg.txt"])
+        want(env[0] == b"hello\n" * 3 and env[2] == 0 and bot[2] == 0 and b"3 open, 0 refused" in bot[1],
+             f"a joined pair: env {env}, connect {bot}")
+        want([e["reason"] for e in logged("link_closed", lid)] == ["exited"], "the link did not end once")
+        # Before the listener: refused at once, then joined once the listener is up.
+        lid, env, bot = pair(sock, ["sleep", "1", ";", "serve", "7000", "1"], ["connect", "7000", "1", "msg.txt"])
+        refusals = [e["reason"] for e in logged("link_refused", lid)]
+        want(env[0] == b"hello\n" and refusals and set(refusals) == {"no_listener"},
+             f"before the listener: env {env[0]!r}, refusals {refusals}")
+        # Another guest port than the link's: refused at once, and the listener sees nothing.
+        lid, env, bot = pair(sock, ["serve", "7000", "1", ";", "echo", "done"], ["connect", "7001", "1", "msg.txt"])
+        want(env[0] == b"done\n" and b"0 open, 1 refused" in bot[1], f"a connection to another port: {env} {bot}")
+        # Beyond max_connections: refused while the others go on.
+        lid, env, bot = pair(sock, ["serve", "7000", "3"], ["connect", "7000", "3", "msg.txt"], max_connections=2)
+        refusals = [e["reason"] for e in logged("link_refused", lid)]
+        want(env[0] == b"hello\n" * 2 and refusals == ["max_connections"] and b"2 open, 1 refused" in bot[1],
+             f"max_connections 2: env {env[0]!r}, refusals {refusals}, connect {bot[1]!r}")
+        # max_bytes: exactly that many bytes carried, then every connection closed.
+        lid, env, bot = pair(sock, ["serve", "7000", "1"], ["connect", "7000", "1", "big.txt"], max_bytes=10)
+        closed = logged("link_closed", lid)
+        want(env[0] == b"0123456789" and closed and closed[0]["reason"] == "max_bytes"
+             and closed[0]["carried"]["connect"] == 10, f"max_bytes 10: env {env[0]!r}, closed {closed}")
+        # The connect side exits first: the link ends and the listen side goes on.
+        lid, env, bot = pair(sock, ["serve", "7000", "2", ";", "echo", "went on"], ["connect", "7000", "1", "msg.txt"])
+        want(env[0] == b"hello\nwent on\n" and [e["reason"] for e in logged("link_closed", lid)] == ["exited"],
+             f"the connect side exiting: {env}")
+        # The listen side exits first: the link ends, the connect side's connection is refused and it goes on.
+        lid, env, bot = pair(sock, ["exit", "0"], ["sleep", "0.5", ";", "connect", "7000", "1", "msg.txt", ";",
+                                                    "echo", "went on"])
+        want(bot[0] == b"went on\n" and b"0 open, 1 refused" in bot[1] and bot[2] == 0,
+             f"the listen side exiting: {bot}")
+        # No link, or another port: nothing crosses, at once.
+        alone, _ = start(sock, ["connect", "7000", "1", "msg.txt"])
+        out = finish(sock, alone)
+        want(b"0 open, 1 refused" in out[1], f"a run without a link: {out}")
+        # Refusals: a third run, a partner with another port or bounds or the same role, malformed fields.
+        link = new_link("listen")
+        first, _ = start(sock, ["sleep", "3"], link)
+        for changed in ({"port": 7001}, {"max_connections": 3}, {"max_bytes": 5}, {"role": "listen"}):
+            start(sock, ["echo", "x"], {**link, "role": "connect", **changed}, status=400)
+        second, _ = start(sock, ["echo", "x"], {**link, "role": "connect"})
+        start(sock, ["echo", "x"], {**link, "role": "connect"}, status=400)
+        start(sock, ["echo", "x"], {**link, "role": "listen"}, status=400)
+        for bad in ({"id": "lnk_" + "A" * 32}, {"id": "lnk_" + "a" * 31}, {"role": "both"}, {"port": 0},
+                    {"port": 65536}, {"max_connections": 0}, {"max_connections": 65}, {"max_bytes": 0},
+                    {"max_bytes": LINK_MAX_BYTES + 1}, {"port": True}, {"extra": 1}):
+            got, answer = call(sock, "POST", "/v1/runs", body(["echo", "x"], new_link("listen", **bad)))
+            want(got == 400 and answer.get("code") == "invalid", f"link {bad}: {got} {answer}")
+        finish(sock, first)
+        finish(sock, second)
+    finally:
+        process.kill()
+        process.wait()
+    process, sock = serve("no-links", "--links", "0")
+    try:
+        want(call(sock, "GET", "/v1/runtime")[1].get("links") is False, "--links 0 does not report links false")
+        got, answer = call(sock, "POST", "/v1/runs", body(["echo", "x"], new_link("listen")))
+        want(got == 422 and answer.get("code") == "unavailable", f"a link on --links 0: {got} {answer}")
+        plain, _ = start(sock, ["echo", "plain"])
+        want(finish(sock, plain)[0] == b"plain\n", "a run without a link on --links 0")
+    finally:
+        process.kill()
+        process.wait()
+    shutil.rmtree(work, ignore_errors=True)
+    return time.monotonic() - began
 
 
 if __name__ == "__main__":
