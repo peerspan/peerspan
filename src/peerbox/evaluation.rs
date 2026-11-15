@@ -81,7 +81,9 @@ impl Evaluation {
             "started_at": self.started_at,
             "decided_at": self.decided_at,
             "result": self.result,
-            "runs": self.runs.iter().map(|r| json!({
+            // A pair the runtime refused never started; its runs stay
+            // stored only until their cancellation is confirmed.
+            "runs": self.runs.iter().filter(|r| r.outcome != "refused").map(|r| json!({
                 "task_id": r.task_id, "side": r.side, "kind": r.kind, "outcome": r.outcome,
             })).collect::<Vec<_>>(),
         })
@@ -264,12 +266,11 @@ async fn remove_run(r: &RunEntry) -> bool {
 struct Job {
     peerbox: String,
     contribution: String,
-    socket: PathBuf,
 }
 fn next(store: &Store) -> Result<Option<Job>, Error> {
-    let Some(switch) = store.runtime_switch()? else {
+    if store.runtime_switch()?.is_none() {
         return Ok(None);
-    };
+    }
     let conn = store.connection()?;
     for peerbox in gate::gated(&conn)? {
         let Some((_, g)) = gate::gated_record(&conn, &peerbox)? else {
@@ -283,7 +284,6 @@ fn next(store: &Store) -> Result<Option<Job>, Error> {
             return Ok(Some(Job {
                 peerbox,
                 contribution: first,
-                socket: switch.socket,
             }));
         }
     }
@@ -329,7 +329,6 @@ struct Context {
     secret: String,
     secret_sha256: String,
     frontier: String,
-    socket: PathBuf,
     own: String,
     work: PathBuf,
 }
@@ -352,7 +351,9 @@ async fn evaluate(
     let outcome = measure_all(&ctx, shutdown).await;
     let _ = std::fs::remove_dir_all(&ctx.work);
     match outcome {
-        Ok(()) => Ok(()),
+        // Every run of the evaluation is cancelled and deleted again
+        // before the next one starts, so none is left on the runtime.
+        Ok(()) => run_blocking(store, move |s| update(s, &id, |e| e.cleanup = true)).await,
         Err(Stop::Shutdown) => Ok(()),
         Err(Stop::Cancelled) => {
             let (peerbox, gate) = (ctx.rec.peerbox_id.clone(), ctx.gate.clone());
@@ -453,7 +454,6 @@ fn begin(store: &Store, job: Job, shared: Arc<Store>) -> Result<Option<Context>,
         secret: e.secret,
         secret_sha256: e.secret_sha256,
         frontier: e.frontier,
-        socket: job.socket,
         own: store.identity().id,
         work,
     }))
@@ -801,7 +801,7 @@ async fn decide(ctx: &Context, v: Verdict) -> Result<(), Stop> {
         ))
     };
     run_blocking(&ctx.store, move |s| {
-        let outcome = s.gate_decide(&cid, &frontier, promoted, reason, public.clone())?;
+        let outcome = s.gate_decide(&cid, version, &frontier, promoted, reason, public.clone())?;
         let mut conn = s.connection()?;
         let tx = conn.transaction()?;
         let at = now();
@@ -896,6 +896,40 @@ fn run_body(ctx: &Context, entry: &RunEntry, archive: &Path, link: &Value, role:
     body
 }
 
+/// Cancels and deletes the stored runs of refused pairs; whether none is
+/// left.
+async fn retry_refused(ctx: &Context) -> Result<bool, Error> {
+    let eval = ctx.evaluation.clone();
+    let refused: Vec<RunEntry> = run_blocking(&ctx.store, move |s| {
+        Ok(load(&*s.connection()?, &eval)?
+            .map(|e| {
+                e.runs
+                    .into_iter()
+                    .filter(|r| r.outcome == "refused")
+                    .collect()
+            })
+            .unwrap_or_default())
+    })
+    .await?;
+    let mut removed = Vec::new();
+    for r in &refused {
+        if remove_run(r).await {
+            removed.push(r.task_id.clone());
+        }
+    }
+    let all = removed.len() == refused.len();
+    if !removed.is_empty() {
+        let eval = ctx.evaluation.clone();
+        run_blocking(&ctx.store, move |s| {
+            update(s, &eval, |e| {
+                e.runs.retain(|r| !removed.contains(&r.task_id))
+            })
+        })
+        .await?;
+    }
+    Ok(all)
+}
+
 fn set_outcome(store: &Store, eval: &str, task: &str, outcome: &str) -> Result<(), Error> {
     update(store, eval, |e| {
         for r in e.runs.iter_mut().filter(|r| r.task_id == task) {
@@ -924,6 +958,18 @@ async fn measure(
         if *shutdown.borrow() {
             return Err(Stop::Shutdown);
         }
+        // Evaluations wait while the runtime's switch is off.
+        let switch = run_blocking(&ctx.store, |s| s.runtime_switch()).await?;
+        let Some(switch) = switch else {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        };
+        // The runs of a refused pair whose cancellation was not confirmed
+        // are cancelled first, so none holds a slot of the next pair.
+        if !retry_refused(ctx).await? {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
         let mut id = [0u8; 16];
         getrandom::fill(&mut id)
             .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
@@ -941,7 +987,7 @@ async fn measure(
                 side: side.into(),
                 kind: kind.into(),
                 outcome: "starting".into(),
-                socket: ctx.socket.clone(),
+                socket: switch.socket.clone(),
             })
         };
         let (env_entry, bot_entry) = (entry("environment")?, entry("candidate")?);
@@ -957,31 +1003,40 @@ async fn measure(
         }
         let started = |entry: &RunEntry, archive: &Path, role: &str| {
             let body = run_body(ctx, entry, archive, &link_value, role);
-            let socket = ctx.socket.clone();
+            let socket = switch.socket.clone();
             async move {
                 matches!(call(&socket, Method::POST, "/v1/runs", Some(&body)).await,
                     Ok(a) if a.status == 200 || a.status == 201)
             }
         };
-        let forget = |a: RunEntry, b: RunEntry| {
+        // A refused pair's runs are forgotten once their cancellation is
+        // confirmed; until then they stay stored as refused.
+        let forget = |entries: Vec<(RunEntry, bool)>| {
             let eval = ctx.evaluation.clone();
             run_blocking(&ctx.store, move |s| {
                 update(s, &eval, |e| {
-                    e.runs
-                        .retain(|r| r.task_id != a.task_id && r.task_id != b.task_id)
+                    for (entry, removed) in &entries {
+                        if *removed {
+                            e.runs.retain(|r| r.task_id != entry.task_id);
+                        } else {
+                            for r in e.runs.iter_mut().filter(|r| r.task_id == entry.task_id) {
+                                r.outcome = "refused".into();
+                            }
+                        }
+                    }
                 })
             })
         };
         if !started(&env_entry, environment, "listen").await {
-            remove_run(&env_entry).await;
-            forget(env_entry, bot_entry).await?;
+            let removed = remove_run(&env_entry).await;
+            forget(vec![(env_entry, removed), (bot_entry, true)]).await?;
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         }
         if !started(&bot_entry, tree, "connect").await {
-            remove_run(&env_entry).await;
-            remove_run(&bot_entry).await;
-            forget(env_entry, bot_entry).await?;
+            let a = remove_run(&env_entry).await;
+            let b = remove_run(&bot_entry).await;
+            forget(vec![(env_entry, a), (bot_entry, b)]).await?;
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -1125,9 +1180,9 @@ async fn measure(
             code: "check_failed",
             reason: Some(l.reason),
         },
-        (_, Err(())) => Measured::Failed {
+        (_, Err(reason)) => Measured::Failed {
             code: "check_failed",
-            reason: None,
+            reason,
         },
     })
 }
@@ -1141,7 +1196,7 @@ struct Line {
 
 /// A check or environment run's result line (Result line): its last
 /// non-empty stdout line, `PEERBOX-GATE ` and a JSON object.
-fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, ()> {
+fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, Option<String>> {
     let mut end = tail.len();
     let (start, stop) = loop {
         let start = tail[..end]
@@ -1153,18 +1208,25 @@ fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, ()> {
             break (start, end);
         }
         if start == 0 {
-            return Err(());
+            return Err(None);
         }
         end = start - 1;
     };
     if (start == 0 && cut) || stop - start > MAX_LINE {
-        return Err(());
+        return Err(None);
     }
-    let line = std::str::from_utf8(&tail[start..stop]).map_err(|_| ())?;
+    let line = std::str::from_utf8(&tail[start..stop]).map_err(|_| None)?;
     let line = line.strip_suffix('\r').unwrap_or(line);
-    let json = line.strip_prefix("PEERBOX-GATE ").ok_or(())?;
-    let v: Value = serde_json::from_str(json).map_err(|_| ())?;
-    let o = v.as_object().ok_or(())?;
+    let json = line.strip_prefix("PEERBOX-GATE ").ok_or(None)?;
+    let v: Value = serde_json::from_str(json).map_err(|_| None)?;
+    let o = v.as_object().ok_or(None)?;
+    // A line that was read gives its reason, even when it is malformed
+    // otherwise (Result line; Verdict: checker_reason).
+    let given = o
+        .get("reason")
+        .and_then(Value::as_str)
+        .filter(|r| r.len() <= 200)
+        .map(str::to_owned);
     let paired = g.compare != "worst_best";
     let mut keys = vec!["pass", "reason", "score"];
     if paired {
@@ -1174,30 +1236,30 @@ fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, ()> {
     let mut have: Vec<&str> = o.keys().map(String::as_str).collect();
     have.sort_unstable();
     if have != keys {
-        return Err(());
+        return Err(given.clone());
     }
-    let pass = o["pass"].as_bool().ok_or(())?;
-    let reason = o["reason"].as_str().ok_or(())?;
+    let pass = o["pass"].as_bool().ok_or_else(|| given.clone())?;
+    let reason = o["reason"].as_str().ok_or_else(|| given.clone())?;
     if reason.len() > 200 {
-        return Err(());
+        return Err(given.clone());
     }
     let positive = |x: &Value| x.as_f64().filter(|f| f.is_finite() && *f > 0.0);
     let score = if g.score == "time" {
         if !o["score"].is_null() {
-            return Err(());
+            return Err(given.clone());
         }
         None
     } else {
-        Some(positive(&o["score"]).ok_or(())?)
+        Some(positive(&o["score"]).ok_or_else(|| given.clone())?)
     };
     let samples = if paired {
-        let list = o["samples"].as_array().ok_or(())?;
+        let list = o["samples"].as_array().ok_or_else(|| given.clone())?;
         if !(30..=10_000).contains(&list.len()) {
-            return Err(());
+            return Err(given.clone());
         }
         Some(
             list.iter()
-                .map(|x| positive(x).ok_or(()))
+                .map(|x| positive(x).ok_or_else(|| given.clone()))
                 .collect::<Result<Vec<_>, _>>()?,
         )
     } else {

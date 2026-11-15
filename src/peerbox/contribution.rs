@@ -1095,6 +1095,7 @@ impl Store {
     pub(crate) fn gate_decide(
         &self,
         id: &str,
+        gate_version: i64,
         frontier: &str,
         promote: bool,
         reason: String,
@@ -1110,9 +1111,14 @@ impl Store {
             };
             (c.peerbox_id, rec)
         };
+        // The gate's version is checked under the lock `gate clear` and
+        // `gate set` hold, so a cleared gate decides nothing.
+        let current = |conn: &Connection| -> Result<bool, Error> {
+            Ok(super::gate::load(conn, &peerbox)?.is_some_and(|g| g.version == gate_version))
+        };
         with_lock(&peerbox, || {
             let c = load(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
-            if c.state != PENDING {
+            if c.state != PENDING || !current(&*self.connection()?)? {
                 return Ok(GateOutcome::NotPending);
             }
             let git = Git::new(self.state_directory()).map_err(super::coded)?;
@@ -1142,7 +1148,7 @@ impl Store {
             let mut conn = self.connection()?;
             let tx = conn.transaction()?;
             let mut c = load(&tx, id)?.ok_or(Error::NotFound)?;
-            if c.state != PENDING {
+            if c.state != PENDING || !current(&tx)? {
                 return Ok(GateOutcome::NotPending);
             }
             c.state = if promote { ACCEPTED } else { REJECTED }.into();
@@ -1242,7 +1248,8 @@ impl Store {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum GateOutcome {
     Recorded,
-    /// Decided, superseded or withdrawn meanwhile: nothing is recorded.
+    /// Decided, superseded or withdrawn meanwhile, or its gate cleared or
+    /// set again: nothing is recorded.
     NotPending,
     /// The protected head is no longer the frontier: the contribution is
     /// evaluated again.

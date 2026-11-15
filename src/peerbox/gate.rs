@@ -388,7 +388,7 @@ pub(crate) fn snapshot(
     prefix: &[u8],
     out: &FsPath,
 ) -> Result<String, Error> {
-    let invalid = |m: String| Error::Invalid(format!("{field} {m}"));
+    let invalid = |m: String| refusal(format!("{field} {m}"));
     if !dir.is_absolute() {
         return Err(invalid("must be an absolute path".into()));
     }
@@ -583,8 +583,18 @@ pub(crate) struct SetRequest {
     max_changes_bytes: Option<i64>,
 }
 
+/// A 400 `invalid` whose message starts with the field it names (Naming
+/// the field), as given.
+fn refusal(message: String) -> Error {
+    Error::Coded {
+        status: 400,
+        code: "invalid",
+        message,
+        extra: Default::default(),
+    }
+}
 fn field(name: &str, message: &str) -> Error {
-    Error::Invalid(format!("{name} {message}"))
+    refusal(format!("{name} {message}"))
 }
 fn argv(name: &str, v: &[String]) -> Result<(), Error> {
     let total: usize = v.iter().map(String::len).sum();
@@ -1039,7 +1049,7 @@ async fn set_route(
             .nth(1)
             .filter(|_| text.starts_with("unknown field"))
             .unwrap_or("request");
-        Error::Invalid(format!("{key} is not valid: {text}"))
+        refusal(format!("{key} is not valid: {text}"))
     })?;
     Ok(Json(set_gate(store, id, request).await?))
 }
