@@ -68,7 +68,7 @@ jobs:
         # second tier, see AGENTS.md), plus the
         # owner-local and combined guided onboarding suites. The other guided
         # suites and the installed checks are in conformance-full.yml.
-        suite: [join, join_teammate, renewal, policy, work, capabilities, delivery, root, live, basics, onboarding, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming, direct_dial]
+        suite: [join, join_teammate, renewal, policy, work, capabilities, delivery, root, live, basics, onboarding, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming, direct_dial, peerbox]
     steps:
       - uses: actions/checkout@v4
         with:
