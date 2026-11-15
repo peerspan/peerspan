@@ -72,6 +72,10 @@ pub struct PendingShare {
     /// Automatic signing needed the owner (`peerbox_share_waiting`).
     #[serde(default)]
     pub waiting: bool,
+    /// The agent proposal whose approval created it (peerbox contract,
+    /// Agent proposals, Execution), or null when the person ran the command.
+    #[serde(default)]
+    pub proposal_id: Option<String>,
 }
 impl PendingShare {
     /// The rule unit the share grants its admitted person on `host`.
@@ -472,17 +476,28 @@ impl Store {
             requests: Vec::new(),
             person: None,
             waiting: false,
+            proposal_id: None,
         };
-        save(&tx, &share)?;
-        append_event(
-            &tx,
-            "peerbox.invited",
-            &format!("{}/{}", share.peerbox_id, share.invitation_id),
-            &share.created_at,
-        )?;
+        insert_pending_share(&tx, &share)?;
         tx.commit()?;
         Ok(serde_json::to_value(&share)?)
     }
+}
+
+/// Stores a new pending share and records `peerbox.invited`, in the
+/// caller's transaction.
+pub(crate) fn insert_pending_share(
+    tx: &rusqlite::Transaction<'_>,
+    share: &PendingShare,
+) -> Result<(), Error> {
+    save(tx, share)?;
+    append_event(
+        tx,
+        "peerbox.invited",
+        &format!("{}/{}", share.peerbox_id, share.invitation_id),
+        &share.created_at,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn local_routes() -> Router<Arc<Store>> {

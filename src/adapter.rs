@@ -60,6 +60,11 @@ pub struct Adapter {
     /// The cap on capability calls in any 60 minutes; null without `calls`.
     #[serde(default)]
     pub max_calls_per_hour: Option<i64>,
+    /// Peerbox agent proposals (peerbox contract, Who may propose): the
+    /// adapter may prepare peerbox changes for the person to approve.
+    /// Older records read as false.
+    #[serde(default)]
+    pub peerbox_proposals: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -391,6 +396,7 @@ impl Store {
             max_sends_per_hour: directory,
             calls: calls.is_some(),
             max_calls_per_hour: calls,
+            peerbox_proposals: false,
         };
         let token = material.token;
         tx.execute(
@@ -810,6 +816,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::live_delivery::adapter_routes())
         .merge(crate::agent_calls::adapter_routes())
         .merge(crate::approvals::adapter_routes())
+        .merge(crate::peerbox_proposals::adapter_routes())
         .merge(crate::conversations::adapter_routes())
         .merge(crate::peerfs::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))

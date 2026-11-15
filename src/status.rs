@@ -23,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 26] = [
+pub const ATTENTION_ORDER: [&str; 27] = [
     "policy_expired",
     "credential_expiring",
     "tasks_failed",
@@ -50,6 +50,7 @@ pub const ATTENTION_ORDER: [&str; 26] = [
     "call_approval_pending",
     "conversation_invites",
     "peer_delivery_failing",
+    "peerbox_proposal_pending",
 ];
 
 /// Item 19: waiting work must have been failing this long (STAT-2).
@@ -418,6 +419,10 @@ impl Store {
         if let Some((subject, detail, command)) = self.approval_attention(connection)? {
             attention.push(item("call_approval_pending", subject, detail, command));
         }
+        let (proposals_pending, proposal_item) = crate::peerbox_proposals::status(connection)?;
+        if let Some((subject, detail, command)) = proposal_item {
+            attention.push(item("peerbox_proposal_pending", subject, detail, command));
+        }
         let (open_conversations, unread_conversations, invites) =
             self.conversation_status(connection)?;
         if invites > 0 {
@@ -449,6 +454,7 @@ impl Store {
             },
             "capabilities": capabilities,
             "conversations": {"open": open_conversations, "unread": unread_conversations, "invites": invites},
+            "peerbox_proposals_pending": proposals_pending,
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
     }

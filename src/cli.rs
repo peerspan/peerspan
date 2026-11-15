@@ -275,12 +275,12 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
-    /// Remove a principal's access to your agents; deny ID [--reason TEXT] denies a call waiting for your approval
+    /// Remove a principal's access to your agents; deny ID [--reason TEXT] denies a call or a peerbox proposal waiting for your approval
     Deny {
-        /// A principal, or the ID of a call waiting for your approval
+        /// A principal, or the ID of a call or peerbox proposal waiting for your approval
         #[arg(value_name = "PRINCIPAL")]
         principal: String,
-        /// With a call ID: the reason given to the caller
+        /// With a call or proposal ID: the reason given to the caller
         #[arg(long, value_name = "TEXT")]
         reason: Option<String>,
         /// Only from this agent's rules (* names the * rules); default every rule
@@ -342,6 +342,13 @@ pub enum Command {
         /// Cap on the agent's capability calls per hour, 1 to 10000; default 100
         #[arg(long, value_name = "N")]
         max_calls_per_hour: Option<String>,
+        /// Let the agent prepare peerbox changes (create, share, invite) for
+        /// you to approve, without asking
+        #[arg(long)]
+        peerbox_proposals: bool,
+        /// Do not let the agent prepare peerbox changes, without asking
+        #[arg(long)]
+        no_peerbox_proposals: bool,
         #[arg(long = "option", value_name = "KEY=VALUE")]
         options: Vec<String>,
         #[arg(long, value_name = "DIR")]
@@ -402,13 +409,16 @@ pub enum Command {
     },
     /// Show the sources this host can operate, from attached agents' harnesses
     Sources(SourcesArgs),
-    /// List the calls waiting for your approval; approvals show ID for one
+    /// List the calls and peerbox proposals waiting for your approval; approvals show ID for one
     Approvals(ApprovalsArgs),
-    /// Approve one call waiting for your approval, at a terminal
+    /// Approve one call or peerbox proposal waiting for your approval, at a terminal
     Approve {
-        /// CALL_ID, or SENDER_HOST_ID/CALL_ID
+        /// CALL_ID, SENDER_HOST_ID/CALL_ID, or a peerbox proposal ID (pbp_...)
         #[arg(value_name = "ID")]
         id: String,
+        /// For a peerbox share proposal: the OpenSSH person key to sign with
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Create, list, show, and remove capabilities on this host
     #[command(subcommand)]
@@ -615,14 +625,19 @@ pub struct ApprovalsArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum ApprovalsCommand {
-    /// Show one approval, with the call's input
+    /// Show one approval, with the call's input, or one peerbox proposal
     Show {
-        /// CALL_ID, or SENDER_HOST_ID/CALL_ID
+        /// CALL_ID, SENDER_HOST_ID/CALL_ID, or a peerbox proposal ID (pbp_...)
         #[arg(value_name = "ID")]
         id: String,
         #[arg(long)]
         json: bool,
     },
+}
+/// Whether text is a peerbox proposal ID: `pbp_` and 32 lowercase hex
+/// digits (peerbox contract, Approving).
+pub fn proposal_id(text: &str) -> bool {
+    peerspan_host::peerbox_proposals::proposal_id_shape(text)
 }
 /// Whether text is an approval ID: a call ID, or SENDER_HOST_ID/CALL_ID.
 pub fn approval_id(text: &str) -> bool {
@@ -2398,7 +2413,9 @@ impl Command {
     pub fn network_mut(&mut self) -> Option<&mut Option<String>> {
         match self {
             // Denying a call waiting for approval names no network.
-            Self::Deny { principal, .. } if approval_id(principal) => None,
+            Self::Deny { principal, .. } if approval_id(principal) || proposal_id(principal) => {
+                None
+            }
             Self::Network(
                 NetworkCommand::Invite { network, .. }
                 | NetworkCommand::InvitePerson { network, .. }

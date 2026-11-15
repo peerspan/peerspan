@@ -39,6 +39,10 @@ pub struct AdapterSetupRequest {
     /// 1 to 10,000, default 100; only with `calls`.
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub max_calls_per_hour: Option<i64>,
+    /// Peerbox agent proposals (peerbox contract, Who may propose),
+    /// default false.
+    #[serde(default)]
+    pub peerbox_proposals: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -134,7 +138,7 @@ impl Store {
             },
             Some(r.session_id),
         )?;
-        let credential = self.create_adapter_in(
+        let mut credential = self.create_adapter_in(
             &tx,
             CreateAdapter {
                 session_id: session.id.clone(),
@@ -143,6 +147,16 @@ impl Store {
             directory,
             calls,
         )?;
+        if r.peerbox_proposals {
+            credential.adapter.peerbox_proposals = true;
+            tx.execute(
+                "UPDATE adapter_credentials SET record = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    serde_json::to_string(&credential.adapter)?,
+                    credential.adapter.id
+                ],
+            )?;
+        }
         let mut routes = Vec::new();
         for route in r.routes {
             routes.push(self.create_outbound_route_in(

@@ -202,6 +202,8 @@ pub(crate) fn return_items(store: &Store, tx: &Transaction<'_>, agent: &str) -> 
     }
     // Call updates handed off but unseen.
     crate::agent_calls::return_calls(tx, agent, &mut ended, &at)?;
+    // Proposal updates likewise.
+    crate::peerbox_proposals::return_updates(tx, agent, &mut ended, &at)?;
     // Tasks: queued and unseen, to redeliver, or running, to adopt.
     let rows = {
         let mut stmt = tx.prepare("SELECT d.record, d.redeliveries, d.seen_at IS NOT NULL, t.request, t.record FROM task_deliveries d JOIN sessions s ON s.id = d.session_id JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE s.agent_id = ?1 AND d.returned_at IS NULL AND json_extract(t.record, '$.state') IN ('queued', 'running') ORDER BY d.rowid")?;
@@ -290,6 +292,8 @@ pub struct Pending {
     pub tasks: Vec<PendingTask>,
     pub calls: Vec<crate::agent_calls::PendingCall>,
     pub conversations: Vec<serde_json::Value>,
+    /// Peerbox agent proposals (peerbox contract, Telling the agent).
+    pub peerbox_proposals: Vec<serde_json::Value>,
 }
 
 /// The items a session holds: by its session, and by its authorization
@@ -390,6 +394,7 @@ fn pending(conn: &Connection, session: &str, adapter: Option<&str>) -> Result<Pe
         tasks,
         calls: crate::agent_calls::pending_calls(conn, session)?,
         conversations: Vec::new(),
+        peerbox_proposals: crate::peerbox_proposals::pending(conn, session)?,
     })
 }
 
@@ -455,6 +460,12 @@ fn mark(
                 |r| r.get(0),
             )?
             };
+        return Ok((held, changed));
+    }
+    if id.starts_with("pbp_") {
+        let ss = crate::adapter::session(tx, session)?;
+        let held = crate::peerbox_proposals::holds(tx, &ss, id)?;
+        let changed = crate::peerbox_proposals::mark_seen(tx, session, id, at)?;
         return Ok((held, changed));
     }
     if id.starts_with("call_") {
@@ -529,7 +540,7 @@ pub(crate) fn mark_updates(
 }
 
 fn valid_item(id: &str) -> bool {
-    ["delivery", "request", "task", "call", "conv", "cmsg"]
+    ["delivery", "request", "task", "call", "conv", "cmsg", "pbp"]
         .iter()
         .any(|prefix| crate::peer_store::valid_id(id, prefix, 16))
 }
@@ -540,7 +551,7 @@ impl Store {
     pub fn mark_seen(&self, auth: &AdapterAuth, ids: &[String]) -> Result<Vec<String>, Error> {
         if ids.is_empty() || ids.len() > 100 || !ids.iter().all(|id| valid_item(id)) {
             return Err(Error::Invalid(
-                "ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs".into(),
+                "ids must be 1 to 100 delivery, request, task, call, proposal, conversation, or conversation message IDs".into(),
             ));
         }
         let mut conn = self.connection()?;

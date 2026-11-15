@@ -144,6 +144,8 @@ struct SetupOptions {
     max_sends_per_hour: Option<i64>,
     /// Capability calls with this rate cap, for `attach`.
     max_calls_per_hour: Option<i64>,
+    /// Peerbox agent proposals, for `attach`.
+    peerbox_proposals: bool,
     /// The project an `attach` profile records.
     workspace: Option<String>,
 }
@@ -868,6 +870,9 @@ async fn prepare(o: SetupOptions) -> anyhow::Result<Profile> {
         p.request["calls"] = json!(true);
         p.request["max_calls_per_hour"] = json!(cap);
     }
+    if o.peerbox_proposals {
+        p.request["peerbox_proposals"] = json!(true);
+    }
     // Without an expiry the credential is renewable.
     if let Some(expiry) = &o.expiry {
         p.request["expires_at"] = json!(expiry);
@@ -1038,6 +1043,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
                     options,
                     max_sends_per_hour: None,
                     max_calls_per_hour: None,
+                    peerbox_proposals: false,
                     workspace: None,
                 })
                 .await?
@@ -1313,9 +1319,16 @@ const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed a
 /// The `SessionStart` hook's output for a pending object, `None` when every
 /// list is empty.
 fn pending_hook(value: &Value) -> Option<String> {
-    let empty = ["deliveries", "replies", "tasks", "calls", "conversations"]
-        .iter()
-        .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
+    let empty = [
+        "deliveries",
+        "replies",
+        "tasks",
+        "calls",
+        "conversations",
+        "peerbox_proposals",
+    ]
+    .iter()
+    .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
     (!empty).then(|| {
         let context = format!(
             "{PENDING_HOOK_LEAD}{}",
@@ -1656,6 +1669,8 @@ async fn prepare_attach_inner(
         calls,
         no_calls,
         max_calls_per_hour,
+        peerbox_proposals,
+        no_peerbox_proposals,
         options,
         integrations,
         runner,
@@ -1675,6 +1690,9 @@ async fn prepare_attach_inner(
     }
     if no_calls && max_calls_per_hour.is_some() {
         bail!("--max-calls-per-hour requires calls; omit --no-calls")
+    }
+    if peerbox_proposals && no_peerbox_proposals {
+        bail!("--peerbox-proposals and --no-peerbox-proposals are mutually exclusive")
     }
     let max_calls_per_hour = match max_calls_per_hour {
         None => None,
@@ -1835,6 +1853,7 @@ async fn prepare_attach_inner(
             "next": next,
             "calls": adapter["calls"] == true,
             "max_calls_per_hour": adapter["max_calls_per_hour"],
+            "peerbox_proposals": adapter["peerbox_proposals"] == true,
             "sources": tools,
         });
         eprintln!("{}", crate::discovery::summary_line(&value["sources"]));
@@ -1922,6 +1941,10 @@ async fn prepare_attach_inner(
                         || adapter["calls"].as_bool().unwrap_or(false)
                             != (p.request["calls"] == true)
                         || adapter["max_calls_per_hour"] != p.request["max_calls_per_hour"]
+                        || adapter["peerbox_proposals"].as_bool().unwrap_or(false)
+                            != (p.request["peerbox_proposals"] == true)
+                        || (peerbox_proposals && adapter["peerbox_proposals"] != true)
+                        || (no_peerbox_proposals && adapter["peerbox_proposals"] == true)
                         || (calls && adapter["calls"] != true)
                         || (no_calls && adapter["calls"] == true)
                         || max_calls_per_hour
@@ -1976,6 +1999,14 @@ async fn prepare_attach_inner(
                         bail!(
                             "this agent's credential, never connected, is reused with its stored setting calls: {stored}, max_calls_per_hour: {}; give matching flags or none",
                             stored_max.map_or("null".to_owned(), |n| n.to_string())
+                        )
+                    }
+                    // So does the stored peerbox proposal setting (peerbox
+                    // contract, Who may propose).
+                    let stored = adapter["peerbox_proposals"] == true;
+                    if (peerbox_proposals && !stored) || (no_peerbox_proposals && stored) {
+                        bail!(
+                            "this agent's credential, never connected, is reused with its stored setting peerbox_proposals: {stored}; give a matching flag or none"
                         )
                     }
                     let agent_name = directory
@@ -2083,6 +2114,17 @@ async fn prepare_attach_inner(
     } else {
         None
     };
+    // Peerbox proposals likewise (peerbox contract, Who may propose).
+    let proposals = if peerbox_proposals {
+        true
+    } else if no_peerbox_proposals {
+        false
+    } else {
+        std::io::stdin().is_terminal()
+            && crate::capability_cli::ask(
+                "Let this agent prepare peerbox changes (create, share, invite) for you to approve? [y/N] ",
+            )?
+    };
     // A new setup replaces an old profile only once it succeeds.
     let directory = root.join(&agent_name);
     let aside = root.join(format!(".{agent_name}.old"));
@@ -2105,6 +2147,7 @@ async fn prepare_attach_inner(
         options,
         max_sends_per_hour: Some(max_sends_per_hour),
         max_calls_per_hour: call_cap,
+        peerbox_proposals: proposals,
         workspace: Some(workspace_text.clone()),
     })
     .await;

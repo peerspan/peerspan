@@ -635,6 +635,23 @@ pub(crate) fn mint_invitation_in(
         "invitation":token,"expires_at":invite.expires_at}),
     )
 }
+/// Mints a network invite for `member` lasting `seconds` from the decision
+/// time, in the caller's transaction (peerbox contract, Agent proposals,
+/// Execution: an approved invite). Returns `{network_id, context_id,
+/// invitation_id, invitation, expires_at}`.
+pub(crate) fn mint_invite_for(
+    store: &Store,
+    c: &Connection,
+    network: &str,
+    member: &str,
+    seconds: i64,
+) -> Result<Value> {
+    let plan = invitation_plan(store, c, network)?;
+    let end = (stamp(&plan.time)? + chrono::TimeDelta::seconds(seconds))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+    mint_invitation_in(store, c, &plan, member, "-", &end)
+}
 pub(crate) fn retained_invitation(
     c: &Connection,
     id: &str,

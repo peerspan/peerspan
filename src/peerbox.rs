@@ -53,6 +53,10 @@ pub struct Record {
     pub repository: String,
     pub branch: String,
     pub created_at: String,
+    /// The agent proposal that created it (peerbox contract, Agent
+    /// proposals, Execution), or null when the person ran the command.
+    #[serde(default)]
+    pub proposal_id: Option<String>,
 }
 
 /// A failure an operation reports as its final `failed` outcome:
@@ -375,6 +379,72 @@ pub fn disclosure(
     })
 }
 
+/// The review of an agent's `create` proposal (peerbox contract, Agent
+/// proposals): what a read discloses, with each distinct `{name, email}`
+/// author and committer pair, sorted by name, then email, as UTF-8 bytes,
+/// the first 100 of them, and their number.
+pub fn create_review(
+    git: &Git,
+    repo: &FsPath,
+    branch: &str,
+    scratch: &FsPath,
+) -> Result<Value, Failure> {
+    if !git.is_repository(repo)? {
+        return Err(Failure::new(
+            "invalid",
+            format!("{} is not a Git repository", repo.display()),
+        ));
+    }
+    let head = git.head(repo, branch)?.ok_or_else(|| {
+        Failure::new(
+            "branch_unknown",
+            format!("the repository has no commit on branch {branch:?}"),
+        )
+    })?;
+    let commits: u64 = git
+        .text(repo, &["rev-list", "--count", &head], "unavailable")?
+        .parse()
+        .unwrap_or(0);
+    // Each field ends in a NUL, which no identity holds; the line breaks
+    // between commits fall at the start of the next author name.
+    let out = git.output(
+        repo,
+        &["log", "--format=%an%x00%ae%x00%cn%x00%ce%x00", &head],
+    )?;
+    if !out.status.success() {
+        return Err(Failure::new("unavailable", stderr_of(&out)));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let fields: Vec<&str> = text.split('\0').collect();
+    let mut pairs = std::collections::BTreeSet::new();
+    for chunk in fields.chunks(4) {
+        if let [an, ae, cn, ce] = chunk {
+            let an = an.strip_prefix('\n').unwrap_or(an);
+            pairs.insert((an.as_bytes().to_vec(), ae.as_bytes().to_vec()));
+            pairs.insert((cn.as_bytes().to_vec(), ce.as_bytes().to_vec()));
+        }
+    }
+    let total = pairs.len();
+    let identities: Vec<Value> = pairs
+        .into_iter()
+        .take(100)
+        .map(|(n, e)| {
+            json!({"name": String::from_utf8_lossy(&n), "email": String::from_utf8_lossy(&e)})
+        })
+        .collect();
+    let dir = Scratch::new(scratch)?;
+    let file = dir.path().join("peerbox.bundle");
+    git.bundle(repo, branch, &[], &file)?;
+    let bundle_bytes = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+    Ok(json!({
+        "head": head,
+        "commits": commits,
+        "identities": identities,
+        "identities_total": total,
+        "bundle_bytes": bundle_bytes,
+    }))
+}
+
 /// A private temporary directory under `base`, removed when dropped.
 pub struct Scratch(PathBuf);
 impl Scratch {
@@ -583,6 +653,7 @@ impl Store {
             repository: c.repository,
             branch: c.branch,
             created_at: now(),
+            proposal_id: None,
         };
         tx.execute(
             "INSERT INTO peerboxes VALUES (?1, ?2, ?3)",

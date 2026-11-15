@@ -50,6 +50,7 @@ fn superseded_contribution_past_retention_is_commit_unknown() {
         repository: repo.to_string_lossy().into_owned(),
         branch: "main".into(),
         created_at: "2026-11-13T00:00:00Z".into(),
+        proposal_id: None,
     };
     let id = format!("pbc_{}", "2".repeat(32));
     let person = "person_bob";

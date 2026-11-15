@@ -471,6 +471,8 @@ impl Setup {
             calls: args.calls,
             no_calls: args.no_calls,
             max_calls_per_hour: args.max_calls_per_hour.clone(),
+            peerbox_proposals: false,
+            no_peerbox_proposals: true,
             options: args.options.clone(),
             integrations: args.integrations.clone(),
             runner: args.runner.clone(),
