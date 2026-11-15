@@ -451,7 +451,11 @@ of its entries in the byte order of their relative paths, each entry being one b
 or `l`, then the path and a NUL byte, then for a regular file its permission bits as four
 octal digits and the 32-byte SHA-256 of its contents, and for a symbolic link its target and
 a NUL byte. The digest does not depend on how the snapshot is packed, so anyone holding the
-directory can recompute it. Later changes to those
+directory can recompute it. A directory holding any other kind of entry (a socket, a FIFO
+or a device), or a symbolic link whose target contains `..`, is refused with 400 `invalid`
+naming `inputs_dir` or `checker_dir`, and so is one whose snapshot, packed as a workspace
+archive, would exceed the artifact contract's 104,857,600-byte limit for one file (PBX-37).
+Later changes to those
 directories change nothing until the gate is set again. The checker directory holds the
 checker's or environment's files and the held-out expected outputs or episode definitions;
 the inputs directory holds the held-out inputs only (it may be empty). Neither is ever sent
@@ -479,7 +483,9 @@ a contributor reads each of its own contributions' public result there, in its d
 
 ### Evaluation
 
-A contribution is **queued** for the gate when it becomes `pending` on a gated peerbox. The
+A contribution is **queued** for the gate when it becomes `pending` on a gated peerbox, and
+every contribution already `pending` when a gate is set is queued by that `gate set`, in the
+same order, and shown in `gate show`'s `queue` (PBX-35). The
 home host evaluates queued contributions one at a time, oldest first by `(submitted_at,
 contribution_id)` (PBX-14), each against the protected head when its evaluation starts: that commit is the evaluation's
 **frontier**, fixed for the whole evaluation. A candidate that is not a descendant of the
@@ -621,7 +627,11 @@ the public result through `status`, never a run's output, logs, artifacts, sampl
 secret.
 
 When the runtime's local switch is off, evaluations wait and the gate shows `paused` with
-`runtime_disabled` until it is on again. After a restart, an evaluation that had not decided
+`runtime_disabled` until it is on again (PBX-36). `runtime_disabled` is derived, never stored:
+`gate show` and `list` show it whenever the switch is off and the gate is not paused for
+another reason, and evaluation continues by itself once the switch is on again, with no
+`gate resume`. `gate resume` while the switch is off clears only an owner pause, so the gate
+then shows `runtime_disabled`. After a restart, an evaluation that had not decided
 starts again from its first measurement, with a new secret; each run it had started is
 cancelled (`POST /v1/runs/{run_id}/cancel`) before the first new run starts.
 
@@ -629,7 +639,7 @@ cancelled (`POST /v1/runs/{run_id}/cancel`) before the first new run starts.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--mode outputs\|episode] [--generator JSON_ARGV] [--compare worst_best\|paired_normal\|paired_bounded] [--score-range LO HI] [--image REF] [--checker-image REF] [--link-port N] [--link-connections N] [--link-bytes N] [--repeats N] [--cpus N] [--memory-mib N] [--checker-cpus N] [--checker-memory-mib N] [--timeout DURATION] [--max-changes-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories, draws a new salt and sets the gate, active, with the next version, its commitment and `frontier` null. `--command`, `--checker` and `--generator` take one argument each, a JSON array of strings. Defaults: `outputs`, no generator, `worst_best`, no images, 1 repeat, 2 vCPUs, 2,048 MiB, the candidate's bounds for the checker, 15 minutes, 104,857,600 bytes of changes, and for `episode` 16 connections and 268,435,456 bytes; `--link-port` is required with `episode`. `--timeout` takes a duration as `task run --timeout` does. Refused while an evaluation runs (409 `gate_busy`); with 400 `invalid` naming the field (below) for `time` with `episode` or a paired `compare`, a generator or link options with the other mode, `paired_bounded` without `--score-range` or a range with another `compare`, and an image reference without a digest; with 409 `runtime_unsupported` for an image (`image` or `checker_image`) on a runtime that reports `images` false, and `episode` on one that reports `links` false or `max_concurrent_runs` below 2. A refused `gate set` leaves the gate as it was. Returns 200 with the new gate record, as `gate show`'s `gate` (below). |
+| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--mode outputs\|episode] [--generator JSON_ARGV] [--compare worst_best\|paired_normal\|paired_bounded] [--score-range LO HI] [--image REF] [--checker-image REF] [--link-port N] [--link-connections N] [--link-bytes N] [--repeats N] [--cpus N] [--memory-mib N] [--checker-cpus N] [--checker-memory-mib N] [--timeout DURATION] [--max-changes-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories, draws a new salt and sets the gate, active, with the next version, its commitment and `frontier` null. `--command`, `--checker` and `--generator` take one argument each, a JSON array of strings. Defaults: `outputs`, no generator, `worst_best`, no images, 1 repeat, 2 vCPUs, 2,048 MiB, the candidate's bounds for the checker, 15 minutes, 104,857,600 bytes of changes, and for `episode` 16 connections and 268,435,456 bytes; `--link-port` is required with `episode`. `--timeout` takes a duration as `task run --timeout` does. Refused while an evaluation runs (409 `gate_busy`); with 400 `invalid` naming the field (below) for `time` with `episode` or a paired `compare`, a generator or link options with the other mode, `paired_bounded` without `--score-range` or a range with another `compare`, and an image reference without a digest; with 409 `runtime_unsupported` for an image (`image` or `checker_image`) on a runtime that reports `images` false, and `episode` on one that reports `links` false or `max_concurrent_runs` below 2; and with 503 `unavailable`, storing nothing, when the runtime's local switch is off or the runtime does not answer `GET /v1/runtime`, as `PUT /v1/runtime` does (PBX-34). A refused `gate set` leaves the gate as it was. Returns 200 with the new gate record, as `gate show`'s `gate` (below). |
 | `peerbox gate pause PEERBOX`, `peerbox gate resume PEERBOX` | `POST /v1/peerboxes/{id}/gate/pause`, `.../resume` | Pause with `owner`, or resume; resume clears any paused reason. |
 | `peerbox gate clear PEERBOX` | `DELETE /v1/peerboxes/{id}/gate` | Removes the gate, cancelling a running evaluation; queued contributions stay pending for review by hand. |
 | `peerbox gate show PEERBOX [--json]` | `GET /v1/peerboxes/{id}/gate` | 200 with `{gate, queue, evaluations}` (below); 404 `not_found` for a peerbox without a gate. |
