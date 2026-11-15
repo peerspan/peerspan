@@ -365,8 +365,8 @@ def _():
     value = tool_ok("peerbox_list", destination="pb-read")
     entries = value["peerboxes"] if isinstance(value, dict) else value  # the merged array, or {peerboxes}
     check(isinstance(entries, list) and len(entries) == 1 and set(entries[0]) == {"peerbox_id", "title", "branch",
-                                                                                   "head", "actions"}
-          and entries[0]["peerbox_id"] == pbx() and entries[0]["title"] == "agents"
+                                                                                   "head", "actions", "gate"}
+          and entries[0]["gate"] is None and entries[0]["peerbox_id"] == pbx() and entries[0]["title"] == "agents"
           and entries[0]["branch"] == "main" and entries[0]["head"] == state["main"]
           and entries[0]["actions"] == ["peerbox.read", "peerbox.submit", "peerbox.run"], f"peerbox_list {value}")
 

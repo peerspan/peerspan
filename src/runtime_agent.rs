@@ -363,6 +363,9 @@ pub(crate) struct Ending<'a> {
     pub timed_out: bool,
     pub error: Option<String>,
     pub commit: Option<String>,
+    /// Processes the guest's kernel killed for lack of memory, and the run's memory.
+    pub oom_kills: u64,
+    pub memory_mib: u64,
     /// The stored request's fork name and its `from_branch`.
     pub fork: &'a str,
     pub from: &'a str,
@@ -420,6 +423,18 @@ pub(crate) fn output(e: &Ending<'_>) -> String {
         format!("Branch: {} at commit {commit}", e.fork)
     } else {
         format!("Branch: {}, unchanged from {}", e.fork, e.from)
+    };
+    // A memory kill reads as the agent's failure unless it is said (#212).
+    let trailer = match e.oom_kills {
+        0 => trailer,
+        1 => format!(
+            "Memory: 1 process killed for lack of memory ({} MiB)\n{trailer}",
+            e.memory_mib
+        ),
+        n => format!(
+            "Memory: {n} processes killed for lack of memory ({} MiB)\n{trailer}",
+            e.memory_mib
+        ),
     };
     let budget = MAX_OUTPUT.saturating_sub(trailer.len() + 2);
     if message.len() > budget {

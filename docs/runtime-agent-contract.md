@@ -39,7 +39,7 @@ policy rules for `task.submit`.
 | `agent_id` | A registered agent of this host whose name is addressable (1 to 64 characters of lowercase ASCII letters, digits, `.`, `_` and `-`, starting with a letter or digit). | Required |
 | `harness` | `codex` or `claude`. | `codex` |
 | `harness_dir` | An absolute path to a directory readable by the runtime, which the owner installs. For `codex` it holds the Codex release's `codex` and `codex-code-mode-host` binaries. For `claude` it holds Claude Code's Linux x64 `claude` binary. | Required |
-| `image` | An OCI image reference to boot, such as `python:3.12-slim`: 1 to 1,024 bytes of printable ASCII without whitespace. Null boots the runtime's own image. Claude Code's binary needs glibc, so a `claude` profile needs a glibc image; Codex's is static and runs on any. | null |
+| `image` | An OCI image reference to boot, such as `python:3.12-slim`: 1 to 1,024 bytes of printable ASCII without whitespace. Null boots the runtime's own image. Claude Code's binary needs glibc, so a `claude` profile needs a glibc image; Codex's is static and runs on any. The image should hold the repository's tools ([below](#what-the-image-must-hold)). | null |
 | `from_branch` | A peerfs branch name of the runtime's space: 1 to 255 bytes of UTF-8, not `.` or `..`, without `/` or NUL. | `main` |
 | `network` | `none` or `internet`. | `internet` |
 | `cpus` | 1 to 64. | 2 |
@@ -62,6 +62,47 @@ policy, a task record, an event, activity, a log or any response.
 | `agent credential clear AGENT` | `DELETE /v1/agents/{agent_id}/credential` | Removes the key. Returns `{agent_id, credential: false}`. Activity `runtime.credential_cleared`. |
 
 Removing an agent removes its profile and its credential.
+
+### What the image must hold
+
+An agent's run has the image's tools and nothing else: the harness is mounted beside it, but
+the repository's formatter, linter, test runner and dependencies come only from the image.
+Nothing installed during a run is kept. The root is writable, so with `--network internet` an
+agent may install what is missing (`rustup component add`, `pip install`, `npm ci`), but it pays
+for that on every run and may not do it, and with `none` it cannot. Whether an agent's branch
+passes the repository's checks then depends on what the image happens to include, and nothing
+reports a missing tool to the owner.
+
+So name an image that holds the tools the repository's checks run, or build one that does. The
+runtime pulls from public registries only, so a built image must be pushed to one, such as a
+public `ghcr.io` package; private registries are not supported yet. Pin it by digest
+(`name@sha256:...`) so every run gets the same tools. A `claude` profile needs a glibc image
+(Debian or Ubuntu based, not Alpine).
+
+| Language | A starting image | What it lacks, commonly | Add in the image |
+| --- | --- | --- | --- |
+| Rust | `rust:1.97.1-bookworm` | `rustfmt` and `clippy` (the image installs Rust's minimal profile) | `RUN rustup component add rustfmt clippy` |
+| Python | `python:3.12-slim-bookworm` | The repository's linters and test runner, such as `ruff` and `pytest` | `RUN pip install ruff pytest`, or the repository's development requirements |
+| Node.js | `node:22-bookworm` | The repository's `devDependencies` (formatter, linter, test runner), which `npm ci` fetches | `RUN npm install -g` the tools, or run with `--network internet` so the agent can `npm ci` |
+| Go | `golang:1.25-bookworm` | Linters beyond `gofmt` and `go vet`, such as `golangci-lint`; modules not vendored | Install the linter; vendor modules or run with `--network internet` |
+
+Dependencies a build fetches (crates, wheels, packages, modules) need `--network internet`
+unless the repository vendors them or the image already holds them.
+
+### Memory for builds
+
+The default 2,048 MiB fits an agent editing and checking a small project, not a cold build of a
+large one. A compiler's memory grows with each job it runs at once: a large Rust crate can take
+4 to 5 GiB per `rustc`, and Cargo builds a library and its test build together, so a cold
+build of this repository is killed at 6 GiB and at 8 GiB with 4 vCPUs. When a run runs out of
+memory, the guest's kernel kills a process, the build usually exits 1 or 101, and the output
+says so on its `Memory:` line ([The output](#the-output)).
+
+Size `--memory-mib` for the build's peak, within the runtime's `max_memory_mib`, or run fewer
+jobs at once: set the limit in the image (`ENV CARGO_BUILD_JOBS=2`, `ENV MAKEFLAGS=-j2`), since
+the image's environment applies to the run, or in the repository's own configuration (Cargo's
+`[build] jobs`). Fewer jobs take longer but fit; more vCPUs without more memory make a kill more
+likely, not less.
 
 ## Receiving a task
 
@@ -187,7 +228,8 @@ version.
 ### The output
 
 The final event's `output` is plain text: the agent's message, a blank line, then one last line
-naming the branch (RUN-11).
+naming the branch (RUN-11), preceded by a `Memory:` line when the guest killed processes for
+memory.
 - **The message** is the run's stdout, decoded as lossy UTF-8, with trailing whitespace
   removed. It is cut at a UTF-8 character boundary so that the whole output fits in 65,536
   bytes, and a cut message ends with `…`.
@@ -204,6 +246,11 @@ naming the branch (RUN-11).
 
   The trailer is chosen in that order of precedence: a result with `error` never reports a
   commit or `unchanged`, so an error stays visible even when the message is not empty.
+- **The memory line**, only when the run result's `oom_kills` (runtime task contract) is not 0,
+  comes just before the last line: `Memory: 1 process killed for lack of memory (M MiB)`, or
+  `Memory: N processes killed for lack of memory (M MiB)`, with M the run's `memory_mib`. It is
+  there however the run ended, since a build whose compiler was killed often exits with an
+  ordinary failure, or even 0. A lost run has none.
 
 A run the runtime lost (runtime task contract, restarts) has the empty-message rule's `error`,
 so its output is `the runtime restarted`, a blank line, and `Branch: NAME, not committed: the
@@ -330,6 +377,9 @@ The suite covers:
   branch finds the agent's write (RUN-16). A run that changed nothing leaves no workspace either.
 - **Failure and empty output:** a failing exit with its message and branch line. An empty message
   replaced by `exit N`. A run that changed nothing, giving `unchanged from FROM`.
+- **Memory:** a run whose result reports 1 kill and one reporting 3, each with its `Memory:` line
+  just before the branch line and the profile's `memory_mib`, for a failing exit and for exit 0;
+  no `Memory:` line for a run that reports none.
 - **Before the start:** a missing secret file failing the task before `started` with `Branch:
   none`. A clash with an existing fork name failing the same way, leaving that fork untouched.
   A message over the output bound, cut with `…`.

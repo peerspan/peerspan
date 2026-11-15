@@ -87,8 +87,25 @@ def records(h):
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
         for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
-            result[name] = tuple(sorted(db.execute('SELECT * FROM "' + name.replace('"', '""') + '"'), key=repr))
+            rows = db.execute('SELECT * FROM "' + name.replace('"', '""') + '"')
+            if name == "dec_pending":
+                rows = without_delivery(rows)
+            result[name] = tuple(sorted(rows, key=repr))
         return result
+
+
+def without_delivery(cursor):
+    # A request's outbound frames record, in acknowledged_by, which carrier
+    # endpoints have acknowledged them. The background delivery worker adds
+    # those acknowledgements whenever an endpoint answers, independently of any
+    # call a case measures, so one can land between a purity check's two reads
+    # (#227). Compare everything else, frames included, without them.
+    column = [d[0] for d in cursor.description].index("record")
+    for row in cursor:
+        record = json.loads(row[column])
+        for frame in record.get("outbound_frames", []):
+            frame["acknowledged_by"] = "<background delivery>"
+        yield row[:column] + (json.dumps(record, sort_keys=True),) + row[column + 1:]
 
 
 def without(value, *keys):

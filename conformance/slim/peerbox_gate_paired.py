@@ -166,40 +166,40 @@ def _():
     gate_peerbox(suite)
 
 
-@case("paired_normal_verdicts", "peerbox Verdict (paired_normal): mean(e) - 1.645 sd/sqrt(n) >= 0 promotes, below "
+@suite.case("paired_normal_verdicts", "peerbox Verdict (paired_normal): mean(e) - 1.645 sd/sqrt(n) >= 0 promotes, below "
                                 "is below_margin, lower and higher; the public result's compare, secret_sha256, paired")
 def _():
     for name in ("normal_lower_pass", "normal_lower_fail", "normal_higher_pass", "normal_higher_fail"):
         run(name)
 
 
-@case("paired_bounded_verdicts", "peerbox Verdict (paired_bounded): the empirical Bernstein bound with L = ln 40 and "
+@suite.case("paired_bounded_verdicts", "peerbox Verdict (paired_bounded): the empirical Bernstein bound with L = ln 40 and "
                                  "R = (2 + min_gain/100)(HI - LO), promoting and below_margin, lower and higher")
 def _():
     for name in ("bounded_lower_pass", "bounded_lower_fail", "bounded_higher_pass", "bounded_higher_fail"):
         run(name)
 
 
-@case("repeats_averaged", "peerbox Verdict: each episode averaged over the repeats, n the episodes (never samples "
+@suite.case("repeats_averaged", "peerbox Verdict: each episode averaged over the repeats, n the episodes (never samples "
                           "times repeats), so identical repeats leave the bound unchanged")
 def _():
     run("repeats")
 
 
-@case("margin_per_episode", "peerbox Verdict: e = d - (min_gain/100) f per episode; a gain beating the margin "
+@suite.case("margin_per_episode", "peerbox Verdict: e = d - (min_gain/100) f per episode; a gain beating the margin "
                             "against mean(f) taken as exact but not per episode is below_margin")
 def _():
     run("margin")
 
 
-@case("rare_large_loss", "peerbox Verdict: samples with one rare large loss that paired_normal promotes and "
+@suite.case("rare_large_loss", "peerbox Verdict: samples with one rare large loss that paired_normal promotes and "
                          "paired_bounded rejects")
 def _():
     run("rare_bounded")
     run("rare_normal")
 
 
-@case("sample_failures", "peerbox Result line: fewer than 30 samples, a count other than the first frontier "
+@suite.case("sample_failures", "peerbox Result line: fewer than 30 samples, a count other than the first frontier "
                          "measurement's, and a sample outside score_range with paired_bounded are check_failed")
 def _():
     for name in ("few", "count", "outside"):

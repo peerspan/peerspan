@@ -1354,6 +1354,8 @@ async fn run_daemon(
         peerspan_host::peerbox_invite::worker(store.clone(), peer_shutdown.clone());
     let peerbox_proposals =
         peerspan_host::peerbox_proposals::worker(store.clone(), peer_shutdown.clone());
+    let peerbox_gates =
+        peerspan_host::peerbox::evaluation::worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
@@ -1404,6 +1406,10 @@ async fn run_daemon(
         },
         async {
             peerbox_proposals.await;
+            Ok(())
+        },
+        async {
+            peerbox_gates.await;
             Ok(())
         },
         async {
