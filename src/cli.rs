@@ -2137,8 +2137,9 @@ pub enum TaskCommand {
     },
     /// Save an input or fetched result of a submitted task to a new file
     Artifact {
+        /// The receiving host; default the one host this task ID was submitted to
         #[arg(long)]
-        peer: String,
+        peer: Option<String>,
         id: String,
         sha256: String,
         #[arg(long, value_name = "PATH")]
@@ -2153,22 +2154,25 @@ pub enum TaskCommand {
     },
     /// Show a submitted task's local record
     Inspect {
+        /// The receiving host; default the one host this task ID was submitted to
         #[arg(long)]
-        peer: String,
+        peer: Option<String>,
         id: String,
     },
     /// Show a submitted task's locally stored events
     Events {
+        /// The receiving host; default the one host this task ID was submitted to
         #[arg(long)]
-        peer: String,
+        peer: Option<String>,
         id: String,
         #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
         after: i64,
     },
     /// Ask the receiver to cancel a submitted task
     Cancel {
+        /// The receiving host; default the one host this task ID was submitted to
         #[arg(long)]
-        peer: String,
+        peer: Option<String>,
         id: String,
     },
     /// `task TARGET TEXT [OPTIONS]`, parsed as `TaskTo`.
@@ -2684,6 +2688,13 @@ impl Command {
             | Self::Task(
                 TaskCommand::Artifact { .. } | TaskCommand::To(_) | TaskCommand::Run { .. },
             )
+            // Without --peer, the receiver is resolved first (main's
+            // `with_task_peer`), so these never become a request unresolved.
+            | Self::Task(
+                TaskCommand::Inspect { peer: None, .. }
+                | TaskCommand::Events { peer: None, .. }
+                | TaskCommand::Cancel { peer: None, .. },
+            )
             | Self::Attach { .. }
             | Self::Agents { .. }
             | Self::Access(
@@ -2893,12 +2904,12 @@ impl Command {
                 format!("/v1/tasks?after={after}&limit={limit}"),
                 None,
             ),
-            Self::Task(TaskCommand::Inspect { peer, id }) => (
+            Self::Task(TaskCommand::Inspect { peer: Some(peer), id }) => (
                 Method::GET,
                 format!("/v1/tasks/{}/{}", encoded(&peer), encoded(&id)),
                 None,
             ),
-            Self::Task(TaskCommand::Events { peer, id, after }) => (
+            Self::Task(TaskCommand::Events { peer: Some(peer), id, after }) => (
                 Method::GET,
                 format!(
                     "/v1/tasks/{}/{}/events?after={after}&limit=1000",
@@ -2907,7 +2918,7 @@ impl Command {
                 ),
                 None,
             ),
-            Self::Task(TaskCommand::Cancel { peer, id }) => (
+            Self::Task(TaskCommand::Cancel { peer: Some(peer), id }) => (
                 Method::POST,
                 format!("/v1/tasks/{}/{}/cancel", encoded(&peer), encoded(&id)),
                 None,

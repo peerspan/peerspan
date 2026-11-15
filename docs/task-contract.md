@@ -63,9 +63,11 @@ A task still `queued` at its deadline, claimed or not, becomes `expired`, with a
 | --- | --- | --- |
 | `task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID]` | `POST /v1/tasks` | Persists the outbound task with a `task.submitted` event, then submits it. Without `--grant`, it cites the target's policy, as for messages. The deadline defaults to 1 hour. An uncertain submission is retried automatically with the same `task_id` (milestone 5 rules). Returns the local record. |
 | `task list [--after N] [--limit N]` | `GET /v1/tasks` | Outbound tasks in insertion order as `[{sequence, task}]`, paged like messages. |
-| `task inspect --peer HOST ID` | `GET /v1/tasks/{peer}/{id}` | The local record (below). |
-| `task events --peer HOST ID [--after N]` | `GET /v1/tasks/{peer}/{id}/events` | Locally stored events. |
-| `task cancel --peer HOST ID` | `POST /v1/tasks/{peer}/{id}/cancel` | Sends the cancellation request now if the submission was accepted, and returns the record. An uncertain cancel is resent by the polling worker, also after a restart. Cancelling a rejected or final task returns the record unchanged. |
+| `task inspect [--peer HOST] ID` | `GET /v1/tasks/{peer}/{id}` | The local record (below). |
+| `task events [--peer HOST] ID [--after N]` | `GET /v1/tasks/{peer}/{id}/events` | Locally stored events. |
+| `task cancel [--peer HOST] ID` | `POST /v1/tasks/{peer}/{id}/cancel` | Sends the cancellation request now if the submission was accepted, and returns the record. An uncertain cancel is resent by the polling worker, also after a restart. Cancelling a rejected or final task returns the record unchanged. |
+
+Without `--peer`, `task inspect`, `task events`, `task cancel` and `task artifact` take the receiving host from the one outbound task with that ID in `GET /v1/tasks`. No such task exits 1 with `no submitted task ID; see peerspan task list`; an ID submitted to several hosts exits 1 naming them, and needs `--peer`.
 
 `POST /v1/tasks` takes `peer_host_id`, `target_agent_id`, `input`, and optional `task_id`, `deadline`, `grant_id`, and `origin`; the daemon generates a missing ID and sets the default deadline. Reusing an ID with a different request returns 409. A deadline may not outlive the authorizing grant or policy, so the default of 1 hour needs `--deadline` under one that expires sooner.
 
