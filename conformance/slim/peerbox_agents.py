@@ -10,7 +10,7 @@ no agent reviews or shares. The operations themselves are peerbox.py and peerbox
 peerbox_common.py, peerbox_fixtures.py and runtime_common.py.
 
 Not suite cases: `peerbox_list` following `next` (a page needs more than 65,536 bytes of entries, about 200 peerboxes
-shared with bob, each a signed policy version: far over two minutes; peerbox.py pages the operation itself), and
+shared with bob, each a signed policy version: far over two minutes; peerbox_rules.py pages the operation itself), and
 routes set in session setup (the setup route shape for a route naming a host is not given by the contract).
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the task, runtime task and adapter
