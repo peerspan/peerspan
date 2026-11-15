@@ -30,7 +30,7 @@ from runtime_common import bind, need, state
 from peerbox_common import owner_cli, rev
 from peerbox_gate_common import (CHECK, CHECKER_MARK, DEFAULT_RESOURCES, HEX64, INPUTS, OUT, OUTPUTS_CHECKER,
                                  SUMMARY, contribute_link, decided, digests, files_of, gate_decision, gate_peerbox,
-                                 gate_setup, last_line, listed, mark, measurements, outputs_args, outputs_check,
+                                 gate_setup, last_line, listed, logged, mark, measurements, outputs_args, outputs_check,
                                  outputs_command, paused_with, pbx, posts, queue_order, record, refused_set, run_ids,
                                  run_result, secret_file, secret_sha256, set_outputs, sha, show, status_of, tidy,
                                  time_score, tree_files, workspace, written)
@@ -53,14 +53,15 @@ TIME_CMD = ["cat", "f/time.txt", ";", "write", OUT, "timed"]
 TIME_CHECK = ["stderr", CHECKER_MARK, ";", "echo", written(None)]
 CHECKER_FILES = {path: sha(text) for path, text in OUTPUTS_CHECKER.items()}
 SEED = {f".peerbox-gate/inputs/{path}": sha(text) for path, text in INPUTS.items()}
-# check_failed: (directory, the candidate's output, its checker_reason; "either" where the contract leaves it open).
+# check_failed: (directory, the candidate's output, its checker_reason: null where the line is not read, malformed or
+# from a check run that failed, as cf_fail's does after printing a well-formed line).
 FAILURES = [("cf_missing", "nothing to score here", None), ("cf_json", 'PEERBOX-GATE {"pass":true,"score":50', None),
             ("cf_keys", 'PEERBOX-GATE {"pass":true,"score":50}', None),
             ("cf_extra", 'PEERBOX-GATE {"pass":true,"score":50,"reason":"","extra":1}', None),
             ("cf_null", written(None), None), ("cf_long", written(50, reason="r" * 201), None),
             ("cf_last", written(50) + "\nnot a result line", None),
             ("cf_false", written(50, passed=False, reason="wrong answer"), "wrong answer"),
-            ("cf_fail", written(50, reason="printed before failing"), "either")]
+            ("cf_fail", written(50, reason="printed before failing"), None)]
 OK_FILE = ".peerbox-gate/out/ok.txt"  # check_failed's checker cats it last; cf_fail's contribution removes it
 FAILURE_CMD = outputs_command(written(100), [(v, t) for v, t, _ in FAILURES],
                               [";", "write", OK_FILE, "\n", ";", "write", "cf_fail/out/ok.txt", "x", ";", "rm",
@@ -159,7 +160,7 @@ def _():
     entry = after["evaluations"][0]
     want = [(s, k) for s in ("frontier", "candidate") * 2 for k in ("candidate", "check")]
     check(entry["contribution_id"] == rec["contribution_id"] and entry["result"] == g
-          and [(r["side"], r["kind"]) for r in entry["runs"]] == want
+          and [(r["side"], r["kind"], r["outcome"]) for r in entry["runs"]] == [(*w, "succeeded") for w in want]
           and run_ids(entry) == [e["run_id"] for e in found], f"gate show's evaluation {str(entry)[:400]}")
     state["promote"] = {"measured": measured, "record": rec, "frontier": frontier, "evaluation": entry}
 
@@ -189,19 +190,21 @@ def _():
 
 @case("candidate_claims", "peerbox Evaluation (outputs): what a candidate prints, its own PEERBOX-GATE line, and "
                           "what it writes outside .peerbox-gate/out/ are ignored; status and list never show run "
-                          "output or the checker command")
+                          "output or the checker command; below_margin's checker_reason is the last candidate "
+                          "measurement's line's")
 def _():
     win = written(1, reason="claimed")
     tail = [";", "cat", "claim.txt", ";", "echo", win, ";", "write", ".peerbox-gate/r.txt", win, ";", "write",
             "out/r.txt", win, ";", "write", ".peerbox-gate/outputs/r.txt", win]
-    command = outputs_command(written(100), [("claim", written(99))], tail)
+    close = written(99, reason="close, not enough")  # below_margin's checker_reason: the last candidate line's
+    command = outputs_command(written(100), [("claim", close)], tail)
     rec, _, found, _ = evaluate(command, "claim", "claim", {"claim.txt": written(1, reason=STDOUT_MARK) + "\n"})
-    g = gate_decision(rec, "rejected", "below_margin")
+    g = gate_decision(rec, "rejected", "below_margin", checker_reason="close, not enough")
     check(g["frontier_scores"] == [100] and g["candidate_scores"] == [99], f"scores {g}")
     for side, _, chk in sides(found, command, CHECK, "claim"):
         ws = workspace(chk["run_id"])
         ws.pop(".peerbox-gate/secret", None)
-        check(ws == {**CHECKER_FILES, OUT: sha(written(100 if side == "frontier" else 99))},
+        check(ws == {**CHECKER_FILES, OUT: sha(written(100) if side == "frontier" else close)},
               f"the {side}'s check run held {sorted(ws)}: more than the output under .peerbox-gate/out/")
     _, text = listed()
     check(STDOUT_MARK not in text and CHECKER_MARK not in text, "list or status shows run output or the checker")
@@ -223,14 +226,12 @@ def _():
 
 @case("check_failed", "peerbox Result line: a missing line, a malformed one (bad JSON, a key missing or extra, a "
                       "null score with checker, a reason over 200 bytes, not the last line), pass false and a failed "
-                      "check run are check_failed, with the checker's reason only from a valid line")
+                      "check run are check_failed, with the checker's reason only from a well-formed line of a check "
+                      "run that exited 0, never a failed run's line")
 def _():
     set_outputs(FAILURE_CMD, checker=FAILURE_CHECK)
     for var, _, reason in FAILURES:
         rec = decided(contribute_link(var.replace("_", "-"), var)["contribution_id"], timeout=120)
-        if reason == "either":  # a failed run's line: whether it was read is not settled
-            reason = rec["decision"]["gate"]["checker_reason"]
-            check(reason in (None, "printed before failing"), f"cf_fail: checker_reason {reason!r}")
         g = gate_decision(rec, "rejected", "check_failed", checker_reason=reason)
         check(g["frontier_scores"] == [100] and g["candidate_scores"] == [None], f"{var}: scores {g}")
     check(record(show())["state"] == "active", "a candidate's check failure paused the gate")
@@ -238,22 +239,33 @@ def _():
 
 @case("candidate_failures", "peerbox Evaluation (outputs), The gate record (max_changes_bytes): a candidate run that "
                             "fails is run_failed; one whose changes size (its changes.tar, changes outside its "
-                            "outputs too) exceeds max_changes_bytes is outputs_too_large")
+                            "outputs too) exceeds max_changes_bytes is outputs_too_large; one that does both is "
+                            "run_failed; gate show's run outcomes")
 def _():
-    tail = [";", "cat", "f/run_ok.txt", ";", "fill", "f/changes.txt", str(OVER)]
+    # fill first: main's f/changes.txt already holds OVER bytes, so only a commit that changes it changes it back.
+    tail = [";", "fill", "f/changes.txt", str(OVER), ";", "cat", "f/run_ok.txt"]
     command = outputs_command(written(100), [("cand", written(80))], tail)
     set_outputs(command, extra=("--max-changes-bytes", BOUND))
     check(record(show())["max_changes_bytes"] == BOUND, "max_changes_bytes in the record")
     for branch, files, code in (("run-failed", {"f/run_ok.txt": None}, "run_failed"),
-                                ("too-large", {"f/changes.txt": "y\n"}, "outputs_too_large")):
+                                ("too-large", {"f/changes.txt": "y\n"}, "outputs_too_large"),
+                                ("both", {"f/run_ok.txt": None, "f/changes.txt": "y\n"}, "run_failed")):
         since = mark()
         rec = decided(contribute_link(branch, "cand", files)["contribution_id"], timeout=120)
         g = gate_decision(rec, "rejected", code, checker_reason=None)
-        check(g["frontier_scores"] == [100] and g["candidate_scores"] == [None], f"{code}: scores {g}")
+        check(g["frontier_scores"] == [100] and g["candidate_scores"] == [None], f"{branch}: scores {g}")
         runs = [e for e in posts(since) if e["request"]["argv"] == command]
         check(len(runs) == 2 and run_result(runs[0])["exit_code"] == 0
               and run_result(runs[1])["exit_code"] == (1 if code == "run_failed" else 0),
-              f"{code}: the candidate runs' exits {[run_result(e)['exit_code'] for e in runs]}")
+              f"{branch}: the candidate runs' exits {[run_result(e)['exit_code'] for e in runs]}")
+        steps = [e["step"][0] for e in logged("step", runs[1]["run_id"])]
+        check(branch != "both" or ("fill" in steps and "changes.tar" in logged("exited", runs[1]["run_id"])[0]
+                                   ["artifacts"]), f"both: the failed run did not change {OVER} bytes: {steps}")
+        # What `gate show` returns: each run's outcome is its task state; the failed candidate run's is `failed`.
+        entry = show()["evaluations"][0]
+        want = ["succeeded", "succeeded", "failed" if code == "run_failed" else "succeeded"]
+        check(entry["contribution_id"] == rec["contribution_id"] and [r["outcome"] for r in entry["runs"]] == want,
+              f"{branch}: gate show's runs {entry['runs']}, want outcomes {want}")
 
 
 @case("frontier_failed", "peerbox Verdict: a failed frontier measurement stops the evaluation, pauses the gate with "
@@ -273,7 +285,8 @@ def _():
 
 
 @case("not_fast_forward", "peerbox Evaluation: a candidate that is not a descendant of the frontier is rejected "
-                          "with not_fast_forward before any run, with empty scores; review by hand while paused")
+                          "with not_fast_forward before any run, with empty scores, its evaluation's secret's digest "
+                          "and checker_reason null; review by hand while paused")
 def _():
     set_outputs(outputs_command(written(100), [("nff", written(80))]))
     owner_cli("gate", "pause", pbx())
@@ -289,6 +302,11 @@ def _():
     g = gate_decision(rec, "rejected", "not_fast_forward", checker_reason=None, frontier=state["main"])
     check(g["frontier_scores"] == [] and g["candidate_scores"] == [] and posts(since) == [],
           f"scores {g['frontier_scores']} {g['candidate_scores']}, {len(posts(since))} runs, want none")
+    # Its evaluation still draws a secret, and the public result carries that secret's digest.
+    entry = [e for e in show()["evaluations"] if e["contribution_id"] == behind]
+    check(len(entry) == 1 and entry[0]["result"] == g and entry[0]["runs"] == [] and entry[0]["frontier"]
+          == state["main"] and g["secret_sha256"] == secret_sha256(entry[0]["secret"]),
+          f"not_fast_forward's evaluation in gate show {str(entry)[:300]}, want one with the result's secret")
     check(status_of(ahead)["decision"]["decided_by"] != "gate", "the owner's acceptance is not the owner's")
 
 

@@ -26,8 +26,9 @@ from peerbox_common import op_ok, owner_cli, rev, settle, status_all
 from peerbox_fixtures import commit_on
 from peerbox_gate_common import (CHECKER, COMMITTED, HEX64, INPUTS, PORT, REASON, RUNTIME, SUMMARY, check_pair,
                                  commitment, contribute, decided, digests, evaluation_with, gate_args, gate_decision,
-                                 gate_peerbox, gate_setup, jcs_check, last_line, line, logged, mark, pairs, pbx,
-                                 record, refused_set, secret_digest, secret_sha256, set_gate, sha, show, side,
+                                 gate_peerbox, gate_setup, jcs_check, last_line, line, logged, mark,
+                                 none_left_running, pairs, pbx, record, refused_set, secret_digest, secret_sha256,
+                                 set_gate, sha, show, side,
                                  status_of, submit_tip, tidy, tree_files, workspace)
 import fake_runtime
 
@@ -41,7 +42,8 @@ BYTES_FILE = "x" * 200 + "\n" + line(80)  # the good line only past the link's 6
 FRONTIER = {"promote": line(100), "reject": line(50), "claim": line(100), "frontier_bad": "no episode was played\n",
             "candidate_bad": line(100), "candidate_false": line(100), "conns": line(100), "bytes": line(100),
             "restart": line(100), "moved": line(100), "images": line(100)}
-CANDIDATE = {"promote": line(80), "reject": line(52), "claim": line(99), "frontier_bad": line(80),
+CLOSE = "close, not enough"  # the claim case's environment reason: the last candidate measurement's line decides
+CANDIDATE = {"promote": line(80), "reject": line(52), "claim": line(99, reason=CLOSE), "frontier_bad": line(80),
              "candidate_bad": "the candidate sent this instead of playing\n",
              "candidate_false": line(80, passed=False, reason="the bot crashed the server"), "conns": line(80),
              "bytes": BYTES_FILE, "restart": line(80), "moved": line(80), "images": line(80)}
@@ -155,10 +157,11 @@ def _():
 
 
 @suite.case("candidate_line_ignored", "peerbox Evaluation, episode mode: what the candidate run writes, prints or returns "
-                                "and how it exits are ignored; its own PEERBOX-GATE line changes nothing")
+                                "and how it exits are ignored; its own PEERBOX-GATE line changes nothing; "
+                                "below_margin's checker_reason is the last candidate measurement's line's")
 def _():
     rec, _, _, _ = evaluate("claim", files={"claim.txt": line(1, reason="I win")}, tail=(";", "exit", "3"))
-    g = gate_decision(rec, "rejected", "below_margin")
+    g = gate_decision(rec, "rejected", "below_margin", checker_reason=CLOSE)
     check(g["frontier_scores"] == [100] and g["candidate_scores"] == [99], f"scores {g}")
 
 
@@ -231,14 +234,15 @@ def _():
               and entry["decided_at"], f"the {key} evaluation in gate show {entry}, public result {g}")
         sides = run.get("order") or ["frontier", "candidate"]  # promote: two repeats; reject: one
         want = [(s, k) for s in sides for k in ("environment", "candidate")]
-        check([(r["side"], r["kind"]) for r in entry["runs"]] == want, f"the {key} evaluation's runs "
-                                                                       f"{entry['runs']}, want {want}")
+        check([(r["side"], r["kind"], r["outcome"]) for r in entry["runs"]] == [(*w, "succeeded") for w in want],
+              f"the {key} evaluation's runs {entry['runs']}, want {want}, each succeeded")
         seen += found
     check(seen[0] != seen[1], "two evaluations shared a secret")
 
 
 @suite.case("secret_after_restart", "peerbox Evaluation, Fresh episodes: after a restart an undecided evaluation starts "
-                              "again from its first measurement with a new secret; the runs it had started cancelled")
+                              "again from its first measurement with a new secret; each run it had started that is "
+                              "still running cancelled before the first new run")
 def _():
     a = need("a")[0]
     set_gate("restart", env=WAIT)
@@ -250,14 +254,8 @@ def _():
     rec = decided(cid, timeout=120)
     gate_decision(rec, "promoted")
     before, after = pairs(since, cut), pairs(cut)
-    entries = state["rt"].entries()
-    first_new = after[0]["listen"]["at_index"] if after else len(entries)
-    for pair in before:
-        for entry in pair.values():
-            cancels = [i for i, e in enumerate(entries) if e.get("event") == "cancel"
-                       and e.get("run_id") == entry["run_id"]]
-            check(cancels and cancels[0] < first_new, f"a {entry['request']['link']['role']} run started before "
-                                                      f"the restart was not cancelled before the first new run")
+    check(before and after, f"{len(before)} measurements before the restart and {len(after)} after, want both")
+    none_left_running([e["run_id"] for p in before for e in p.values()], after[0]["listen"]["at_index"])
     check([side(p, "restart", FRONTIER["restart"], CANDIDATE["restart"]) for p in after] == ["frontier", "candidate"],
           f"{len(after)} measurements after the restart, want the frontier's then the candidate's")
     new = {secret_digest(p) for p in after}
@@ -271,8 +269,8 @@ def _():
 
 
 @suite.case("secret_after_head_moved", "peerbox Verdict, Fresh episodes: the owner moving the head during an evaluation "
-                                 "promotes nothing; the candidate is evaluated again against the new head with a new "
-                                 "secret")
+                                 "promotes nothing and that evaluation ends undecided; the candidate is evaluated again "
+                                 "against the new head with a new secret")
 def _():
     set_gate("moved", env=WAIT)
     owner_cli("gate", "pause", pbx())
@@ -305,9 +303,14 @@ def _():
     check(len(groups) == 2, f"{len(groups)} secrets across the evaluations, want 2")
     has_x = ["x.txt" in workspace(g[0]["connect"]["run_id"]) for g in groups]
     check(has_x == [False, True], f"the frontiers measured: x.txt present {has_x}, want main then the new head")
-    entry = evaluation_with(show(), secret_digest(groups[1][0]))
+    shown = show()
+    entry = evaluation_with(shown, secret_digest(groups[1][0]))
+    old = evaluation_with(shown, secret_digest(groups[0][0]))
     check(rec["decision"]["gate"]["secret_sha256"] == secret_sha256(entry["secret"]) and entry["frontier"] == base,
           "secret_sha256 or frontier of the second evaluation")
+    # What `gate show` returns: an evaluation whose promotion found the head moved ends undecided.
+    check(old["contribution_id"] == candidate and old["frontier"] == main and old["decided_at"] is None
+          and old["result"] is None, f"the evaluation that found the head moved {old}, want decided_at and result null")
 
 
 @suite.case("images_and_bounds", "peerbox The gate record (image, checker_image, bounds, link; PBX-28): the candidate's "

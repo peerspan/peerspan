@@ -61,6 +61,8 @@ SHOW_KEYS = {"gate", "queue", "evaluations"}
 EVALUATION_KEYS = {"evaluation_id", "contribution_id", "gate_version", "secret", "secret_sha256", "frontier",
                    "started_at", "decided_at", "result", "runs"}
 EVALUATION_RUN_KEYS = {"task_id", "side", "kind", "outcome"}
+# What `gate show` returns: a run's `outcome` is its task state (a timeout is `failed`).
+OUTCOMES = {"queued", "running", "succeeded", "failed", "rejected", "expired", "cancelled"}
 COMMITTED = ("mode", "command", "inputs_sha256", "checker", "checker_sha256", "generator", "score", "direction",
              "min_gain", "repeats", "compare", "score_range", "image", "checker_image", "link", "cpus", "memory_mib",
              "checker_cpus", "checker_memory_mib", "timeout_seconds", "max_changes_bytes")
@@ -194,8 +196,9 @@ def set_gate(name, args=None, mode="episode", **kw):
     owner_cli("gate", "set", pbx(), *(gate_args(name, **kw) if args is None else args))
     shown = show()
     rec = record(shown)
-    check(rec.get("state") == "active" and rec.get("mode") == mode and rec.get("frontier") is None,
-          f"the gate after gate set: {rec}")
+    # The gate record: `paused_reason` is null while the gate is active.
+    check(rec.get("state") == "active" and rec.get("paused_reason", "missing") is None and rec.get("mode") == mode
+          and rec.get("frontier") is None, f"the gate after gate set: {rec}")
     return shown
 
 
@@ -220,7 +223,8 @@ def show():
     for entry in body["evaluations"]:
         check(isinstance(entry, dict) and set(entry) == EVALUATION_KEYS and EVALUATION_ID.match(entry["evaluation_id"])
               and HEX64.match(entry["secret"]) and entry["secret_sha256"] == secret_sha256(entry["secret"])
-              and all(isinstance(r, dict) and set(r) == EVALUATION_RUN_KEYS for r in entry["runs"]),
+              and all(isinstance(r, dict) and set(r) == EVALUATION_RUN_KEYS and r["outcome"] in OUTCOMES
+                      for r in entry["runs"]),
               f"an evaluation in gate show {str(entry)[:300]}, want exactly {sorted(EVALUATION_KEYS)}")
     return body
 
@@ -288,8 +292,8 @@ def decided(cid, timeout=90):
 
 def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None, score="checker"):
     """peerbox Verdict: a decision by the gate with the public result; returns that result. CHECKER_REASON is the
-    result line's `reason` (every environment here gives "" unless a case says otherwise), None when no result line
-    was read."""
+    deciding result line's `reason` as read (every environment here gives "" unless a case says otherwise), None when
+    that line was not read (Result line: malformed, or from a run that did not exit 0)."""
     d = rec["decision"]
     check(isinstance(d, dict) and set(d) == DECISION_KEYS and d["decided_by"] == "gate",
           f"the decision {d}, want the gate's with exactly {sorted(DECISION_KEYS)}")
@@ -298,14 +302,13 @@ def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None, sco
     check(g["verdict"] == verdict and isinstance(g["secret_sha256"], str) and HEX64.match(g["secret_sha256"]),
           f"verdict {g['verdict']} secret_sha256 {g['secret_sha256']!r}, want {verdict}")
     code = "promoted" if verdict == "promoted" else code
-    # `reason` is the code, then ": " and the checker's reason when it gave one. Whether an empty reason is one given
-    # is not settled, so with "" both the bare code and "CODE: " are taken.
-    reasons = ({f"{code}: {checker_reason}"} if checker_reason
-               else {code, f"{code}: "} if checker_reason == "" else {code})
-    check(g["code"] == code and g["checker_reason"] == checker_reason and d["reason"] in reasons
+    # `reason` is the code, then ": " and the checker's reason when one was given (a read line's `reason` not empty),
+    # else the code alone.
+    reason = f"{code}: {checker_reason}" if checker_reason else code
+    check(g["code"] == code and g["checker_reason"] == checker_reason and d["reason"] == reason
           and g["score"] == score, f"code {g['code']!r}, checker_reason {g['checker_reason']!r}, reason "
                                     f"{d['reason']!r}, score {g['score']!r}: want {code!r}, {checker_reason!r}, "
-                                    f"one of {sorted(reasons)}, {score}")
+                                    f"{reason!r}, {score}")
     if frontier is not None:
         check(d["old_head"] == frontier, f"old_head {d['old_head']}, want the evaluation's frontier {frontier}")
     if verdict == "promoted":
@@ -653,6 +656,18 @@ def started(argv, since, timeout=60):
         found = [e for e in posts(since) if e["request"]["argv"] == argv]
         return found[0] if found and logged("started", found[0]["run_id"]) else None
     return wait_for(ready, timeout=timeout, interval=0.2, message=f"a {argv[:2]} run to start")
+
+
+def none_left_running(run_ids, first_new):
+    """peerbox Evaluation, after a restart: each run the evaluation had started that the runtime still has running is
+    cancelled (`POST /v1/runs/{run_id}/cancel`, the fake's `cancel` entry) before the first new run starts; one that
+    had already exited needs no cancel, and none is forbidden. So when the first new run is accepted (log position
+    FIRST_NEW) each of RUN_IDS has exited or been cancelled."""
+    before = state["rt"].entries()[:first_new]
+    done = {e.get("run_id") for e in before if e.get("event") in ("exited", "cancel")}
+    left = [r for r in run_ids if r not in done]
+    check(not left, f"{len(left)} of the {len(run_ids)} runs started before the restart still running and not "
+                    f"cancelled when the first new run was accepted")
 
 
 def listed():
