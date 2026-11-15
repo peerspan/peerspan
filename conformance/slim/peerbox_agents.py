@@ -10,12 +10,11 @@ no agent reviews or shares. The operations themselves are peerbox.py and peerbox
 peerbox_common.py, peerbox_fixtures.py and runtime_common.py.
 
 Not suite cases: `peerbox_list` following `next` (a page needs more than 65,536 bytes of entries, about 200 peerboxes
-shared with bob, each a signed policy version: far over two minutes; peerbox.py pages the operation itself), and
+shared with bob, each a signed policy version: far over two minutes; peerbox_rules.py pages the operation itself), and
 routes set in session setup (the setup route shape for a route naming a host is not given by the contract).
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the task, runtime task and adapter
-contracts it extends. No VM, no KVM, no model calls. Nothing in the Agents section is implemented yet: every case past
-the fixtures, the network setup and the MCP session is a strict expected failure.
+contracts it extends. No VM, no KVM, no model calls.
 """
 import json
 import os
@@ -32,11 +31,10 @@ from peerbox_common import (BUNDLE_TYPE, bundle, check_record, commit_files, cre
 
 suite = Suite("peerbox_agents", __doc__)
 bind(suite)
-REASON = "peerbox agent tools not implemented (peerbox contract, Agents)"
 TOOLS = {"peerbox_list", "peerbox_fetch", "peerbox_submit", "peerbox_status", "peerbox_withdraw", "peerbox_run"}
 
 
-def case(name, spec, known=REASON):
+def case(name, spec, known=None):
     return suite.case(name, spec, known=known)
 
 

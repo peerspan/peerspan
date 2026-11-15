@@ -63,9 +63,11 @@ backend's user configuration and requests a live MCP reload. The entry approves
 the whole Peerspan server (`default_tools_approval_mode`), so every shared Peerspan
 tool runs without a prompt, including `send`, `reply`, the task tools, and the
 conversation tools `list_conversations`, `conversation_start`, `conversation_send`,
-`conversation_history` and `conversation_manage`, and `fs_pull` while the owner allows the
+`conversation_history` and `conversation_manage`, the peerbox tools `peerbox_list`,
+`peerbox_fetch`, `peerbox_submit`, `peerbox_status`, `peerbox_withdraw` and `peerbox_run`
+([peerbox contract](../../docs/peerbox-contract.md), Agents), and `fs_pull` while the owner allows the
 agent to pull into a space (`peerspan fs allow-pull`; the entry's `tool_timeout_sec` is a day,
-since the call returns when the pull ends). Other tools keep their normal
+since the call returns when the pull ends, and the peerbox tools wait for their task). Other tools keep their normal
 approvals. Native configuration
 versions protect concurrent edits; shutdown removes its entry if it still matches.
 If cleanup cannot be confirmed, the bridge reports that and owners can inspect

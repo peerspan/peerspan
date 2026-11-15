@@ -101,19 +101,26 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `runtime`, `runtime_policy`, `runtime_renewal`, `runtime_runs`, `runtime_results`, `runtime_peerfs`, `runtime_agents`:
   runtime tasks against `conformance/slim/fake_runtime.py` (runtime task contract, RUN-1 to RUN-7), and
   runtime agents' tasks on peerfs forks (runtime agent contract, RUN-8 to RUN-11); second tier only.
-- `peerbox`, `peerbox_runs`: peerboxes (peerbox contract, PBX-1 to PBX-8), with `peerbox_common.py`; runs
-  against `conformance/slim/fake_runtime.py`; second tier only, strict `XFAIL` until implemented.
+- `peerbox`, `peerbox_contributions`, `peerbox_rules`, `peerbox_invites`: peerboxes (peerbox contract, PBX-1 to
+  PBX-8), split by area, with `peerbox_common.py` and `peerbox_fixtures.py`: create, the request checks, fetch,
+  submissions refused before anything is stored and the previous schema; stored contributions, review, status,
+  cancellation, restarts and withdrawal; the policy body, `list` paging and several rules on one peerbox, with a
+  renewal on the test clock; invitations, a share waiting for the owner's key, an expired or cancelled invite and a
+  lapsed sender on the test clock. Second tier only (308, 413, 241 and 222 lines plus 546 and 529 shared; 62, 41,
+  51 and 53 seconds measured).
+- `peerbox_runs`: runs on a peerbox's exact commits against `conformance/slim/fake_runtime.py` (peerbox Runs,
+  PBX-4), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only (355 lines, 47 seconds measured).
 - `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
-  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until
-  implemented.
+  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only. It passes in full.
 - `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
   proposal MCP tools and `approve` on a pseudo-terminal (peerbox contract, Agent proposals; PBX-16 to PBX-21), with
-  `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until implemented.
+  `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, and the cases not implemented yet are strict
+  `XFAIL`.
 - `peerbox_gate_episodes`, `peerbox_gate_paired`: episode gates on the fake runtime's linked pairs (peerbox contract,
   Gates; PBX-25 to PBX-33), with `peerbox_gate_common.py`: workspaces, environment failures, link bounds, the
   evaluation secret, images, the commitment, the public summary and `gate set` refusals; then `paired_normal` and
-  `paired_bounded` verdicts at known samples. Second tier only, strict `XFAIL` until implemented (399 and 205 lines
-  plus 446 shared; 20 to 39 and 14 to 25 seconds measured while every gate case fails at `gate set`).
+  `paired_bounded` verdicts at known samples. Second tier only, strict `XFAIL` until gates are implemented (442 and
+  209 lines plus 516 shared; about 55 and 14 seconds measured while every gate case fails at `gate set`).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

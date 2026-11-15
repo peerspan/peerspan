@@ -58,6 +58,8 @@ attaches it. The plugin uses OpenCode's trusted `context.sessionID` and honors
 native tool permission decisions. Model arguments cannot select another session.
 The plugin registers its tools once, when OpenCode loads it, so it does not offer the
 `fs_pull` tool, which other integrations list only while the agent holds a pull grant.
+The peerbox tools ([peerbox contract](../../docs/peerbox-contract.md), Agents) are
+registered as `peerspan_peerbox_list` and so on, like the other shared tools.
 
 Because the tools use the plugin API rather than MCP, the sidecar reports
 `opencode-plugin-VERSION` (the server version from `/global/health`) as the
