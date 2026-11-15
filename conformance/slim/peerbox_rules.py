@@ -125,8 +125,9 @@ def listed_and_paged(a, b, c, many):
         pages += 1
         check(len(last["output"].encode()) <= OUTPUT_LIMIT and set(value) == {"peerboxes", "next"}, f"list {value}")
         for entry in value["peerboxes"]:
-            check(set(entry) == {"peerbox_id", "title", "branch", "head", "actions"} and entry["branch"] == "main"
-                  and entry["head"] == state["main"], f"list entry {entry}")
+            check(set(entry) == {"peerbox_id", "title", "branch", "head", "actions", "gate"}
+                  and entry["branch"] == "main" and entry["head"] == state["main"] and entry["gate"] is None,
+                  f"list entry {entry}")
             want = ["peerbox.read", "peerbox.submit"] if entry["peerbox_id"] == pbx() else ["peerbox.read"]
             check(entry["actions"] == want, f"actions {entry['actions']} of {entry['peerbox_id']}, want {want}")
         seen += [e["peerbox_id"] for e in value["peerboxes"]]
