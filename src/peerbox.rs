@@ -121,6 +121,9 @@ pub fn commit_id(id: &str) -> bool {
 #[derive(Clone)]
 pub struct Git {
     hooks: PathBuf,
+    /// When set, every command run through [`Git::output`] past it is
+    /// killed with its process group and fails `timeout`.
+    deadline: Option<std::time::Instant>,
 }
 impl Git {
     /// Git for the host whose state directory is `state`, after checking
@@ -144,7 +147,10 @@ impl Git {
             ));
         }
         check_version()?;
-        Ok(Self { hooks })
+        Ok(Self {
+            hooks,
+            deadline: None,
+        })
     }
     /// A `git` command in `dir`.
     pub fn command(&self, dir: &FsPath) -> Command {
@@ -170,13 +176,73 @@ impl Git {
     }
     /// Runs `git ARGS` in `dir`.
     pub fn output(&self, dir: &FsPath, args: &[&str]) -> Result<Output, Failure> {
-        self.command(dir).args(args).output().map_err(|e| {
+        let failed = |e: std::io::Error| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 git_missing()
             } else {
                 Failure::new("internal", format!("git: {e}"))
             }
+        };
+        let Some(deadline) = self.deadline else {
+            return self.command(dir).args(args).output().map_err(failed);
+        };
+        use std::os::unix::process::CommandExt;
+        let mut child = self
+            .command(dir)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .map_err(failed)?;
+        let read = |pipe: Option<Box<dyn Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut out = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut out);
+                }
+                out
+            })
+        };
+        let stdout = read(
+            child
+                .stdout
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+        );
+        let stderr = read(
+            child
+                .stderr
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+        );
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(failed)? {
+                break status;
+            }
+            if std::time::Instant::now() >= deadline {
+                // The whole group, so a pack-objects Git started goes too.
+                // SAFETY: kill(2) on our own child's process group.
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                let _ = child.wait();
+                return Err(Failure::new("timeout", "git did not finish in time"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        Ok(Output {
+            status,
+            stdout: stdout.join().unwrap_or_default(),
+            stderr: stderr.join().unwrap_or_default(),
         })
+    }
+    /// The same Git, its commands killed past `deadline`.
+    pub fn until(&self, deadline: std::time::Instant) -> Self {
+        Self {
+            hooks: self.hooks.clone(),
+            deadline: Some(deadline),
+        }
     }
     /// Runs `git ARGS` in `dir` and returns its trimmed stdout, or `code`
     /// with Git's message.
@@ -719,7 +785,7 @@ impl Store {
 /// refusals.
 pub(crate) fn coded(f: Failure) -> Error {
     let status = match f.code {
-        "git_missing" | "unavailable" => 503,
+        "git_missing" | "unavailable" | "timeout" => 503,
         "invalid" | "branch_unknown" => 400,
         _ => 500,
     };

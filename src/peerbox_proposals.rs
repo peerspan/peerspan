@@ -750,14 +750,40 @@ fn review_record(store: &Store, op: &str, args: &Value) -> Result<Value, Error> 
 }
 /// The `create` review: Git's disclosure of the branch, read without the
 /// store's lock.
-fn review_create(store: &Store, args: &Value) -> Result<Value, Failure> {
+fn review_create(store: &Store, args: &Value, deadline: Option<Instant>) -> Result<Value, Failure> {
     let git = Git::new(store.state_directory())?;
+    let git = match deadline {
+        Some(at) => git.until(at),
+        None => git,
+    };
     crate::peerbox::create_review(
         &git,
         &PathBuf::from(args["repository"].as_str().unwrap_or_default()),
         args["branch"].as_str().unwrap_or_default(),
         &store.state_directory().join("peerbox-tmp"),
     )
+}
+
+/// Create reviews running now; each runs Git and writes a bundle.
+static REVIEWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+const MAX_REVIEWS: usize = 2;
+/// One of the [`MAX_REVIEWS`] create review slots, released when dropped.
+struct ReviewSlot;
+impl ReviewSlot {
+    fn take() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        REVIEWS
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < MAX_REVIEWS).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| ReviewSlot)
+    }
+}
+impl Drop for ReviewSlot {
+    fn drop(&mut self) {
+        REVIEWS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// What a submission found before the target and review.
@@ -1412,7 +1438,8 @@ impl Store {
     /// `create`: the disclosure again, then the record, in one transaction
     /// with the proposal's `executed`.
     fn execute_create(&self, p: &mut Proposal) -> Result<Done, (String, String)> {
-        let review = review_create(self, &p.args).map_err(|f| (f.code.to_owned(), f.message))?;
+        let review =
+            review_create(self, &p.args, None).map_err(|f| (f.code.to_owned(), f.message))?;
         if review != p.review {
             return Err(changed());
         }
@@ -1877,28 +1904,38 @@ async fn propose_route(
             Prior::New(found) => *found,
         };
     // 4 and 5. The target and the review, within the wait limit of
-    // receipt; Git runs without the store's lock.
-    let (o, g) = (op.clone(), args.clone());
-    let reviewing = blocking(store.clone(), move |s| {
-        if o == "create" {
-            review_create(s, &g).map_err(git_refusal)
-        } else {
-            review_record(s, &o, &g)
-        }
-    });
-    let review = tokio::time::timeout_at(
-        (received + crate::call_timing::WAIT_LIMIT).into(),
-        reviewing,
-    )
-    .await
-    .map_err(|_| {
+    // receipt; Git runs without the store's lock, is killed at that limit,
+    // and at most a few create reviews run at once.
+    let deadline = received + crate::call_timing::WAIT_LIMIT;
+    let timeout = || {
         coded(
             503,
             "timeout",
             "the review could not be computed in time; nothing was recorded. The person creates such a peerbox with peerbox create",
             json!({}),
         )
-    })??;
+    };
+    let (o, g) = (op.clone(), args.clone());
+    let review = if o == "create" {
+        let Some(_slot) = ReviewSlot::take() else {
+            return Err(timeout());
+        };
+        blocking(store.clone(), move |s| {
+            review_create(s, &g, Some(deadline)).map_err(|f| {
+                if f.code == "timeout" {
+                    timeout()
+                } else {
+                    git_refusal(f)
+                }
+            })
+        })
+        .await?
+    } else {
+        blocking(store.clone(), move |s| review_record(s, &o, &g)).await?
+    };
+    if Instant::now() >= deadline {
+        return Err(timeout());
+    }
     let (a, b) = (auth.clone(), body.clone());
     Ok(Json(
         blocking(store, move |s| {
