@@ -395,7 +395,9 @@ gains the optional `link`, `{id, role, port, max_connections, max_bytes}`:
 | `max_connections` | 1 to 64: connections open at once. |
 | `max_bytes` | 1 to 1,073,741,824: bytes carried in each direction over the pair's life, summed over its connections. |
 
-A run naming a `link` on a runtime that reports `links` false is 422 `unavailable`. A `link`
+A run naming a well-formed `link` on a runtime that reports `links` false is 422
+`unavailable`; a malformed one is 400 `invalid` on any runtime, since the request is checked
+before what the runtime supports. A `link`
 out of range, one whose fields differ from its partner's, a second run of the same role, or a
 third run with the same `id` is 400 `invalid`. An `id` stays taken until both its runs are
 deleted; the submitter draws a new one for every pair, so it never reuses one. The submitter
