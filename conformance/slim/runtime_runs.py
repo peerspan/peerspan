@@ -54,7 +54,7 @@ def _():
     check(result["exit_code"] == 0 and result["signal"] is None and result["timed_out"] is False
           and result["stdout_bytes"] == 6 and result["stderr_bytes"] == 5 and result["output_truncated"] is False
           and result["results_dropped"] == [] and result["results_same"] == {} and result["error"] is None
-          and isinstance(result["duration_ms"], int), f"run result {result}")
+          and result["oom_kills"] == 0 and isinstance(result["duration_ms"], int), f"run result {result}")
     check(names(events[-1]) == ["stdout.log", "stderr.log"], f"result artifacts {events[-1].get('artifacts')}")
     rid = run_id(b, task_id)
     posts = rt.entries("post", rid)
@@ -136,6 +136,23 @@ def _():
     check(stream(events, "stderr") == b"e1\ne2\n", f"stderr {stream(events, 'stderr')!r}")
     result = result_of(events[-1])
     check(result["stdout_bytes"] == 40010 and result["output_truncated"] is False, f"run result {result}")
+
+
+@suite.case("memory_oom_kills", "runtime The run result (oom_kills): the runtime's count, however the command exited")
+def _():
+    need("ready")
+    survived = submit(["oom", "2", ";", "echo", "built anyway"])
+    killed = submit(["oom", "3", ";", "stderr", "rustc killed", ";", "exit", "101"])
+    events = final(survived)
+    check(events[-1]["kind"] == "succeeded", f"a run reporting kills and exiting 0: {[e['kind'] for e in events]}")
+    result = result_of(events[-1])
+    check(result["oom_kills"] == 2 and result["exit_code"] == 0 and result["error"] is None
+          and stream(events, "stdout") == b"built anyway\n", f"run result {result}")
+    events = final(killed)
+    check(events[-1]["kind"] == "failed", f"a run reporting kills and exiting 101: {[e['kind'] for e in events]}")
+    result = result_of(events[-1])
+    check(result["oom_kills"] == 3 and result["exit_code"] == 101 and result["signal"] is None
+          and result["error"] is None, f"run result {result}")
 
 
 # Cancellation (runtime Running).
@@ -274,14 +291,15 @@ def _():
 def _():
     rt, = need("rt")
     need("ready")
-    task_id = submit(["sleep", "5", ";", "echo", "never"])
+    task_id = submit(["oom", "2", ";", "sleep", "5", ";", "echo", "never"])
     receiver_events(task_id, until=has_kind("accepted"))
     rt.restart()
     events = final(task_id, timeout=40)
     check(events[-1]["kind"] == "failed" and "accepted" in [e["kind"] for e in events],
           f"events {[e['kind'] for e in events]}")
     result = result_of(events[-1])
-    check(result["error"] == "the runtime restarted" and result["exit_code"] is None, f"run result {result}")
+    check(result["error"] == "the runtime restarted" and result["exit_code"] is None
+          and result["oom_kills"] == 0, f"run result {result} (oom_kills is 0 for a lost run)")
 
 
 @suite.case("restart_runtime_during_start_delay", "runtime The runtime's local API: a lost dispatched run fails "

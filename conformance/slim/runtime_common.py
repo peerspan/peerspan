@@ -30,7 +30,7 @@ REPO = HERE.parents[1]
 FINAL = {"succeeded", "failed", "cancelled", "rejected", "expired"}
 # runtime, The run result: exactly these keys in this order (`snapshot` from RUN-7).
 RESULT_KEYS = ["exit_code", "signal", "timed_out", "duration_ms", "stdout_bytes", "stderr_bytes", "output_truncated",
-               "results_dropped", "results_same", "snapshot", "error"]
+               "results_dropped", "results_same", "snapshot", "error", "oom_kills"]
 # runtime, Policy body: each rule has exactly these keys in this order (`peerfs_workspaces` from RUN-6).
 RULE_KEYS = ["host", "principals", "max_cpus", "max_memory_mib", "max_seconds", "max_output_bytes",
              "max_artifact_bytes", "peerfs_workspaces", "allow_disconnected"]
