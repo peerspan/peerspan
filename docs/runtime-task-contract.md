@@ -450,7 +450,13 @@ by the argument `;`:
 - `echo TEXT...` writes the words and a newline to stdout; `stderr TEXT...` to stderr;
 - `bytes N` writes `N` bytes of `x` to stdout;
 - `cat PATH` writes a workspace file, relative to `/workspace`, to stdout;
-- `write PATH TEXT` and `rm PATH` change the workspace;
+- `write PATH TEXT` and `rm PATH` change the workspace, and `fill PATH N` writes `N` bytes of
+  `x` to a workspace file, for changes larger than a command can hold;
+- for [linked runs](#linked-runs), `serve PORT COUNT` (the `listen` side) accepts connections
+  on the guest's `127.0.0.1:PORT` and writes what each carried to stdout once `COUNT` have
+  ended, and `connect PORT COUNT PATH` (the `connect` side) opens `COUNT` connections to it,
+  sends `PATH`'s content on each and writes what came back; `fake_runtime.py` describes both
+  exactly;
 - `sleep SECONDS` waits, and `exit CODE` and `kill SIGNAL` end the run.
 
 It unpacks the archive into a private directory, refusing the entries this contract

@@ -127,7 +127,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   `run_failed`, `outputs_too_large`, `frontier_failed`, `not_fast_forward`, the generator and `generator_failed`, the
   public summary and the command's bounds; then evaluation order, superseding, pause, clear, `runtime_disabled`,
   `gate_busy`, decisions by hand during an evaluation, `dirty_worktree` and a restart. Second tier only, strict
-  `XFAIL` until gates are implemented (410 and 330 lines plus 697 shared; 14 and 16 seconds measured while every
+  `XFAIL` until gates are implemented (413 and 330 lines plus 697 shared; 14 and 16 seconds measured while every
   gate case fails at `gate set`, about 90 seconds each estimated once gates exist).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
