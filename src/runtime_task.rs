@@ -678,6 +678,7 @@ struct RunResult {
     results_same: BTreeMap<String, String>,
     snapshot: Option<String>,
     error: Option<String>,
+    oom_kills: u64,
 }
 impl RunResult {
     fn never_started(error: &str) -> Self {
@@ -693,6 +694,7 @@ impl RunResult {
             results_same: BTreeMap::new(),
             snapshot: None,
             error: Some(error.into()),
+            oom_kills: 0,
         }
     }
     fn from_exited(v: &Value, streamed: i64) -> Self {
@@ -710,6 +712,8 @@ impl RunResult {
             results_same: BTreeMap::new(),
             snapshot: v["snapshot"].as_str().map(str::to_owned),
             error: v["error"].as_str().map(str::to_owned),
+            // A runtime that predates the field reports none.
+            oom_kills: v["oom_kills"].as_u64().unwrap_or(0),
         }
     }
 }
@@ -1801,6 +1805,8 @@ fn agent_output(t: &Task, exited: &Value, error: Option<&str>, cancelled: bool) 
             .map(str::to_owned)
             .or_else(|| exited["error"].as_str().map(str::to_owned)),
         commit: exited["commit"].as_str().map(str::to_owned),
+        oom_kills: exited["oom_kills"].as_u64().filter(|_| !lost).unwrap_or(0),
+        memory_mib: body["resources"]["memory_mib"].as_u64().unwrap_or(0),
         fork: body["peerfs_workspace"].as_str().unwrap_or_default(),
         from: body["peerfs_fork_from"].as_str().unwrap_or_default(),
     })
