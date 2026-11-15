@@ -445,8 +445,13 @@ A gate has one of two **modes** (PBX-25):
 | `frontier` | Null, or `{commit, scores, measured_at}` from the latest evaluation. |
 
 **Snapshots.** `peerbox gate set` copies `--inputs-dir` and `--checker-dir` into the home host's
-state, packed as for a runtime workspace (regular files with their mode, directories and
-symbolic links, sorted paths, no `..`), and stores their SHA-256. Later changes to those
+state, as a runtime workspace holds them (regular files with their mode, directories and
+symbolic links, no `..`), and stores each one's **snapshot digest**: the lowercase hex SHA-256
+of its entries in the byte order of their relative paths, each entry being one byte, `d`, `f`
+or `l`, then the path and a NUL byte, then for a regular file its permission bits as four
+octal digits and the 32-byte SHA-256 of its contents, and for a symbolic link its target and
+a NUL byte. The digest does not depend on how the snapshot is packed, so anyone holding the
+directory can recompute it. Later changes to those
 directories change nothing until the gate is set again. The checker directory holds the
 checker's or environment's files and the held-out expected outputs or episode definitions;
 the inputs directory holds the held-out inputs only (it may be empty). Neither is ever sent
@@ -464,11 +469,13 @@ nulls as `null`. It shows that the holdout, the environment and the rules did no
 within a gate version, once the owner publishes the salt and the snapshots; it does not show
 that the home host ran them honestly (PBX-13).
 
-**What readers see.** `list` and `status` carry the gate's public summary, `{version, state,
+**What readers see.** `list` carries the gate's public summary in each peerbox's entry, under
+`gate` (null for a peerbox without a gate), `{version, state,
 mode, command, score, direction, min_gain, compare, score_range, image, link_port,
 commitment, frontier}` with `frontier` as `{commit, score}` (its best score), to every caller
 who may read the peerbox: never the snapshots, their digests, the salt, a secret, the
-checker or generator command, the checker image or any run's output.
+checker or generator command, the checker image or any run's output. `status` is unchanged:
+a contributor reads each of its own contributions' public result there, in its decision.
 
 ### Evaluation
 
@@ -589,15 +596,25 @@ result line's `score` for `score: checker`.
   `dirty_worktree` and leaves the contribution queued.
 
 The gate's `frontier` becomes the evaluation's frontier measurements, or the candidate's on a
-promotion. A decision by the gate has `decided_by` `"gate"`, `reason` the code (and the
-checker's reason after a colon, when there is one), and `gate` set to its **public result**:
-`{gate_version, verdict, code, checker_reason, score, direction, min_gain, compare,
-frontier_scores, candidate_scores, secret_sha256, paired}`, with `verdict` `promoted` or
-`rejected`, `secret_sha256` the lowercase hex SHA-256 of the evaluation's 32 secret bytes,
-and `paired` null, or with a paired `compare` and no failed measurement
-`{episodes, mean_gain_percent, margin_bound_percent}`: *n*, `100 · mean(d) / mean(f)` and the
-bound's left side times `100 / mean(f)`, each rounded to two decimals, the last at least 0 on
-a promotion. The home host also keeps, for its owner only, each run's task ID and outcome,
+promotion. A decision by the gate has `decided_by` `"gate"`, `reason` its code, followed by
+`: ` (a colon and a space) and the checker's reason when it gave one, and `gate` set to its
+**public result**: `{gate_version, verdict, code, checker_reason, score, direction, min_gain,
+compare, frontier_scores, candidate_scores, secret_sha256, paired}`, where:
+- `verdict` is `promoted` or `rejected`, and `code` is `promoted` for a promotion, else the
+  rejection's code (`not_fast_forward`, `run_failed`, `outputs_too_large`, `check_failed` or
+  `below_margin`);
+- `checker_reason` is the result line's `reason`, or null when no result line was read;
+- `score` is the gate's score source, `time` or `checker`, not a value;
+- `frontier_scores` and `candidate_scores` hold one entry per measurement of that side that
+  ran, in order: its score, or null for a failed measurement; measurements never started are
+  left out, so both are empty for `not_fast_forward`;
+- `secret_sha256` is the lowercase hex SHA-256 of the evaluation's 32 secret bytes;
+- `paired` is null, or with a paired `compare` and no failed measurement
+  `{episodes, mean_gain_percent, margin_bound_percent}`: *n*, `100 · mean(d) / mean(f)` and the
+  bound's left side times `100 / mean(f)`, each rounded to the nearest hundredth with halves
+  away from zero, the last at least 0 on a promotion.
+
+The home host also keeps, for its owner only, each run's task ID and outcome,
 the snapshot digests, the salt and each evaluation's secret, through `peerbox gate show` and
 the local API; publishing them is the owner's act, outside Peerspan. A contributor sees only
 the public result through `status`, never a run's output, logs, artifacts, samples or a
@@ -605,20 +622,58 @@ secret.
 
 When the runtime's local switch is off, evaluations wait and the gate shows `paused` with
 `runtime_disabled` until it is on again. After a restart, an evaluation that had not decided
-starts again from its first measurement, with a new secret; runs it had started are
-cancelled.
+starts again from its first measurement, with a new secret; each run it had started is
+cancelled (`POST /v1/runs/{run_id}/cancel`) before the first new run starts.
 
 ### Gate CLI and local API
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--mode outputs\|episode] [--generator JSON_ARGV] [--compare worst_best\|paired_normal\|paired_bounded] [--score-range LO HI] [--image REF] [--checker-image REF] [--link-port N] [--link-connections N] [--link-bytes N] [--repeats N] [--cpus N] [--memory-mib N] [--checker-cpus N] [--checker-memory-mib N] [--timeout DURATION] [--max-changes-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories, draws a new salt and sets the gate, active, with the next version, its commitment and `frontier` null. `--command`, `--checker` and `--generator` take one argument each, a JSON array of strings. Defaults: `outputs`, no generator, `worst_best`, no images, 1 repeat, 2 vCPUs, 2,048 MiB, the candidate's bounds for the checker, 15 minutes, 104,857,600 bytes of changes, and for `episode` 16 connections and 268,435,456 bytes; `--link-port` is required with `episode`. Refused while an evaluation runs (409 `gate_busy`); with 400 `invalid` naming the field for `time` with `episode` or a paired `compare`, a generator or link options with the other mode, `paired_bounded` without `--score-range` or a range with another `compare`, and an image reference without a digest; with 409 `runtime_unsupported` for an image on a runtime that reports `images` false, and `episode` on one that reports `links` false or `max_concurrent_runs` below 2. |
+| `peerbox gate set PEERBOX --inputs-dir DIR --command JSON_ARGV --checker-dir DIR --checker JSON_ARGV --score time\|checker --direction lower\|higher --min-gain PERCENT [--mode outputs\|episode] [--generator JSON_ARGV] [--compare worst_best\|paired_normal\|paired_bounded] [--score-range LO HI] [--image REF] [--checker-image REF] [--link-port N] [--link-connections N] [--link-bytes N] [--repeats N] [--cpus N] [--memory-mib N] [--checker-cpus N] [--checker-memory-mib N] [--timeout DURATION] [--max-changes-bytes N]` | `PUT /v1/peerboxes/{id}/gate` | Snapshots the directories, draws a new salt and sets the gate, active, with the next version, its commitment and `frontier` null. `--command`, `--checker` and `--generator` take one argument each, a JSON array of strings. Defaults: `outputs`, no generator, `worst_best`, no images, 1 repeat, 2 vCPUs, 2,048 MiB, the candidate's bounds for the checker, 15 minutes, 104,857,600 bytes of changes, and for `episode` 16 connections and 268,435,456 bytes; `--link-port` is required with `episode`. `--timeout` takes a duration as `task run --timeout` does. Refused while an evaluation runs (409 `gate_busy`); with 400 `invalid` naming the field (below) for `time` with `episode` or a paired `compare`, a generator or link options with the other mode, `paired_bounded` without `--score-range` or a range with another `compare`, and an image reference without a digest; with 409 `runtime_unsupported` for an image (`image` or `checker_image`) on a runtime that reports `images` false, and `episode` on one that reports `links` false or `max_concurrent_runs` below 2. A refused `gate set` leaves the gate as it was. Returns 200 with the new gate record, as `gate show`'s `gate` (below). |
 | `peerbox gate pause PEERBOX`, `peerbox gate resume PEERBOX` | `POST /v1/peerboxes/{id}/gate/pause`, `.../resume` | Pause with `owner`, or resume; resume clears any paused reason. |
 | `peerbox gate clear PEERBOX` | `DELETE /v1/peerboxes/{id}/gate` | Removes the gate, cancelling a running evaluation; queued contributions stay pending for review by hand. |
-| `peerbox gate show PEERBOX [--json]` | `GET /v1/peerboxes/{id}/gate` | The gate record with its salt, the queue, and recent evaluations with their runs and secrets. |
+| `peerbox gate show PEERBOX [--json]` | `GET /v1/peerboxes/{id}/gate` | 200 with `{gate, queue, evaluations}` (below); 404 `not_found` for a peerbox without a gate. |
 
 `peerbox review` shows each contribution's gate state (queued, under evaluation, or its
 public result).
+
+**Setting a gate through the local API.** `PUT /v1/peerboxes/{id}/gate` takes `{mode,
+inputs_dir, command, checker_dir, checker, generator, score, direction, min_gain, compare,
+score_range, image, checker_image, link, repeats, cpus, memory_mib, checker_cpus,
+checker_memory_mib, timeout_seconds, max_changes_bytes}`. `inputs_dir` and `checker_dir` are
+absolute paths the daemon reads; `command`, `checker` and `generator` are arrays of strings;
+`link` is null or `{port, connections, bytes}`; `min_gain` is a number with at most two
+decimals. A key left out takes its default, as with the CLI, except `inputs_dir`, `command`,
+`checker_dir`, `checker`, `score`, `direction` and `min_gain`, which are required, and
+`link.port`, required with `episode`. The CLI sends exactly this body.
+
+**Naming the field.** A 400 `invalid` from `gate set` names one field, the request key that
+cannot stand with the others or is out of range, as the first word of its message:
+- `score` for `time` with `episode` or with a paired `compare`;
+- `generator` or `link` when given with the other mode, and `link` when missing with
+  `episode`;
+- `score_range` when missing with `paired_bounded` or given with another `compare`;
+- `image` or `checker_image` for a reference without a digest;
+- otherwise the key out of range.
+
+**How the CLI reports a refusal.** Every gate command that the daemon refuses prints
+`error: CODE: MESSAGE` on stderr, nothing on stdout, and exits 1, as `peerbox review` does on
+a 409.
+
+**What `gate show` returns.** For the owner only:
+- `gate`: the gate record, every field of The gate record above, with `salt` as 64 lowercase
+  hex digits.
+- `queue`: the queued contributions' IDs, in evaluation order.
+- `evaluations`: the latest 20 evaluations, newest first, each `{evaluation_id,
+  contribution_id, gate_version, secret, secret_sha256, frontier, started_at, decided_at,
+  result, runs}`. `evaluation_id` is `pbe_` and 16 random bytes in lowercase hex; `secret` is
+  64 lowercase hex digits; `frontier` is the evaluation's frontier commit; `decided_at` and
+  `result` (the public result above) are null until it decides, and stay null for an
+  evaluation cancelled by a restart or a manual decision. Each entry of `runs` is `{task_id,
+  side, kind, outcome}`, with `side` `frontier`, `candidate` or `evaluation` (the generator)
+  and `kind` `candidate`, `check`, `environment` or `generator`, in the order they started.
+Evaluations of earlier gate versions stay in the list, each with its `gate_version`, so a
+new `gate set` keeps the record of the secrets the owner may publish.
 
 ## Agents
 
@@ -1099,11 +1154,14 @@ summary's new fields, and never the salt, a secret, the generator, the checker i
 sample; every refusal of `gate set` in the table; both images in the runs' requests; and
 the checker-side bounds on check, environment and generator runs.
 
-The runtime suites cover linked runs against the fake runtime: `links` in
+Peers' runtime tasks never set `link`, so no runtime suite reaches linked runs through a host.
+The fake runtime's own self-check (`fake_runtime.py self-check`) covers them: `links` in
 `GET /v1/runtime`; a pair joined on its port, with connections refused before the listener
-and beyond `max_connections`; the link closed at `max_bytes` and by either run's exit; a third
-run with the same `id`, or mismatched fields, refused. The real runtime's link needs its own
-change and checks in the runtime repository.
+and beyond `max_connections`; exactly `max_bytes` carried, then the link closed, and closed by
+either run's exit; a third run with the same `id`, a second of one role, or mismatched fields
+refused with 400, and a `link` on a fake reporting `links` false with 422. The gate suites
+exercise linked runs through the host. The real runtime's link is checked in the runtime
+repository.
 
 `peerbox_runs` covers: a run needing both rules and the switch; bounds from the runtime rule;
 the workspace equal to the commit's tree with no `.git`, including a commit whose

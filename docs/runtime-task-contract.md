@@ -394,18 +394,24 @@ gains the optional `link`, `{id, role, port, max_connections, max_bytes}`:
 | `max_connections` | 1 to 64: connections open at once. |
 | `max_bytes` | 1 to 1,073,741,824: bytes carried in each direction over the pair's life, summed over its connections. |
 
-A runtime that reports `links` false, or that is asked for a `link` whose fields differ from
-its partner's or a third run with the same `id`, answers 422 `unavailable` or 400 `invalid`.
-The submitter starts the `listen` run first, then the `connect` run; if either is refused
-(429 or 422), it cancels the other and starts the pair again later.
+A run naming a `link` on a runtime that reports `links` false is 422 `unavailable`. A `link`
+out of range, one whose fields differ from its partner's, a second run of the same role, or a
+third run with the same `id` is 400 `invalid`. An `id` stays taken until both its runs are
+deleted; the submitter draws a new one for every pair, so it never reuses one. The submitter
+starts the `listen` run first, then the `connect` run; if either is refused (429 or 422), it
+cancels the other and starts the pair again later. A runtime accepts a `connect` run whose
+partner has not arrived, or has ended: its connections are refused as below until the
+`listen` guest is up.
 
 While both runs are `running`, a TCP connection that the `connect` guest opens to
 `127.0.0.1:PORT` is carried to `127.0.0.1:PORT` in the `listen` guest, as one ordered byte
 stream each way. The runtime carries it over a vsock port in each guest mapped to a host Unix
 socket, and splices the two on the host; guest init forwards the loopback port on each side.
 A connection opened while the `listen` guest has no listener on the port, or beyond
-`max_connections`, is refused at once; clients retry. When either direction reaches
-`max_bytes`, every connection of the link is closed and new ones are refused. The link ends,
+`max_connections`, is refused at once; clients retry. Exactly `max_bytes` are carried in
+each direction at most: the byte that would go past the bound is not delivered, and when
+either direction reaches it, every connection of the link is closed and new ones are
+refused. The link ends,
 closing its connections, when either run exits; the other run goes on until it exits or
 times out. Nothing else crosses: no other port, no address beyond loopback, no file. Each run's
 `image`, as in the [runtime agent contract](runtime-agent-contract.md#the-runtimes-local-api),
