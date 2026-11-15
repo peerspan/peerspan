@@ -1125,9 +1125,13 @@ async fn measure(
         }
         let mut progressed = false;
         for r in runs.iter_mut().filter(|r| !r.done) {
+            // Paged within the runtime client's 1 MiB response limit, as
+            // the runtime task follower pages.
             let path = format!(
-                "/v1/runs/{}/events?after={}&wait=0&limit=1000",
-                r.entry.run_id, r.after
+                "/v1/runs/{}/events?after={}&wait=0&limit={}",
+                r.entry.run_id,
+                r.after,
+                crate::task_outbound::RUNTIME_EVENT_PAGE
             );
             match call(&r.entry.socket, Method::GET, &path, None).await {
                 Ok(a) if a.status == 404 => r.done = true,
