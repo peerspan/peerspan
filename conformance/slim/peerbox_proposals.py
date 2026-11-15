@@ -5,7 +5,9 @@ PBX-21).
 alice creates a coordinator-free network, and bob and carol join as other people. alice's host is the home host of
 two peerboxes on a Git fixture repository, made and shared with the CLI; its daemon runs with a `git` wrapper first on
 its PATH that can hold a git command, so an approved proposal can be caught mid-execution. bob's host has a peerbox of
-its own under bob's SSH person key, which signing needs. Fixture adapters on the hosts' adapter sockets propose through
+its own; for person_key_needed bob selects his original SSH person key as his provider, so signing needs him. Each
+agent holds one live credential at a time, so the agent's other credential is a replacement made after the owner
+revokes the first. Fixture adapters on the hosts' adapter sockets propose through
 `POST /adapter/v1/peerbox/proposals`; the real MCP adapter (claude-channel, no model) uses the five proposal tools; the
 person decides with `approvals`, `approve` (on a pseudo-terminal) and `deny`. dan joins later with a code an approved
 invite proposal gave the agent. The peerbox operations themselves are peerbox.py; the shared fixtures are
@@ -77,6 +79,16 @@ def hide(text):
 
 
 # Credentials (peerbox Agent proposals, Who may propose).
+
+def select_provider(host, net, person_public, provider_id):
+    """Select a person's provider on HOST (decentralized-spec 11, `POST /v2/networks/{id}/provider`)."""
+    status, value = host.api("POST", f"/v2/networks/{net}/provider", {
+        "provider_id": provider_id, "person_public_key": person_public, "host_public_key": host.public_key,
+        "approve": True})
+    check(status == 200 and value["provider"]["person_public_key"] == person_public,
+          f"{host.name}: selecting provider {provider_id}: {status} {value}")
+    return value["provider"]
+
 
 def credential(host, name, proposals=True, agent=None):
     """A fixture adapter session for agent NAME (registered unless AGENT is given) whose credential has
@@ -391,7 +403,6 @@ def _():
               and isinstance(answer.get("error"), str), f"{method} {path} without the flag: {status} {answer}")
     check(a.api("GET", f"/v1/peerbox-proposals/{pid}")[0] == 404, "a refused proposal was recorded")
     state["pia"] = credential(a, "pia")
-    state["pia2"] = credential(a, "pia", agent=state["pia"].agent)  # a second credential of the same agent
     state["oth"] = credential(a, "oth")
     state["bia"] = credential(b, "bia")
     state["nox"] = nox
@@ -569,28 +580,37 @@ def _():
                                      "duplicate; another credential of the agent reads it, another agent gets 404; "
                                      "principals given out of order stored sorted by UTF-8 bytes")
 def _():
-    pia, pia2, oth = need("pia", "pia2", "oth")
+    a, pia, oth = need("a", "pia", "oth")
+    # An agent holds one live credential at a time (host-service contract, adapter replacement), so the agent's
+    # other credential is the one the owner sets up after revoking the first; rep is an agent of its own for that.
+    rep = credential(a, "rep")
     args = invite_args("repeat")
-    view = proposed(pia, "invite", args)
+    view = proposed(rep, "invite", args)
     pid = view["proposal_id"]
-    status, again, _ = propose(pia, "invite", args, pid)
+    status, again, _ = propose(rep, "invite", args, pid)
     check(status == 200 and again == view, f"an identical repeat: {status} {hide(again)}")
-    status, again, _ = propose(pia2, "invite", args, pid)
-    check(status == 200 and again == view, f"a repeat through the agent's other credential: {status} {hide(again)}")
-    status, body, _ = propose(pia, "invite", invite_args("other"), pid)
+    status, body, _ = propose(rep, "invite", invite_args("other"), pid)
     check(status == 409 and body.get("code") == "conflict", f"the same ID, other args: {status} {hide(body)}")
     status, body, _ = propose(oth, "invite", args, pid)
     check(status == 409 and body.get("code") == "conflict", f"the same ID from another agent: {status} {hide(body)}")
-    status, body, dup = propose(pia, "invite", args)
-    refused_and_absent(pia, status, body, 409, "duplicate", dup)
+    status, body, dup = propose(rep, "invite", args)
+    refused_and_absent(rep, status, body, 409, "duplicate", dup)
     check(body.get("proposal_id") == pid, f"duplicate names {body.get('proposal_id')}, want {pid}")
-    status, body, _ = propose(pia2, "invite", args)
-    check(status == 409 and body.get("code") == "duplicate", f"a duplicate through the other credential: {status}")
     check(proposed(oth, "invite", args)["proposal_sha256"] == view["proposal_sha256"],
           "another agent's identical proposal")
-    check(pia2.call("GET", f"/adapter/v1/peerbox/proposals/{pid}") == (200, view), "the other credential's view")
     check(oth.call("GET", f"/adapter/v1/peerbox/proposals/{pid}")[0] == 404, "another agent reads the proposal")
     check(oth.post(f"/adapter/v1/peerbox/proposals/{pid}/cancel")[0] == 404, "another agent cancels the proposal")
+    rep.stop()
+    revoked = a.cli("adapter", "revoke", rep.adapter_id, timeout=30)
+    check(revoked.ok, f"revoke rep's first credential: exit {revoked.code} {tail(revoked.stderr)}")
+    rep2 = credential(a, "rep", agent=rep.agent)  # the same agent's other credential, on a fresh session
+    status, again, _ = propose(rep2, "invite", args, pid)
+    check(status == 200 and again == view, f"a repeat through the agent's other credential: {status} {hide(again)}")
+    status, body, _ = propose(rep2, "invite", args)
+    check(status == 409 and body.get("code") == "duplicate" and body.get("proposal_id") == pid,
+          f"a duplicate through the other credential: {status} {hide(body)}")
+    check(rep2.call("GET", f"/adapter/v1/peerbox/proposals/{pid}") == (200, view), "the other credential's view")
+    rep2.stop()
     people = sorted([state["bob_p"], state["carol_p"]], key=lambda p: p.encode())
     given = {"peerbox_id": need("pbx")[0], "principals": people[::-1], "actions": ["submit", "read"]}
     shared = proposed(pia, "share", given)
@@ -791,26 +811,37 @@ def _():
 @case("person_key_needed", "peerbox Agent proposals, Approving (route refusals): 409 person_key_needed checked before "
                            "anything changes, the proposal left pending; approve again with --person-key")
 def _():
-    b, bia, bpbx = need("b", "bia", "bpbx")
-    view = proposed(bia, "share", {"peerbox_id": bpbx, "principals": [state["alice_p"]]})
-    pid = view["proposal_id"]
-    version = policy_version(b, state["bob_public"])
-    status, body = b.api("POST", f"/v1/peerbox-proposals/{pid}/approve", {"proposal_sha256": view["proposal_sha256"],
-                                                                          "person_key": None})
-    check(status == 409 and body.get("code") == "person_key_needed", f"approve without the key: {status} {body}")
-    without = approve(pid, host=b)
-    check(without.code == 1 and "--person-key" in without.stderr, f"the CLI without --person-key: exit {without.code}")
-    check(record(pid, b)["state"] == "pending" and policy_version(b, state["bob_public"]) == version,
-          "person_key_needed changed something")
-    approved(pid, key=state["bob_key"], host=b)
-    found = rules_for(bpbx, state["alice_p"], host=b, person_public=state["bob_public"])
-    check(len(found) == 1 and found[0]["actions"] == ["peerbox.read"], f"alice's rule on bob's peerbox {found}")
+    b, bia, bpbx, net = need("b", "bia", "bpbx", "net")
+    # A device provider with a seed bob's host holds signs without the person (Approving: as `peerbox share` without
+    # --person-key), and the suite's hosts use device providers; so bob selects his original SSH person key, which
+    # needs him, and gets his device back afterwards.
+    device = b.api("GET", f"/v2/networks/{net}")[1]["provider"]
+    check(device["kind"] == "device" and device.get("lease_id"), f"fixture: bob's selected provider {device}")
+    check(select_provider(b, net, state["bob_public"], state["bob_public"])["kind"] == "original_person",
+          "bob's original SSH person key is not his selected provider")
+    try:
+        view = proposed(bia, "share", {"peerbox_id": bpbx, "principals": [state["alice_p"]]})
+        pid = view["proposal_id"]
+        version = policy_version(b, state["bob_public"])
+        status, body = b.api("POST", f"/v1/peerbox-proposals/{pid}/approve",
+                             {"proposal_sha256": view["proposal_sha256"], "person_key": None})
+        check(status == 409 and body.get("code") == "person_key_needed", f"approve without the key: {status} {body}")
+        without = approve(pid, host=b)
+        check(without.code == 1 and "--person-key" in without.stderr,
+              f"the CLI without --person-key: exit {without.code}")
+        check(record(pid, b)["state"] == "pending" and policy_version(b, state["bob_public"]) == version,
+              "person_key_needed changed something")
+        approved(pid, key=state["bob_key"], host=b)
+        found = rules_for(bpbx, state["alice_p"], host=b, person_public=state["bob_public"])
+        check(len(found) == 1 and found[0]["actions"] == ["peerbox.read"], f"alice's rule on bob's peerbox {found}")
+    finally:
+        select_provider(b, net, state["bob_public"], device["lease_id"])
 
 
 @case("review_changed_branch", "peerbox Agent proposals, Execution (create): the branch moved after the proposal "
                                "fails review_changed; nothing created (PBX-21)")
 def _():
-    pia = need("pia2")[0]
+    pia = credential(need("a")[0], "rcb")
     repo = init_repo(suite.work / "moving-repo")
     commit_files(repo, {"a.txt": "a\n"}, "one")
     view = proposed(pia, "create", {"repository": str(repo), "branch": "main"})
@@ -825,7 +856,8 @@ def _():
 @case("review_changed_access", "peerbox Agent proposals, Execution (share): a recipient's access granted, revoked or "
                                "altered after the proposal fails review_changed, the newer policy left in place")
 def _():
-    a, pia, pbx_rc = need("a", "pia2", "pbx_rc")
+    a, pbx_rc = need("a", "pbx_rc")
+    pia = credential(a, "rca")
     bob, carol, key = state["bob_p"], state["carol_p"], state["alice_key"]
 
     def after_change(principals, change, want):
@@ -851,7 +883,8 @@ def _():
 @case("review_changed_person", "peerbox Agent proposals, Execution (share): a person removed from the network after "
                                "the proposal fails review_changed; nothing signed")
 def _():
-    a, pia, pbx, net = need("a", "pia2", "pbx", "net")
+    a, pbx, net = need("a", "pbx", "net")
+    pia = credential(a, "rcp")
     view = proposed(pia, "share", {"peerbox_id": pbx, "principals": [state["carol_p"]]})
     removed = a.cli("network", "remove-person", "--network", net, "--person", state["carol_pid"], "--approve",
                     timeout=90)
@@ -867,7 +900,8 @@ def _():
                         "repository author's and committer's name and email with control characters and terminal "
                         "escapes, shown quoted and escaped by approvals show and approve; IDs whole")
 def _():
-    a, pia = need("a", "pia2")
+    a = need("a")[0]
+    pia = credential(a, "unt")
     hostile = hostile_repo(suite.work / "hostile")
     view = proposed(pia, "create", {"repository": str(hostile["repo"]), "branch": "main"})
     pid = view["proposal_id"]
@@ -1087,6 +1121,7 @@ def _():
 def _():
     a, pia = need("a", "pia")
     view, retry = need("retry")[0]
+    pia.connect()  # updates_and_expiry moved the clock past the lease: renew it and verify the channel again
     create_network(a, "second", "alice")
     status, again, _ = propose(pia, "create", retry, view["proposal_id"])
     check(status == 200 and again["proposal_id"] == view["proposal_id"] and again["args"] == view["args"]
