@@ -609,8 +609,17 @@ fn current_rules(
     conn: &Connection,
     network: &str,
 ) -> Result<Vec<PeerboxRule>, Error> {
+    Ok(current_policy(store, conn, network)?.0)
+}
+/// [`current_rules`], and that policy's version (0 without one).
+fn current_policy(
+    store: &Store,
+    conn: &Connection,
+    network: &str,
+) -> Result<(Vec<PeerboxRule>, u64), Error> {
     let own = store.identity().id;
     let mut rules = Vec::new();
+    let mut version = 0;
     for (id, member) in store.decentralized_own_members(conn)? {
         if id != network {
             continue;
@@ -622,6 +631,7 @@ fn current_rules(
             continue;
         };
         if let Some(policy) = store.product_policy(conn, &id, &key)? {
+            version = version.max(policy.version);
             rules.extend(
                 policy
                     .peerbox_rules()
@@ -631,7 +641,30 @@ fn current_rules(
             );
         }
     }
-    Ok(rules)
+    Ok((rules, version))
+}
+/// For an approved share a restart interrupted: the current policy
+/// version when it gives every principal exactly the proposal's access,
+/// since the signed version is stored before the proposal's outcome.
+fn share_settled(store: &Store, conn: &Connection, p: &Proposal) -> Result<Option<u64>, Error> {
+    if p.op != "share" {
+        return Ok(None);
+    }
+    let pbx = p.args["peerbox_id"].as_str().unwrap_or_default();
+    let Some(record) = crate::peerbox::record(conn, pbx)? else {
+        return Ok(None);
+    };
+    let (rules, version) = current_policy(store, conn, &record.network_id)?;
+    let principals = principals_of(&p.args);
+    let access = json!({
+        "actions": p.args["actions"],
+        "max_bundle_bytes": p.args["max_bundle_bytes"],
+        "max_pending": p.args["max_pending"],
+        "allow_disconnected": p.args["allow_disconnected"],
+    });
+    let held = before(&rules, &store.identity().id, pbx, &principals)
+        == Value::Array(vec![access; principals.len()]);
+    Ok(held.then_some(version))
 }
 /// The access each principal holds on a peerbox in `rules`, in short
 /// action names, or null.
@@ -1627,11 +1660,18 @@ fn pass(store: &Store) -> Result<(), Error> {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .contains(&p.proposal_id);
+            // A share's signed version is stored just before its outcome:
+            // found stored, the share was executed; otherwise nothing was.
             if !running {
-                p.error = Some(
-                    json!({"code": "interrupted", "message": "the daemon stopped while carrying it out; nothing was stored"}),
-                );
-                decide(&tx, &mut p, "failed")?;
+                if let Some(version) = share_settled(store, &tx, &p)? {
+                    p.result = Some(json!({"policy_version": version}));
+                    decide(&tx, &mut p, "executed")?;
+                } else {
+                    p.error = Some(
+                        json!({"code": "interrupted", "message": "the daemon stopped while carrying it out; nothing was stored"}),
+                    );
+                    decide(&tx, &mut p, "failed")?;
+                }
             }
         } else if p.state == "executed"
             && p.op == "invite"
