@@ -597,5 +597,3 @@ The Rust host implements the [peerbox contract's Gates](peerbox-contract.md#gate
 - Activity kinds are `peerbox.gate_set`, `peerbox.gate_paused` (an owner pause, or a
   pause with `frontier_failed` or `dirty_worktree`) and `peerbox.gate_evaluated`, with
   `peerbox.decided` for each decision the gate records. `gate clear` records none.
-- `list` entries do not carry `gate` yet: the peerbox suites still require the five keys
-  without it, and the contract's `gate` key waits for them.
