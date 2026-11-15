@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -137,6 +137,56 @@ pub(crate) fn shown(conn: &Connection, peerbox: &str) -> Result<Vec<Value>, Erro
     .map(Evaluation::view)
     .collect())
 }
+/// Ends a peerbox's running evaluation at once, for a cleared gate or, with
+/// `contribution`, a decision by hand on the contribution it evaluates
+/// (Evaluation; Gate CLI: clear): it ends undecided, its live runs are
+/// marked cancelled and returned for the caller to cancel on the runtime,
+/// and its own loop stops when it next looks. Takes the store's connection,
+/// so the caller must not hold it.
+pub(crate) fn stop_running(
+    store: &Store,
+    peerbox: &str,
+    contribution: Option<&str>,
+) -> Result<Vec<RunEntry>, Error> {
+    let mut conn = store.connection()?;
+    let tx = conn.transaction()?;
+    let Some(mut e) = running(&tx, peerbox)? else {
+        return Ok(Vec::new());
+    };
+    if contribution.is_some_and(|c| c != e.contribution_id) {
+        return Ok(Vec::new());
+    }
+    let live: Vec<RunEntry> = e
+        .runs
+        .iter()
+        .filter(|r| r.outcome == "running" || r.outcome == "starting")
+        .cloned()
+        .collect();
+    for r in &mut e.runs {
+        if r.outcome == "running" || r.outcome == "starting" {
+            r.outcome = "cancelled".into();
+        }
+    }
+    e.state = "ended".into();
+    e.cleanup = true;
+    save(&tx, &e)?;
+    tx.commit()?;
+    Ok(live)
+}
+
+/// Asks the runtime to cancel each run; the worker deletes them later.
+pub(crate) async fn cancel_runs(runs: &[RunEntry]) {
+    for r in runs {
+        let _ = call(
+            &r.socket,
+            Method::POST,
+            &format!("/v1/runs/{}/cancel", r.run_id),
+            Some(&json!({})),
+        )
+        .await;
+    }
+}
+
 /// Keeps a peerbox's latest evaluations and those with runs to clean up.
 fn prune(conn: &Connection, peerbox: &str) -> Result<(), Error> {
     conn.execute(
@@ -288,8 +338,7 @@ fn next(store: &Store) -> Result<Option<Job>, Error> {
         let Some((_, g)) = gate::gated_record(&conn, &peerbox)? else {
             continue;
         };
-        // Only episode gates are evaluated; gate set refuses the others.
-        if g.mode != "episode" || g.paused_reason.is_some() || running(&conn, &peerbox)?.is_some() {
+        if g.paused_reason.is_some() || running(&conn, &peerbox)?.is_some() {
             continue;
         }
         if let Some(first) = gate::queue(&conn, &peerbox)?.into_iter().next() {
@@ -490,9 +539,15 @@ async fn going_on(ctx: &Context) -> Result<(), Stop> {
 }
 
 /// The archive of a measured commit's tree, without `.peerbox-gate/`,
-/// with the inputs snapshot under `.peerbox-gate/inputs/`.
-async fn tree_archive(ctx: &Context, commit: &str, name: &str) -> Result<Option<PathBuf>, Error> {
-    let (inputs, _) = ctx.gate.parts(&ctx.store, &ctx.rec.peerbox_id);
+/// with an inputs part under `.peerbox-gate/inputs/`: the inputs snapshot,
+/// or what the evaluation's generator made (Generator).
+async fn tree_archive(
+    ctx: &Context,
+    commit: &str,
+    name: &str,
+    inputs: &Path,
+) -> Result<Option<PathBuf>, Error> {
+    let inputs = inputs.to_path_buf();
     let out = ctx.work.join(name);
     let (repo, commit) = (PathBuf::from(&ctx.rec.repository), commit.to_owned());
     run_blocking(&ctx.store, move |s| {
@@ -574,16 +629,45 @@ async fn measure_all(ctx: &Context, shutdown: &mut watch::Receiver<bool>) -> Res
         )
         .await;
     }
-    let environment = {
-        let (_, checker) = ctx.gate.parts(&ctx.store, &ctx.rec.peerbox_id);
+    let (inputs, checker) = ctx.gate.parts(&ctx.store, &ctx.rec.peerbox_id);
+    // Episode mode: the environment's archive. Outputs mode: what check
+    // runs start from, and the generator's inputs when there is one.
+    let mut environment = PathBuf::new();
+    let mut checks = Checks {
+        checker: checker.clone(),
+        generated: None,
+    };
+    let mut inputs = inputs;
+    if g.mode == "episode" {
         let (out, secret) = (ctx.work.join("environment.tar"), ctx.secret.clone());
-        run_blocking(&ctx.store, move |_| {
+        environment = run_blocking(&ctx.store, move |_| {
             environment_archive(&checker, out, &secret)
         })
-        .await?
-    };
-    let frontier_tree = tree_archive(ctx, &ctx.frontier, "frontier.tar").await?;
-    let candidate_tree = tree_archive(ctx, &ctx.contribution.head, "candidate.tar").await?;
+        .await?;
+    } else if g.generator.is_some() {
+        match generate(ctx, shutdown).await? {
+            Some(made) => {
+                inputs = made.inputs;
+                checks.generated = Some(made.files);
+            }
+            None => {
+                let (id, v, e) = (
+                    ctx.rec.peerbox_id.clone(),
+                    g.version,
+                    ctx.evaluation.clone(),
+                );
+                run_blocking(&ctx.store, move |s| {
+                    gate::pause_with(s, &id, v, "generator_failed")?;
+                    update(s, &e, |e| e.state = "ended".into())
+                })
+                .await?;
+                return Ok(());
+            }
+        }
+    }
+    let frontier_tree = tree_archive(ctx, &ctx.frontier, "frontier.tar", &inputs).await?;
+    let candidate_tree =
+        tree_archive(ctx, &ctx.contribution.head, "candidate.tar", &inputs).await?;
     let mut f: Vec<Option<f64>> = Vec::new();
     let mut c: Vec<Option<f64>> = Vec::new();
     let mut f_samples: Vec<Vec<f64>> = Vec::new();
@@ -598,7 +682,10 @@ async fn measure_all(ctx: &Context, shutdown: &mut watch::Receiver<bool>) -> Res
                 &candidate_tree
             };
             let measured = match tree {
-                Some(tree) => measure(ctx, side, &environment, tree, shutdown).await?,
+                Some(tree) if g.mode == "episode" => {
+                    measure(ctx, side, &environment, tree, shutdown).await?
+                }
+                Some(tree) => measure_outputs(ctx, side, tree, &checks, shutdown).await?,
                 None => Measured::Failed {
                     code: "run_failed",
                     reason: None,
@@ -852,6 +939,8 @@ async fn decide(ctx: &Context, v: Verdict) -> Result<(), Stop> {
             }
             contribution::GateOutcome::DirtyWorktree => {
                 tx.commit()?;
+                // `conn` is the store's only connection; pause_with takes it.
+                drop(conn);
                 return gate::pause_with(s, &peerbox, version, "dirty_worktree");
             }
             _ => {}
@@ -942,9 +1031,15 @@ async fn retry_refused(ctx: &Context) -> Result<bool, Error> {
     Ok(all)
 }
 
+/// Records a run's outcome, except over `cancelled`: a run cancelled by
+/// a cleared gate or a decision by hand stays so, though it then exits.
 fn set_outcome(store: &Store, eval: &str, task: &str, outcome: &str) -> Result<(), Error> {
     update(store, eval, |e| {
-        for r in e.runs.iter_mut().filter(|r| r.task_id == task) {
+        for r in e
+            .runs
+            .iter_mut()
+            .filter(|r| r.task_id == task && r.outcome != "cancelled")
+        {
             r.outcome = outcome.into();
         }
     })
@@ -1198,6 +1293,497 @@ async fn measure(
     Ok(match (outcome(env), line) {
         ("succeeded", Some(l)) if l.pass => Measured::Scored {
             score: l.score.unwrap_or(0.0),
+            samples: l.samples,
+            reason: l.reason,
+        },
+        ("succeeded", Some(l)) => Measured::Failed {
+            code: "check_failed",
+            reason: Some(l.reason),
+        },
+        _ => Measured::Failed {
+            code: "check_failed",
+            reason: None,
+        },
+    })
+}
+
+// ---------------------------------------------------------------------
+// Outputs mode: a candidate run, then a check run on its outputs, and the
+// generator once per evaluation (Evaluation; Generator).
+
+/// Where check runs start from: the checker snapshot, and the generator's
+/// other files when it made any.
+struct Checks {
+    checker: PathBuf,
+    generated: Option<PathBuf>,
+}
+
+/// What an evaluation's generator made, as parts: the candidate runs'
+/// inputs, and the check runs' files under `.peerbox-gate/generated/`.
+struct Made {
+    inputs: PathBuf,
+    files: PathBuf,
+}
+
+/// One run that is not part of a pair, as the host followed it.
+struct Single {
+    entry: RunEntry,
+    tail: Vec<u8>,
+    cut: bool,
+    exited: Option<Value>,
+    artifacts: Vec<Value>,
+    timed_out: bool,
+}
+
+/// A run's outcome as `gate show` reports it: a timeout is `failed`.
+fn single_outcome(r: &Single) -> &'static str {
+    match &r.exited {
+        None => "failed",
+        Some(x) if x["timed_out"] == json!(true) => "failed",
+        Some(x) if x["error"].is_string() => "failed",
+        Some(_) if r.timed_out => "failed",
+        Some(x) if x["exit_code"] == json!(0) => "succeeded",
+        Some(_) => "failed",
+    }
+}
+
+/// What a run of `kind` executes, and under which bounds and image.
+fn single_body(ctx: &Context, entry: &RunEntry, kind: &str, archive: &Path) -> Value {
+    let g = &ctx.gate;
+    let (argv, cpus, memory, image, results): (&[String], _, _, _, _) = match kind {
+        "candidate" => (&g.command, g.cpus, g.memory_mib, &g.image, "changes"),
+        "generator" => (
+            g.generator.as_deref().unwrap_or_default(),
+            g.checker_cpus,
+            g.checker_memory_mib,
+            &g.checker_image,
+            "changes",
+        ),
+        _ => (
+            &g.checker,
+            g.checker_cpus,
+            g.checker_memory_mib,
+            &g.checker_image,
+            "output",
+        ),
+    };
+    let mut body = json!({
+        "run_id": entry.run_id,
+        "argv": argv,
+        "cwd": "/workspace",
+        "env": {},
+        "resources": {"cpus": cpus, "memory_mib": memory, "timeout_seconds": g.timeout_seconds},
+        "workspace_archive": archive.to_string_lossy(),
+        "peerfs_workspace": null,
+        "results": results,
+    });
+    if let Some(image) = image {
+        body["image"] = json!(image);
+    }
+    body
+}
+
+/// Starts one run of `kind` on the home host's runtime, waiting while the
+/// switch is off or the gate is paused and starting again after a
+/// refusal, and follows it until its results. The run stays on the runtime
+/// for the caller to read its result files.
+async fn run_single(
+    ctx: &Context,
+    side: &str,
+    kind: &str,
+    archive: &Path,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<Single, Stop> {
+    let g = &ctx.gate;
+    let entry = loop {
+        going_on(ctx).await?;
+        if *shutdown.borrow() {
+            return Err(Stop::Shutdown);
+        }
+        let (peerbox, version) = (ctx.rec.peerbox_id.clone(), g.version);
+        let (switch, paused) = run_blocking(&ctx.store, move |s| {
+            let paused = gate::load(&*s.connection()?, &peerbox)?
+                .is_some_and(|g| g.version == version && g.paused_reason.is_some());
+            Ok((s.runtime_switch()?, paused))
+        })
+        .await?;
+        let Some(switch) = switch.filter(|_| !paused) else {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        };
+        if !retry_refused(ctx).await? {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+        let task_id = new_id("task")?;
+        let entry = RunEntry {
+            run_id: crate::runtime_task::run_id(&ctx.own, &task_id),
+            task_id,
+            side: side.into(),
+            kind: kind.into(),
+            outcome: "starting".into(),
+            socket: switch.socket.clone(),
+        };
+        {
+            let (a, eval) = (entry.clone(), ctx.evaluation.clone());
+            run_blocking(&ctx.store, move |s| update(s, &eval, |e| e.runs.push(a))).await?;
+        }
+        let body = single_body(ctx, &entry, kind, archive);
+        let started = matches!(call(&switch.socket, Method::POST, "/v1/runs", Some(&body)).await,
+            Ok(a) if a.status == 200 || a.status == 201);
+        if started {
+            break entry;
+        }
+        // A refused run is forgotten once its cancellation is confirmed.
+        let removed = remove_run(&entry).await;
+        let (eval, id) = (ctx.evaluation.clone(), entry.task_id.clone());
+        run_blocking(&ctx.store, move |s| {
+            update(s, &eval, |e| {
+                if removed {
+                    e.runs.retain(|r| r.task_id != id);
+                } else {
+                    for r in e.runs.iter_mut().filter(|r| r.task_id == id) {
+                        r.outcome = "refused".into();
+                    }
+                }
+            })
+        })
+        .await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    };
+    {
+        let (eval, id) = (ctx.evaluation.clone(), entry.task_id.clone());
+        run_blocking(&ctx.store, move |s| set_outcome(s, &eval, &id, "running")).await?;
+    }
+    let mut r = Single {
+        entry,
+        tail: Vec::new(),
+        cut: false,
+        exited: None,
+        artifacts: Vec::new(),
+        timed_out: false,
+    };
+    let deadline = Instant::now() + Duration::from_secs(g.timeout_seconds as u64);
+    let (mut after, mut checked) = (0i64, Instant::now());
+    loop {
+        if *shutdown.borrow() {
+            return Err(Stop::Shutdown);
+        }
+        if checked.elapsed() >= Duration::from_secs(1) {
+            checked = Instant::now();
+            if let Err(stop) = going_on(ctx).await {
+                remove_run(&r.entry).await;
+                let (eval, id) = (ctx.evaluation.clone(), r.entry.task_id.clone());
+                run_blocking(&ctx.store, move |s| set_outcome(s, &eval, &id, "cancelled")).await?;
+                return Err(stop);
+            }
+        }
+        let now = Instant::now();
+        if now >= deadline && !r.timed_out {
+            r.timed_out = true;
+            let _ = call(
+                &r.entry.socket,
+                Method::POST,
+                &format!("/v1/runs/{}/cancel", r.entry.run_id),
+                Some(&json!({})),
+            )
+            .await;
+        }
+        if now >= deadline + GRACE {
+            break;
+        }
+        let path = format!(
+            "/v1/runs/{}/events?after={after}&wait=0&limit={}",
+            r.entry.run_id,
+            crate::task_outbound::RUNTIME_EVENT_PAGE
+        );
+        let mut progressed = false;
+        let mut done = false;
+        match call(&r.entry.socket, Method::GET, &path, None).await {
+            Ok(a) if a.status == 404 => done = true,
+            Ok(a) if a.status == 200 => {
+                for event in a.body.as_array().cloned().unwrap_or_default() {
+                    progressed = true;
+                    after = event["sequence"].as_i64().unwrap_or(after).max(after);
+                    match event["kind"].as_str() {
+                        Some("stdout") => {
+                            let data = base64::engine::general_purpose::STANDARD
+                                .decode(event["data"].as_str().unwrap_or_default())
+                                .unwrap_or_default();
+                            r.tail.extend_from_slice(&data);
+                            if r.tail.len() > TAIL {
+                                let cut = r.tail.len() - TAIL;
+                                r.tail.drain(..cut);
+                                r.cut = true;
+                            }
+                        }
+                        Some("exited") => r.exited = Some(event["result"].clone()),
+                        Some("results") => {
+                            r.artifacts =
+                                event["artifacts"].as_array().cloned().unwrap_or_default();
+                            done = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        if done {
+            break;
+        }
+        if !progressed {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    let (eval, id, outcome) = (
+        ctx.evaluation.clone(),
+        r.entry.task_id.clone(),
+        single_outcome(&r),
+    );
+    run_blocking(&ctx.store, move |s| set_outcome(s, &eval, &id, outcome)).await?;
+    // A run that ended because the evaluation was stopped (a cleared gate,
+    // a decision by hand) is not a measurement: the evaluation stops.
+    if let Err(stop) = going_on(ctx).await {
+        remove_run(&r.entry).await;
+        return Err(stop);
+    }
+    Ok(r)
+}
+
+/// The run's `changes.tar`, when it came back within `max_changes_bytes`
+/// (The gate record: the changes size is its size).
+fn changes_within(r: &Single, bound: i64) -> Option<PathBuf> {
+    let a = r.artifacts.iter().find(|a| a["name"] == "changes.tar")?;
+    let size = a["size"].as_i64()?;
+    if size > bound {
+        return None;
+    }
+    a["path"].as_str().map(PathBuf::from)
+}
+
+/// The directories leading to `path`, each written once to `out`.
+fn parents(out: &mut impl Write, path: &[u8], written: &mut Vec<Vec<u8>>) -> std::io::Result<()> {
+    let mut at = 0;
+    while let Some(i) = path[at..].iter().position(|b| *b == b'/') {
+        at += i + 1;
+        let dir = &path[..at];
+        if !written.iter().any(|w| w == dir) {
+            written.push(dir.to_vec());
+            crate::tar::entry(out, dir, crate::tar::DIRECTORY, 0o755, 0, b"")?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies the regular files of a run's `changes.tar` that `rename` maps,
+/// under their new paths and with the directories leading to them. A path
+/// that is absolute or climbs out with `..` is left out.
+fn copy_changes(
+    changes: &Path,
+    out: &mut impl Write,
+    written: &mut Vec<Vec<u8>>,
+    rename: impl Fn(&[u8]) -> Option<Vec<u8>>,
+) -> std::io::Result<()> {
+    let mut archive = tar::Archive::new(std::io::BufReader::new(std::fs::File::open(changes)?));
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let raw = entry.path_bytes().into_owned();
+        let path = raw.strip_prefix(b"./").unwrap_or(&raw).to_vec();
+        if path.is_empty()
+            || path.starts_with(b"/")
+            || path.split(|b| *b == b'/').any(|c| c == b"..")
+        {
+            continue;
+        }
+        let Some(to) = rename(&path) else { continue };
+        let mode = entry.header().mode().unwrap_or(0o644) & 0o7777;
+        let size = entry.size();
+        parents(out, &to, written)?;
+        crate::tar::entry(out, &to, crate::tar::FILE, mode, size, b"")?;
+        let copied = std::io::copy(&mut (&mut entry).take(size), out)?;
+        if copied != size {
+            return Err(std::io::Error::other("a changes.tar entry ended early"));
+        }
+        crate::tar::pad(out, size)?;
+    }
+    Ok(())
+}
+
+/// A check run's archive: the checker snapshot, the secret, the
+/// generator's other files, and the candidate's outputs, the regular files
+/// its changes hold under `.peerbox-gate/out/`.
+fn check_archive(
+    checks: &Checks,
+    secret: &str,
+    changes: &Path,
+    out: PathBuf,
+) -> Result<PathBuf, Error> {
+    let io = |e: std::io::Error| Error::Internal(e.into());
+    let mut file = std::io::BufWriter::new(std::fs::File::create(&out).map_err(io)?);
+    std::io::copy(
+        &mut std::fs::File::open(&checks.checker).map_err(io)?,
+        &mut file,
+    )
+    .map_err(io)?;
+    let secret = format!("{secret}\n");
+    let mut written = vec![b".peerbox-gate/".to_vec()];
+    crate::tar::entry(
+        &mut file,
+        b".peerbox-gate/",
+        crate::tar::DIRECTORY,
+        0o755,
+        0,
+        b"",
+    )
+    .map_err(io)?;
+    crate::tar::entry(
+        &mut file,
+        b".peerbox-gate/secret",
+        crate::tar::FILE,
+        0o644,
+        secret.len() as u64,
+        b"",
+    )
+    .map_err(io)?;
+    file.write_all(secret.as_bytes()).map_err(io)?;
+    crate::tar::pad(&mut file, secret.len() as u64).map_err(io)?;
+    if let Some(generated) = &checks.generated {
+        std::io::copy(&mut std::fs::File::open(generated).map_err(io)?, &mut file).map_err(io)?;
+        written.push(b".peerbox-gate/generated/".to_vec());
+    }
+    copy_changes(changes, &mut file, &mut written, |p| {
+        p.starts_with(b".peerbox-gate/out/").then(|| p.to_vec())
+    })
+    .map_err(io)?;
+    crate::tar::end(&mut file).map_err(io)?;
+    file.flush().map_err(io)?;
+    file.get_ref().sync_all().map_err(io)?;
+    Ok(out)
+}
+
+/// Splits a generator's changes into the parts it makes (Generator): its
+/// files under `.peerbox-gate/inputs/`, which replace the inputs snapshot
+/// in candidate runs, and the rest, at their paths under
+/// `.peerbox-gate/generated/`, for check runs.
+fn split_generated(changes: &Path, work: &Path) -> Result<Made, Error> {
+    let io = |e: std::io::Error| Error::Internal(e.into());
+    let (inputs, files) = (
+        work.join("generated-inputs.part"),
+        work.join("generated-files.part"),
+    );
+    let mut a = std::io::BufWriter::new(std::fs::File::create(&inputs).map_err(io)?);
+    let mut written = Vec::new();
+    parents(&mut a, b".peerbox-gate/inputs/", &mut written).map_err(io)?;
+    copy_changes(changes, &mut a, &mut written, |p| {
+        p.starts_with(b".peerbox-gate/inputs/").then(|| p.to_vec())
+    })
+    .map_err(io)?;
+    a.flush().map_err(io)?;
+    let mut b = std::io::BufWriter::new(std::fs::File::create(&files).map_err(io)?);
+    // `.peerbox-gate/` itself is the check archive's.
+    let mut written = vec![b".peerbox-gate/".to_vec()];
+    parents(&mut b, b".peerbox-gate/generated/", &mut written).map_err(io)?;
+    copy_changes(changes, &mut b, &mut written, |p| {
+        (!p.starts_with(b".peerbox-gate/inputs/")).then(|| {
+            let mut to = b".peerbox-gate/generated/".to_vec();
+            to.extend_from_slice(p);
+            to
+        })
+    })
+    .map_err(io)?;
+    b.flush().map_err(io)?;
+    Ok(Made { inputs, files })
+}
+
+/// Runs the generator once, before the first measurement; None when it
+/// failed, timed out, or its changes were over the bound or dropped.
+async fn generate(
+    ctx: &Context,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<Option<Made>, Stop> {
+    let (_, checker) = ctx.gate.parts(&ctx.store, &ctx.rec.peerbox_id);
+    let (out, secret) = (ctx.work.join("generator.tar"), ctx.secret.clone());
+    let archive = run_blocking(&ctx.store, move |_| {
+        environment_archive(&checker, out, &secret)
+    })
+    .await?;
+    let r = run_single(ctx, "evaluation", "generator", &archive, shutdown).await?;
+    let changes = (single_outcome(&r) == "succeeded")
+        .then(|| changes_within(&r, ctx.gate.max_changes_bytes))
+        .flatten();
+    let made = match changes {
+        Some(changes) => {
+            let work = ctx.work.clone();
+            Some(run_blocking(&ctx.store, move |_| split_generated(&changes, &work)).await?)
+        }
+        None => None,
+    };
+    remove_run(&r.entry).await;
+    Ok(made)
+}
+
+/// One measurement in outputs mode: the candidate run, then, when it
+/// succeeded within the bound, a check run on its outputs.
+async fn measure_outputs(
+    ctx: &Context,
+    side: &str,
+    tree: &Path,
+    checks: &Checks,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<Measured, Stop> {
+    let g = &ctx.gate;
+    let candidate = run_single(ctx, side, "candidate", tree, shutdown).await?;
+    // A run that both fails and exceeds the bound is `run_failed`.
+    if single_outcome(&candidate) != "succeeded" {
+        remove_run(&candidate.entry).await;
+        return Ok(Measured::Failed {
+            code: "run_failed",
+            reason: None,
+        });
+    }
+    let Some(changes) = changes_within(&candidate, g.max_changes_bytes) else {
+        remove_run(&candidate.entry).await;
+        return Ok(Measured::Failed {
+            code: "outputs_too_large",
+            reason: None,
+        });
+    };
+    let time = candidate
+        .exited
+        .as_ref()
+        .and_then(|x| x["duration_ms"].as_f64())
+        .unwrap_or(0.0)
+        .max(1.0);
+    let archive = {
+        let (checker, generated) = (checks.checker.clone(), checks.generated.clone());
+        let (secret, out) = (
+            ctx.secret.clone(),
+            ctx.work
+                .join(format!("check-{}.tar", candidate.entry.task_id)),
+        );
+        run_blocking(&ctx.store, move |_| {
+            check_archive(&Checks { checker, generated }, &secret, &changes, out)
+        })
+        .await
+    };
+    remove_run(&candidate.entry).await;
+    let archive = archive?;
+    let check = run_single(ctx, side, "check", &archive, shutdown).await?;
+    remove_run(&check.entry).await;
+    let _ = std::fs::remove_file(&archive);
+    let line = result_line(&check.tail, check.cut, g);
+    // A line is read only from a run that exited 0 (Result line).
+    Ok(match (single_outcome(&check), line) {
+        ("succeeded", Some(l)) if l.pass => Measured::Scored {
+            score: if g.score == "time" {
+                time
+            } else {
+                l.score.unwrap_or(0.0)
+            },
             samples: l.samples,
             reason: l.reason,
         },
