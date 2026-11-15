@@ -1579,7 +1579,7 @@ fn parents(out: &mut impl Write, path: &[u8], written: &mut Vec<Vec<u8>>) -> std
     Ok(())
 }
 
-/// Copies the regular files of a run's `changes.tar` that `rename` maps,
+/// Copies the regular files and directories of a run's `changes.tar` that `rename` maps,
 /// under their new paths and with the directories leading to them. A path
 /// that is absolute or climbs out with `..` is left out.
 fn copy_changes(
@@ -1591,18 +1591,36 @@ fn copy_changes(
     let mut archive = tar::Archive::new(std::io::BufReader::new(std::fs::File::open(changes)?));
     for entry in archive.entries()? {
         let mut entry = entry?;
-        if !entry.header().entry_type().is_file() {
+        let kind = entry.header().entry_type();
+        let directory = kind.is_dir();
+        if !kind.is_file() && !directory {
             continue;
         }
         let raw = entry.path_bytes().into_owned();
-        let path = raw.strip_prefix(b"./").unwrap_or(&raw).to_vec();
+        let mut path = raw.strip_prefix(b"./").unwrap_or(&raw).to_vec();
+        if directory && !path.ends_with(b"/") {
+            path.push(b'/');
+        }
         if path.is_empty()
+            || path == b"/"
             || path.starts_with(b"/")
             || path.split(|b| *b == b'/').any(|c| c == b"..")
         {
             continue;
         }
         let Some(to) = rename(&path) else { continue };
+        if directory {
+            // A directory keeps its mode, written once, after the
+            // directories leading to it.
+            let ancestors = &to[..to.len() - 1];
+            parents(out, ancestors, written)?;
+            if !written.contains(&to) {
+                let mode = entry.header().mode().unwrap_or(0o755) & 0o7777;
+                crate::tar::entry(out, &to, crate::tar::DIRECTORY, mode, 0, b"")?;
+                written.push(to);
+            }
+            continue;
+        }
         let mode = entry.header().mode().unwrap_or(0o644) & 0o7777;
         let size = entry.size();
         parents(out, &to, written)?;
@@ -1617,7 +1635,7 @@ fn copy_changes(
 }
 
 /// A check run's archive: the checker snapshot, the secret, the
-/// generator's other files, and the candidate's outputs, the regular files
+/// generator's other files, and the candidate's outputs, the regular files and directories
 /// its changes hold under `.peerbox-gate/out/`.
 fn check_archive(
     checks: &Checks,
