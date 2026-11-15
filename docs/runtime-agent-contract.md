@@ -10,7 +10,8 @@ a fork of the profile's branch, and the result names the fork's branch.
 This is story 2 of the runtime: the design is decision 6 of `runtime.md` in the internal design
 repository, and its decisions are RUN-8 to RUN-11 in the
 [decision log](decision-log.md#run-8-to-run-11-runtime-agents-2026-11-12), with RUN-12 to RUN-16
-after them. This contract extends
+after them. A profile's build cache, shared between its tasks, is the
+[build cache contract](build-cache-contract.md) (RUN-17 to RUN-20). This contract extends
 the [task contract](task-contract.md) and the [runtime task contract](runtime-task-contract.md).
 Where it doesn't say otherwise, those contracts apply. It changes nothing for senders: the
 peer routes, the authorization of `task.submit`, the status record and the events are as in the
@@ -46,6 +47,7 @@ policy rules for `task.submit`.
 | `memory_mib` | 128 to 262,144. | 2,048 |
 | `timeout_seconds` | 1 to 86,400. | 3,600 |
 | `max_runs` | 1 to 64: how many of this agent's tasks may be dispatched or running at once. | 3 |
+| `build_cache` | Null, or a command that builds the branch, and the least time between refreshes: the [build cache contract](build-cache-contract.md#host-the-profiles-build-cache). | null |
 
 The agent's **credential**, its harness's API key (OpenAI for `codex`, Anthropic for `claude`), is
 stored apart from the profile in
