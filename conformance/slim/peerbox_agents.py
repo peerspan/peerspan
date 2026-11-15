@@ -21,7 +21,7 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from harness import Adapter, Skip, Suite, check, rfc3339, wait_for
+from harness import Adapter, Failure, Skip, Suite, check, rfc3339, wait_for
 from runtime_common import (FINAL, Channel, adapter_upload, bind, enable_for_both, need, new_task_id, peer_events,
                             policy_version, result_of, setup_network, state)
 from peerbox_fixtures import (agent_space, branch_commit, checkout_state, files_under, owner_repo, self_check,
@@ -493,7 +493,20 @@ def _():
     final_text = "".join(c.get("text", "") for c in content) if isinstance(content, list) else str(content or "")
     check(last.get("state") == "succeeded" and '"exit_code":0' in final_text.replace(" ", ""),
           f"final update {last}, content {final_text[:300]!r}: want the run result")
-    status, view = state["bea"].call("GET", f"/adapter/v1/delegations/{task_id}")
+    # The final update can reach the session before the local record takes the run's last status, so task_status is
+    # polled, within a bound, until that record is final too.
+    seen = {}
+
+    def final_view():
+        seen["answer"] = state["bea"].call("GET", f"/adapter/v1/delegations/{task_id}")
+        status, view = seen["answer"]
+        return status == 200 and (view.get("status") or {}).get("state") in FINAL
+
+    try:
+        wait_for(final_view, timeout=30, interval=0.5, message="task_status of the run to be final")
+    except Failure:
+        pass  # the check below reports the last answer
+    status, view = seen["answer"]
     check(status == 200 and view["request"]["executor"] == "peerbox" and view["request"]["peerbox"]["op"] == "run"
           and view["request"]["peerbox"]["commit"] == main and (view.get("status") or {}).get("state") in FINAL,
           f"task_status of the run: {status} {view}")
