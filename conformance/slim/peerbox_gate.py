@@ -13,10 +13,11 @@ candidate run slow by holding a 16 MiB file the command cats, and the fake's `du
 It covers promotion and the moved frontier, both workspaces (no `.peerbox-gate/` entry of the commit, no expected
 output or secret in a candidate run, exactly the outputs in a check run), a candidate's own result line and writes
 outside `.peerbox-gate/out/`, `below_margin` in both directions and for both score sources, `check_failed`,
-`run_failed`, `outputs_too_large`, `frontier_failed`, `not_fast_forward`, the generator (its inputs, its other files,
-the secret, the checker's bounds and image) and `generator_failed`, the public summary in `list`, and the command's
-size bounds. Order, superseding, pause, clear, the runtime switch, manual decisions during an evaluation,
-`dirty_worktree`, restarts and `gate_busy` are peerbox_gate_queue.py.
+`run_failed`, `outputs_too_large` (a changes.tar over max_changes_bytes), `frontier_failed`, `not_fast_forward`, the
+generator (its inputs, its other files, the secret, the checker's bounds and image) and `generator_failed`, the public
+summary in `list`, the command's size bounds and the least max_changes_bytes. Order, superseding, pause, clear, the
+runtime switch, manual decisions during an evaluation, `dirty_worktree`, restarts and `gate_busy` are
+peerbox_gate_queue.py.
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the runtime task contract. No VM, no
 KVM, no model calls. Second tier only. Nothing in the gate contract is implemented yet: every case past the network
@@ -42,8 +43,9 @@ CHECKER_IMAGE = "registry.example/checker@sha256:" + "4" * 64
 STDOUT_MARK = "printed-by-the-candidate"
 GEN_MARK = "the-owners-generator"
 BIG = "x" * (16 << 20)  # what a slow candidate run cats (score time)
-# max_changes_bytes fixtures hold whether a host counts the changed bytes or the size of changes.tar: the bound is
-# 1 MiB, small outputs stay a few KiB even as a tar, and an oversized run changes 2 MiB (fake `fill`).
+# max_changes_bytes bounds a run's changes size, the size of its changes.tar among the result artifacts (peerbox The
+# gate record): the bound is 1 MiB, a small run's changes.tar (headers, padding, a few small files) stays far below
+# it, and an oversized run changes one 2 MiB file (fake `fill`), so its changes.tar is over 2 MiB.
 BOUND, OVER = 1 << 20, 2 << 20
 CHANGES = "x" * OVER  # main's f/changes.txt: the candidate failures' command fills it back unchanged
 FRONTIER = {"run_ok": "present\n", "changes": CHANGES, "time": ""}  # main's f/NAME.txt
@@ -235,8 +237,8 @@ def _():
 
 
 @case("candidate_failures", "peerbox Evaluation (outputs), The gate record (max_changes_bytes): a candidate run that "
-                            "fails is run_failed; one whose changes, outside its outputs too, exceed "
-                            "max_changes_bytes is outputs_too_large")
+                            "fails is run_failed; one whose changes size (its changes.tar, changes outside its "
+                            "outputs too) exceeds max_changes_bytes is outputs_too_large")
 def _():
     tail = [";", "cat", "f/run_ok.txt", ";", "fill", "f/changes.txt", str(OVER)]
     command = outputs_command(written(100), [("cand", written(80))], tail)
@@ -333,7 +335,7 @@ def _():
           and CHECKER_MARK not in text, "list shows the generator, the checker or its image")
 
 
-@case("generator_failed", "peerbox Generator: a generator that fails, or whose changes exceed max_changes_bytes, "
+@case("generator_failed", "peerbox Generator: a generator that fails, or whose changes size exceeds max_changes_bytes, "
                           "pauses the gate with generator_failed before any candidate run; the contribution stays "
                           "queued")
 def _():
@@ -389,8 +391,9 @@ def _():
           "status's public result differs from gate show's")
 
 
-@case("command_bounds", "peerbox The gate record (command, checker, generator): 1 to 64 strings of at most 4,096 "
-                        "bytes summed; over either bound 400 invalid naming the field, the gate unchanged")
+@case("command_bounds", "peerbox The gate record (command, checker, generator, max_changes_bytes): 1 to 64 strings "
+                        "of at most 4,096 bytes summed, and max_changes_bytes at least 65,536; past a bound 400 "
+                        "invalid naming the field, the gate unchanged")
 def _():
     tidy()
     before = record(show())
@@ -405,9 +408,12 @@ def _():
     for flag, argv in (("--command", over), ("--command", []), ("--command", ["x"] * 65), ("--checker", over),
                        ("--generator", over)):
         refused_set(args(flag, argv), "invalid", flag[2:])
+    refused_set(outputs_args(["echo", "x"], extra=("--max-changes-bytes", 65535)), "invalid", "max_changes_bytes")
     check(record(show())["version"] == before["version"], "a refused gate set changed the gate")
     for argv in (at, ["echo"] + ["x"] * 63):
         check(record(set_outputs(argv))["command"] == argv, f"a command of {len(argv)} strings refused")
+    least = record(set_outputs(["echo", "x"], extra=("--max-changes-bytes", 65536)))["max_changes_bytes"]
+    check(least == 65536, f"max_changes_bytes 65536 recorded as {least}")
 
 
 suite.finish()

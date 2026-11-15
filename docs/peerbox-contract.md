@@ -439,7 +439,7 @@ A gate has one of two **modes** (PBX-25):
 | `link` | Null for `outputs`; for `episode`, `{port, connections, bytes}`: the link port (1 to 65,535), the connections open at once (1 to 64, default 16) and the bytes each way over a pair's life (1 to 1,073,741,824, default 268,435,456). |
 | `cpus`, `memory_mib`, `timeout_seconds` | Each run's bounds, as a runtime task's `resources`, at most what the runtime reports. `cpus` and `memory_mib` bound candidate runs; `timeout_seconds` bounds every run, and a linked pair as a whole. |
 | `checker_cpus`, `checker_memory_mib` | The bounds of check, environment and generator runs; default the candidate's. |
-| `max_changes_bytes` | 1 to 104,857,600: bounds everything the candidate run changes in its workspace, not only its outputs, because the run's changes come back as one `changes.tar` and the runtime drops it whole above its limit. Builds should write outside the workspace (a runner script in the inputs can arrange that). The generator run is bounded the same way. |
+| `max_changes_bytes` | 65,536 to 104,857,600: bounds a run's **changes size**, the size in bytes of its `changes.tar` as the runtime reports it among the run's result artifacts ([runtime task contract, Result artifacts](runtime-task-contract.md#result-artifacts)); `deleted.txt` is not counted. It is the archive, not the changed files' bytes, because the archive is what comes back and what the runtime drops whole above its 104,857,600-byte limit, and the home host reads its size without unpacking it. An archive holding nothing still has a size (tar's headers and padding), so the bound starts at 65,536 bytes. Everything the candidate run changes in its workspace counts, not only its outputs, so builds should write outside the workspace (a runner script in the inputs can arrange that). The generator run is bounded the same way. |
 | `salt` | 32 random bytes, drawn at each `gate set`; owner only. |
 | `commitment` | The gate's commitment (below). |
 | `frontier` | Null, or `{commit, scores, measured_at}` from the latest evaluation. |
@@ -505,11 +505,13 @@ after the head moved, draws a new secret.
 
 **Generator.** With a `generator`, the home host first runs it once, before the first
 measurement, on its own runtime: the workspace is the checker snapshot and the secret, the
-results are `changes`, and the bounds are the checker's and `max_changes_bytes`. What its
+results are `changes`, and the bounds are the checker's and `max_changes_bytes`, on its
+changes size as for a candidate run. What its
 changes hold under `.peerbox-gate/inputs/` replaces the inputs snapshot in every candidate
 run of the evaluation; the rest of its changes are added under `.peerbox-gate/generated/` to
 every check run's workspace, and never to a candidate's. A generator that fails, times out,
-or whose changes exceed the bound or were dropped pauses the gate with `generator_failed` and
+or whose changes size exceeds the bound or whose `changes.tar` was dropped pauses the gate
+with `generator_failed` and
 leaves the contribution queued.
 
 An evaluation measures the **frontier** (the protected head) and the **candidate** (the
@@ -527,8 +529,9 @@ A measurement in `outputs` mode is two runs:
    **outputs** are the regular files and directories its changes hold under
    `.peerbox-gate/out/`; everything else it wrote, printed or returned is ignored. Its time
    is the run result's `duration_ms` (at least 1). A run that fails, times out or is
-   cancelled, or whose changes exceed `max_changes_bytes` or were dropped, is a **failed
-   measurement** with the code `run_failed` or `outputs_too_large`.
+   cancelled, is a **failed measurement** with the code `run_failed`; one whose changes size
+   exceeds `max_changes_bytes`, or whose `changes.tar` was dropped, is one with the code
+   `outputs_too_large`.
 2. **Check run.** The workspace is the checker snapshot, the secret, the generator's other
    files and the outputs under `.peerbox-gate/out/`; the run executes `checker` with
    `results: output`. No candidate code runs in it. Its result is its **result line**
@@ -1131,9 +1134,9 @@ pausing the gate; `not_fast_forward` rejecting before any run; the owner accepti
 different contribution during an evaluation, so the promotion swaps nothing and the
 candidate is evaluated again against the new head; the owner rejecting the candidate itself
 during its evaluation, which cancels the evaluation, keeps the owner's rejection and
-evaluates it no more; a candidate whose changes exceed `max_changes_bytes` failing with
+evaluates it no more; a candidate whose changes size (its `changes.tar`) exceeds `max_changes_bytes` failing with
 `outputs_too_large`; `dirty_worktree` pausing; a gate command over 4,096
-bytes refused;
+bytes refused; `max_changes_bytes` below 65,536 refused naming it;
 evaluation order and one at a time; superseding while queued; pause, resume, clear and
 review by hand while paused; `runtime_disabled`; the public result in `status` and the
 summary in `list`, with no run output, checker command or digest; restart during an
