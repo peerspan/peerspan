@@ -122,18 +122,26 @@ binding is in another network (PF-08). Objects and signatures that fail any chec
 Grants are stored only on this host, as `fs-pull-grants.json` (mode 0600) in the state directory,
 never in signed policy, so holding the person key does not let another machine allow an agent
 here. A grant names a registered agent of this host and a space with a binding on this host; the
-binding must still be `registered` when the agent pulls. At most 256 grants.
+binding must still be `registered` when the agent pulls. At most 256 grants. A grants file that
+is malformed, or is not a regular file of B's account with mode 0600, holds no grants: an agent's
+listing is empty (200 `{grants: []}`), the tool is not offered and `fs_pull` is 403, and the
+owner's grant commands are 409 `conflict` naming the problem until the file is fixed or removed.
 
 The tool `fs_pull` takes `{peer, space, branch, into}` and returns section 2's answer or an error
 with the codes of section 6. It is offered to an agent only while the agent has at least one
 grant, and refused (403 `forbidden`) for a destination it has no grant for. An agent's pull is
-recorded as the activity `fs.pulled`, with the agent, `(peer, space, branch)`, `into`, the
-target head and the byte count; the owner's too.
+recorded as the activity `fs.pulled`, the owner's too, with the subject
+`[AGENT/]INTO/<S>:<SPACE>/BRANCH`: the agent (absent for the owner), the local space `into`, and
+the tracking reference of section 2. The target head and the byte count are in the pull's answer,
+not the activity.
 
 ## 6. Commands and errors
 
 `fs pull --peer HOST --space SPACE --branch BRANCH --into LOCAL_SPACE [--network ID]
-[--max-bytes N] [--json]`. `--network` is optional when L's binding names the network.
+[--max-bytes N] [--json]`. The pull's network N is always L's binding's network: `--network`
+may name it, and naming any other network is 409. So a branch S shares with B only in another
+network is 404 without `--network` (S's discovery in N does not list it) and 409 with that
+network named. An agent's `fs_pull` takes no network and always uses N.
 
 | Status / code | Meaning |
 | --- | --- |
