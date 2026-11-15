@@ -20,7 +20,7 @@ from harness import Suite, check
 from runtime_common import bind, state
 from peerbox_common import rev
 from peerbox_gate_common import (REASON, contribute, decided, gate_decision, gate_peerbox, gate_setup, line, mark,
-                                 pairs, paired_bound, set_gate, two_decimals)
+                                 near_half, pairs, paired_bound, rounded, set_gate)
 
 suite = Suite("peerbox_gate_paired", __doc__)
 bind(suite)
@@ -104,18 +104,20 @@ def run(name):
     check(g["compare"] == s["compare"] and g["direction"] == s["direction"] and g["min_gain"] == s["min_gain"],
           f"the public result's settings {g}")
     check(len(pairs(since)) == 2 * s["repeats"], f"{len(pairs(since))} measurements, want {2 * s['repeats']}")
+    want = [round(sum(v) / len(v), 4) for v in (s["f"], s["c"])]
     if s["code"] == "check_failed":
-        check(g["paired"] is None, f"paired {g['paired']} with a failed measurement")
+        check(g["paired"] is None and g["frontier_scores"] == [want[0]] and g["candidate_scores"] == [None],
+              f"paired {g['paired']}, scores {g['frontier_scores']} {g['candidate_scores']} with a failed candidate "
+              f"measurement, want null, [{want[0]}], [None]")
         return g
     passes, n, gain, bound = paired_bound([s["f"]] * s["repeats"], [s["c"]] * s["repeats"], s["direction"],
                                           s["min_gain"], s["compare"], s["range"])
     p = g["paired"]
     check(isinstance(p, dict) and set(p) == {"episodes", "mean_gain_percent", "margin_bound_percent"}
-          and p["episodes"] == n and two_decimals(p["mean_gain_percent"], gain)
-          and two_decimals(p["margin_bound_percent"], bound)
+          and p["episodes"] == n and rounded(p["mean_gain_percent"], gain)
+          and rounded(p["margin_bound_percent"], bound)
           and (s["expect"] == "rejected" or p["margin_bound_percent"] >= 0),
           f"paired {p}, want episodes {n}, mean_gain_percent {gain:.4f}, margin_bound_percent {bound:.4f}")
-    want = [round(sum(v) / len(v), 4) for v in (s["f"], s["c"])]
     check(g["frontier_scores"] == [want[0]] * s["repeats"] and g["candidate_scores"] == [want[1]] * s["repeats"],
           f"scores {g['frontier_scores']} {g['candidate_scores']}, want {want}")
     if s["expect"] == "rejected":
@@ -136,6 +138,8 @@ def _():
         passes, n, gain, bound = paired_bound([s["f"]] * s["repeats"], [s["c"]] * s["repeats"], s["direction"],
                                               s["min_gain"], s["compare"], s["range"])
         check(passes == (s["expect"] == "promoted") and abs(bound) > 0.1, f"{name}: bound {bound:.3f}% passes {passes}")
+        # Clear of a half-hundredth, so any faithful computation rounds them to the one value the case asserts.
+        check(not near_half(gain) and not near_half(bound), f"{name}: {gain} or {bound} too near a half to round")
         check(len(result_line(s["c"])) < 262144, f"{name}: the result line is too long")
     # repeats: the same samples pooled as 60 episodes would promote.
     r = CASES["repeats"]
