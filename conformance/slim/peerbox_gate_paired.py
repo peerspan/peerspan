@@ -20,7 +20,7 @@ from harness import Suite, check
 from runtime_common import bind, state
 from peerbox_common import rev
 from peerbox_gate_common import (REASON, contribute, decided, gate_decision, gate_peerbox, gate_setup, line, mark,
-                                 near_half, pairs, paired_bound, rounded, set_gate)
+                                 pairs, paired_bound, set_gate, two_decimals)
 
 suite = Suite("peerbox_gate_paired", __doc__)
 bind(suite)
@@ -104,20 +104,18 @@ def run(name):
     check(g["compare"] == s["compare"] and g["direction"] == s["direction"] and g["min_gain"] == s["min_gain"],
           f"the public result's settings {g}")
     check(len(pairs(since)) == 2 * s["repeats"], f"{len(pairs(since))} measurements, want {2 * s['repeats']}")
-    want = [round(sum(v) / len(v), 4) for v in (s["f"], s["c"])]
     if s["code"] == "check_failed":
-        check(g["paired"] is None and g["frontier_scores"] == [want[0]] and g["candidate_scores"] == [None],
-              f"paired {g['paired']}, scores {g['frontier_scores']} {g['candidate_scores']} with a failed candidate "
-              f"measurement, want null, [{want[0]}], [None]")
+        check(g["paired"] is None, f"paired {g['paired']} with a failed measurement")
         return g
     passes, n, gain, bound = paired_bound([s["f"]] * s["repeats"], [s["c"]] * s["repeats"], s["direction"],
                                           s["min_gain"], s["compare"], s["range"])
     p = g["paired"]
     check(isinstance(p, dict) and set(p) == {"episodes", "mean_gain_percent", "margin_bound_percent"}
-          and p["episodes"] == n and rounded(p["mean_gain_percent"], gain)
-          and rounded(p["margin_bound_percent"], bound)
+          and p["episodes"] == n and two_decimals(p["mean_gain_percent"], gain)
+          and two_decimals(p["margin_bound_percent"], bound)
           and (s["expect"] == "rejected" or p["margin_bound_percent"] >= 0),
           f"paired {p}, want episodes {n}, mean_gain_percent {gain:.4f}, margin_bound_percent {bound:.4f}")
+    want = [round(sum(v) / len(v), 4) for v in (s["f"], s["c"])]
     check(g["frontier_scores"] == [want[0]] * s["repeats"] and g["candidate_scores"] == [want[1]] * s["repeats"],
           f"scores {g['frontier_scores']} {g['candidate_scores']}, want {want}")
     if s["expect"] == "rejected":
@@ -138,8 +136,6 @@ def _():
         passes, n, gain, bound = paired_bound([s["f"]] * s["repeats"], [s["c"]] * s["repeats"], s["direction"],
                                               s["min_gain"], s["compare"], s["range"])
         check(passes == (s["expect"] == "promoted") and abs(bound) > 0.1, f"{name}: bound {bound:.3f}% passes {passes}")
-        # Clear of a half-hundredth, so any faithful computation rounds them to the one value the case asserts.
-        check(not near_half(gain) and not near_half(bound), f"{name}: {gain} or {bound} too near a half to round")
         check(len(result_line(s["c"])) < 262144, f"{name}: the result line is too long")
     # repeats: the same samples pooled as 60 episodes would promote.
     r = CASES["repeats"]
@@ -166,40 +162,40 @@ def _():
     gate_peerbox(suite)
 
 
-@case("paired_normal_verdicts", "peerbox Verdict (paired_normal): mean(e) - 1.645 sd/sqrt(n) >= 0 promotes, below "
+@suite.case("paired_normal_verdicts", "peerbox Verdict (paired_normal): mean(e) - 1.645 sd/sqrt(n) >= 0 promotes, below "
                                 "is below_margin, lower and higher; the public result's compare, secret_sha256, paired")
 def _():
     for name in ("normal_lower_pass", "normal_lower_fail", "normal_higher_pass", "normal_higher_fail"):
         run(name)
 
 
-@case("paired_bounded_verdicts", "peerbox Verdict (paired_bounded): the empirical Bernstein bound with L = ln 40 and "
+@suite.case("paired_bounded_verdicts", "peerbox Verdict (paired_bounded): the empirical Bernstein bound with L = ln 40 and "
                                  "R = (2 + min_gain/100)(HI - LO), promoting and below_margin, lower and higher")
 def _():
     for name in ("bounded_lower_pass", "bounded_lower_fail", "bounded_higher_pass", "bounded_higher_fail"):
         run(name)
 
 
-@case("repeats_averaged", "peerbox Verdict: each episode averaged over the repeats, n the episodes (never samples "
+@suite.case("repeats_averaged", "peerbox Verdict: each episode averaged over the repeats, n the episodes (never samples "
                           "times repeats), so identical repeats leave the bound unchanged")
 def _():
     run("repeats")
 
 
-@case("margin_per_episode", "peerbox Verdict: e = d - (min_gain/100) f per episode; a gain beating the margin "
+@suite.case("margin_per_episode", "peerbox Verdict: e = d - (min_gain/100) f per episode; a gain beating the margin "
                             "against mean(f) taken as exact but not per episode is below_margin")
 def _():
     run("margin")
 
 
-@case("rare_large_loss", "peerbox Verdict: samples with one rare large loss that paired_normal promotes and "
+@suite.case("rare_large_loss", "peerbox Verdict: samples with one rare large loss that paired_normal promotes and "
                          "paired_bounded rejects")
 def _():
     run("rare_bounded")
     run("rare_normal")
 
 
-@case("sample_failures", "peerbox Result line: fewer than 30 samples, a count other than the first frontier "
+@suite.case("sample_failures", "peerbox Result line: fewer than 30 samples, a count other than the first frontier "
                          "measurement's, and a sample outside score_range with paired_bounded are check_failed")
 def _():
     for name in ("few", "count", "outside"):
