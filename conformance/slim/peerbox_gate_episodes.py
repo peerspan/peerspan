@@ -22,7 +22,7 @@ import json
 
 from harness import Suite, check, wait_for
 from runtime_common import bind, need, state
-from peerbox_common import op_ok, owner_cli, rev, status_all
+from peerbox_common import op_ok, owner_cli, rev, settle, status_all
 from peerbox_fixtures import commit_on
 from peerbox_gate_common import (CHECKER, COMMITTED, HEX64, INPUTS, PORT, REASON, RUNTIME, SUMMARY, check_pair,
                                  commitment, contribute, decided, digests, evaluation_with, gate_args, gate_decision,
@@ -279,8 +279,15 @@ def _():
     main, wt = state["main"], state["wt"]
     base = commit_on(wt, "base-x", {"x.txt": "an ancestor of the candidate\n"}, start=main)
     top = commit_on(wt, "moved", {"f/moved.txt": CANDIDATE["moved"]}, start=base)
-    candidate = submit_tip("moved", top)["contribution_id"]  # the older, so evaluated first
-    ancestor = submit_tip("base-x", base)["contribution_id"]
+    first = submit_tip("moved", top)
+    # The queue orders by (submitted_at, contribution_id) and IDs are random, so the ancestor must be submitted at a
+    # later submitted_at to be evaluated second: wait past the timestamp's second before submitting it.
+    settle(1.1)
+    second = submit_tip("base-x", base)
+    candidate, ancestor = first["contribution_id"], second["contribution_id"]
+    check(first["submitted_at"] < second["submitted_at"] and show()["queue"] == [candidate, ancestor],
+          f"submitted_at {first['submitted_at']} and {second['submitted_at']}, queue {show()['queue']}: want the "
+          f"candidate evaluated first")
     since = mark()
     owner_cli("gate", "resume", pbx())
     first_env_started(since)
