@@ -35,9 +35,9 @@ RESULT_KEYS = ["exit_code", "signal", "timed_out", "duration_ms", "stdout_bytes"
 RULE_KEYS = ["host", "principals", "max_cpus", "max_memory_mib", "max_seconds", "max_output_bytes",
              "max_artifact_bytes", "peerfs_workspaces", "allow_disconnected"]
 # runtime, The runtime's local API: GET /v1/runtime (`max_network` and `images` from the runtime agent contract,
-# `links` from Linked runs).
+# `links` from Linked runs, `peerfs_caches` from the build cache contract).
 REPORT_KEYS = {"version", "image", "max_cpus", "max_memory_mib", "max_seconds", "max_concurrent_runs", "running",
-               "peerfs", "max_network", "images", "links"}
+               "peerfs", "max_network", "images", "links", "peerfs_caches"}
 DEFAULTS = {"max_cpus": 2, "max_memory_mib": 2048, "max_seconds": 3600, "max_output_bytes": 1048576,
             "max_artifact_bytes": 104857600}
 

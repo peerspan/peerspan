@@ -69,6 +69,28 @@ above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`
 - `--requests FILE` appends one JSON line per `POST /v1/runs`, `{at, status, body}`, with `body` the request's raw
   text: its fields, `secrets` paths included but never their contents, so a suite can compare resends byte for byte.
 
+Build caches (docs/build-cache-contract.md, Runtime and Verification). `GET /v1/runtime` reports `peerfs_caches`, true
+when the fake serves peerfs workspaces unless started with `--peerfs-caches 0`. `POST /v1/runs` takes `peerfs_cache`
+and `peerfs_cache_save`, each null or a cache name (1 to 128 characters of `a-z`, `0-9`, `.`, `_`, `-`, starting with
+a letter or digit) with `peerfs_fork_from` set, and `peerfs_cache_save` only with `peerfs_commit` false; either is 400
+`invalid` naming it otherwise, or when `peerfs_caches` is false. `run_id` may also be `cache_` and 32 lowercase hex
+digits (a host refresh run). The fake's paths are classed as peerfs classes them: a path under `target/`,
+`node_modules/` or `.peerspan/cache/` is derived, and every other path is source. A branch's head is `01` and the
+lowercase hex SHA-256 of its sorted source paths and contents (`branch_head`), so a suite moves `main`'s head by
+writing a source file into its directory. Caches live under `--dir`/peerfs/.caches/NAME across restarts: `current.json`
+(`{version, commit, saved_at, bytes}`) and the version's files under `vN/`.
+- `peerfs_cache` gives the fork the cache's current version: each of its files is copied into the new workspace at its
+  path unless the base has that path, and the log records `fork_cache` with `run_id`, `workspace`, `cache` and the
+  version's `commit` (null when the cache does not exist, which is no error).
+- `peerfs_cache_save` makes the run a refresh. Once the command has ended, a run that changed a source path (added,
+  changed or removed since the fork) gets `error` `the build changed source files: PATH`, the first in byte order,
+  unless it already had one. If it exited 0 and has no `error`, its derived files become a new current version, with
+  `commit` the fork's head and `bytes` their sizes summed, and `cache_saved` is true (log `cache_saved`). Every refresh
+  whose fork was made then has its workspace discarded and its branch removed, so no later fork can name it (log
+  `refresh_removed`); a failed one leaves the cache as it was.
+- The `exited` result gains `cache_saved`, false for every run that saved nothing.
+- `argv` `["/bin/sh", "-c", TEXT]`, as a refresh sends, runs TEXT split on whitespace as steps.
+
 Linked pairs (docs/runtime-task-contract.md, "Linked runs"; PBX-26, PBX-27). `GET /v1/runtime` reports `links` true
 unless started with `--links 0`; such a fake answers a run with a `link` 422 `unavailable`. `link` is
 `{id, role, port, max_connections, max_bytes}`, each checked as that section says (otherwise 400 `invalid` naming
@@ -128,7 +150,7 @@ from http.server import BaseHTTPRequestHandler
 
 CHUNK = 16384
 LOG_CUT = 104_857_600
-RUN_ID = re.compile(r"^run_[0-9a-f]{64}$")
+RUN_ID = re.compile(r"^(run_[0-9a-f]{64}|cache_[0-9a-f]{32})$")  # cache_: a host refresh run (build cache contract)
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 RUN_FIELDS = ("run_id", "argv", "cwd", "env", "resources", "workspace_archive", "peerfs_workspace", "results")
 PEERFS_NAME_BYTES = 255
@@ -136,7 +158,9 @@ RESOURCE_FIELDS = ("cpus", "memory_mib", "timeout_seconds")
 # runtime-agent-contract, The runtime's local API: optional fields and the value each takes when omitted.
 AGENT_DEFAULTS = {"network": "none", "stdin": None, "harness": None, "secrets": None, "peerfs_fork_from": None,
                   "peerfs_agent": "peerspan-runtime", "peerfs_commit": False, "peerfs_commit_message": None,
-                  "peerfs_discard": False, "image": None}
+                  "peerfs_discard": False, "image": None, "peerfs_cache": None, "peerfs_cache_save": None}
+CACHE_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")  # build-cache-contract, peerfs: caches
+DERIVED = ("target/", "node_modules/", ".peerspan/cache/")  # the fake's derived-class paths; all others are source
 HARNESS_SECRETS = ("openai_api_key", "anthropic_api_key")  # runtime-agent-contract: one per harness
 IMAGE = re.compile(r"^[\x21-\x7e]{1,1024}$")  # printable ASCII without whitespace
 SECRET_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -152,6 +176,37 @@ PROBE = 0.2  # seconds a new connection is watched for the link's reset
 
 def now_text():
     return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def derived(rel):
+    """Whether the workspace path REL (relative, `/`-separated) is derived-class on the fake."""
+    return any(rel.startswith(prefix) for prefix in DERIVED)
+
+
+def files_of(root, keep):
+    """{relative path: bytes} of the regular files and symbolic links (`link:TARGET`) under ROOT where KEEP(path)."""
+    out = {}
+    for base, dirs, names in os.walk(root):
+        for name in names + [d for d in dirs if os.path.islink(os.path.join(base, d))]:
+            full = os.path.join(base, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if not keep(rel):
+                continue
+            if os.path.islink(full):
+                out[rel] = b"link:" + os.readlink(full).encode()
+            elif os.path.isfile(full):
+                with open(full, "rb") as f:
+                    out[rel] = b"file:" + f.read()
+    return out
+
+
+def branch_head(root):
+    """The fake's head of the branch whose contents are ROOT: `01` and the SHA-256 of its sorted source paths and
+    contents (build cache Verification: a cache's `commit` is the head it was built from)."""
+    digest = hashlib.sha256()
+    for rel, data in sorted(files_of(root, lambda p: not derived(p)).items()):
+        digest.update(rel.encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
+    return "01" + digest.hexdigest()
 
 
 class ApiError(Exception):
@@ -203,6 +258,8 @@ class Run:
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
         self.oom_kills = 0  # set by the `oom` step
+        self.forked = False  # this run made its fork (a refresh's is removed when it ends)
+        self.base_head = None  # the fork's head when it was made
         self.started_at = None
         self.thread = threading.Thread(target=self.main, daemon=True)
 
@@ -251,6 +308,13 @@ class Run:
             self.read_secrets()
             if self.fork_from is not None:
                 self.workspace = self.runtime.fork(self.fork_from, self.peerfs)
+                self.forked = True
+                self.base_head = branch_head(self.workspace)
+                if self.request.get("peerfs_cache") is not None:
+                    given = self.runtime.give_cache(self.request["peerfs_cache"], self.workspace)
+                    self.runtime.log(event="fork_cache", run_id=self.run_id, workspace=self.peerfs,
+                                     cache=self.request["peerfs_cache"], commit=given)
+                self.source_before = files_of(self.workspace, lambda p: not derived(p))
             if self.peerfs is not None and self.workspace is None:
                 raise RefusedEntry(f"no peerfs workspace named {self.peerfs!r}")
             self.unpack()
@@ -294,9 +358,31 @@ class Run:
                     self.runtime.log(event="discard_failed", run_id=self.run_id, error=str(failure))
                 else:
                     self.runtime.log(event="discarded", run_id=self.run_id, workspace=self.peerfs)
+        cache_saved = False
+        save = self.request.get("peerfs_cache_save")
+        if save is not None and self.forked:
+            # build-cache-contract, Runtime: a refresh saves only after exit 0, with no error and no source changed;
+            # its workspace and branch go whatever happened.
+            if started:
+                after = files_of(self.workspace, lambda p: not derived(p))
+                changed = sorted((p for p in set(self.source_before) | set(after)
+                                  if self.source_before.get(p) != after.get(p)), key=lambda p: p.encode())
+                if changed and error is None:
+                    error = f"the build changed source files: {changed[0]}"
+                if exit_code == 0 and sig is None and not timed_out and error is None:
+                    try:
+                        version = self.runtime.save_cache(save, self.workspace, self.base_head)
+                    except Exception as failure:  # noqa: BLE001 - a save that fails sets error
+                        error = f"the cache save failed: {failure}"
+                    else:
+                        cache_saved = True
+                        self.runtime.log(event="cache_saved", run_id=self.run_id, cache=save, **version)
+            self.runtime.remove_refresh(self.peerfs)
+            self.runtime.log(event="refresh_removed", run_id=self.run_id, workspace=self.peerfs)
         result = {"exit_code": exit_code if started else None, "signal": sig, "timed_out": timed_out,
                   "duration_ms": duration, "stdout_bytes": self.stdout_bytes, "stderr_bytes": self.stderr_bytes,
-                  "snapshot": snapshot, "error": error, "oom_kills": self.oom_kills, "commit": commit}
+                  "snapshot": snapshot, "error": error, "oom_kills": self.oom_kills, "commit": commit,
+                  "cache_saved": cache_saved}
         if not started and sig is None and error is None:
             result["error"] = "the run did not start"
         self.stdout.close()
@@ -452,6 +538,8 @@ class Run:
             stdin = self.request.get("stdin")
             prompt = base64.b64decode(stdin).decode("utf-8", "replace") if stdin else ""
             argv = prompt.split()
+        elif len(argv) == 3 and argv[:2] == ["/bin/sh", "-c"]:
+            argv = argv[2].split()  # a host refresh run's command (build cache contract)
         program, current = [], []
         for word in argv:
             if word == ";":
@@ -821,6 +909,7 @@ class Runtime:
         # Forks made by earlier runs (runtime-agent-contract), kept across restarts while a peerfs space is served.
         self.forks_file = os.path.join(self.peerfs_root, ".forks.json")
         self.branches_root = os.path.join(self.peerfs_root, ".branches")
+        self.caches_root = os.path.join(self.peerfs_root, ".caches")  # build caches, kept across restarts
         if self.peerfs and os.path.exists(self.forks_file):
             with open(self.forks_file) as f:
                 for name in json.load(f):
@@ -876,6 +965,75 @@ class Runtime:
             self.branches[name] = kept
             self.save_forks()
 
+    def caches_served(self):
+        return bool(self.args.peerfs_workspace) and bool(self.args.peerfs_caches)
+
+    def cache_current(self, name):
+        """The cache NAME's current version `{version, commit, saved_at, bytes}`, or None when it does not exist."""
+        try:
+            with open(os.path.join(self.caches_root, name, "current.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def give_cache(self, name, workspace):
+        """build-cache-contract: a fork holding the cache's current version; returns its commit (None: no cache)."""
+        with self.lock:
+            current = self.cache_current(name)
+            if current is None:
+                return None
+            source = os.path.join(self.caches_root, name, f"v{current['version']}")
+            for rel in files_of(source, lambda p: True):
+                target = os.path.join(workspace, *rel.split("/"))
+                if os.path.lexists(target):
+                    continue  # a cache never hides the base
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                shutil.copy2(os.path.join(source, *rel.split("/")), target, follow_symlinks=False)
+            return current["commit"]
+
+    def save_cache(self, name, workspace, commit):
+        """build-cache-contract: WORKSPACE's derived files as a new current version of NAME, atomically."""
+        with self.lock:
+            root = os.path.join(self.caches_root, name)
+            os.makedirs(root, mode=0o700, exist_ok=True)
+            earlier = self.cache_current(name)
+            version = (earlier["version"] if earlier else 0) + 1
+            target = os.path.join(root, f"v{version}")
+            shutil.rmtree(target, ignore_errors=True)
+            total = 0
+            for rel, data in files_of(workspace, derived).items():
+                path = os.path.join(target, *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                shutil.copy2(os.path.join(workspace, *rel.split("/")), path, follow_symlinks=False)
+                total += len(data) - len(b"file:") if data.startswith(b"file:") else 0
+            os.makedirs(target, exist_ok=True)
+            current = {"version": version, "commit": commit, "saved_at": now_text(), "bytes": total}
+            with open(os.path.join(root, "current.json.new"), "w") as f:
+                json.dump(current, f)
+            os.replace(os.path.join(root, "current.json.new"), os.path.join(root, "current.json"))
+            if earlier:  # the fake's forks copy a version, so no workspace holds the earlier one
+                shutil.rmtree(os.path.join(root, f"v{earlier['version']}"), ignore_errors=True)
+            return current
+
+    def remove_cache(self, name):
+        """build-cache-contract, `cache rm NAME`: the cache goes; True when it existed."""
+        with self.lock:
+            root = os.path.join(self.caches_root, name)
+            existed = os.path.isdir(root)
+            shutil.rmtree(root, ignore_errors=True)
+            return existed
+
+    def remove_refresh(self, name):
+        """build-cache-contract: a refresh's workspace is discarded and its branch removed."""
+        with self.lock:
+            path = self.peerfs.pop(name, None)
+            if path is not None:
+                shutil.rmtree(path, ignore_errors=True)
+            kept = self.branches.pop(name, None)
+            if kept is not None:
+                shutil.rmtree(kept, ignore_errors=True)
+            self.save_forks()
+
     def save_forks(self):
         """The forks and discarded branches, for restarts of the fake. Called with the lock held."""
         forks = sorted(n for n in [*self.peerfs, *self.branches] if n not in self.args.peerfs_workspace)
@@ -890,7 +1048,8 @@ class Runtime:
                 "max_memory_mib": self.args.max_memory_mib, "max_seconds": self.args.max_seconds,
                 "max_concurrent_runs": self.args.max_concurrent_runs, "running": running,
                 "peerfs": bool(self.args.peerfs_workspace), "max_network": self.args.max_network,
-                "images": bool(self.args.images), "links": bool(self.args.links)}
+                "images": bool(self.args.images), "links": bool(self.args.links),
+                "peerfs_caches": self.caches_served()}
 
     def validate(self, body):
         if not isinstance(body, dict):
@@ -936,7 +1095,20 @@ class Runtime:
         if name is not None and body["results"] == "changes":
             raise ApiError(400, "invalid", "results changes on a peerfs workspace")
         self.validate_agent_fields(body)
+        self.validate_cache_fields(body)
         self.validate_link(body)
+
+    def validate_cache_fields(self, body):
+        """build-cache-contract, Runtime: two run fields (400 invalid naming the field)."""
+        for field in ("peerfs_cache", "peerfs_cache_save"):
+            value = body[field]
+            if value is None:
+                continue
+            if (not isinstance(value, str) or not CACHE_NAME.match(value) or body["peerfs_fork_from"] is None
+                    or (field == "peerfs_cache_save" and body["peerfs_commit"] is not False)):
+                raise ApiError(400, "invalid", field)
+            if not self.caches_served():
+                raise ApiError(400, "invalid", f"{field}: this runtime's peerfs has no caches")
 
     @staticmethod
     def validate_link(body):
@@ -1232,6 +1404,8 @@ def main():
                         help="append each POST /v1/runs body, as sent, as one JSON line (secret paths, no contents)")
     parser.add_argument("--links", type=int, choices=(0, 1), default=1,
                         help="0: GET /v1/runtime reports links false and runs may not have a link (Linked runs)")
+    parser.add_argument("--peerfs-caches", type=int, choices=(0, 1), default=1,
+                        help="0: GET /v1/runtime reports peerfs_caches false and runs may not name a cache")
     parser.add_argument("--log-workspaces", type=int, choices=(0, 1), default=0,
                         help="1: log each run's unpacked workspace (paths and file digests)")
     args = parser.parse_args()
