@@ -571,7 +571,11 @@ sample *i* is the same episode in every measurement of the evaluation. A missing
 malformed line, a failed or timed-out run, or `pass` false is a failed measurement with the
 code `check_failed` and the run's `reason` when it gave one; so is a sample outside
 `score_range` with `paired_bounded`, or a sample count that differs from the evaluation's
-first frontier measurement's. A result line over 262,144 bytes is malformed.
+first frontier measurement's. A line that breaks any rule of its own shape above, a key
+missing or extra, a value of the wrong type, a `reason` over 200 bytes, or `samples` with
+fewer than 30 or more than 10,000 entries, is malformed, as is a result line over 262,144
+bytes. A sample outside `score_range` and a sample count different from the first frontier
+measurement's are not: such a line is well formed and read, and its measurement fails.
 
 A result line is **read** only from a check or environment run that exited 0, and only when
 it is well formed; the line of a run that failed or timed out, and a malformed line, are not
