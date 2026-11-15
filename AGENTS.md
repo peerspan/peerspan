@@ -109,6 +109,11 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
   proposal MCP tools and `approve` on a pseudo-terminal (peerbox contract, Agent proposals; PBX-16 to PBX-21), with
   `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, strict `XFAIL` until implemented.
+- `peerbox_gate_episodes`, `peerbox_gate_paired`: episode gates on the fake runtime's linked pairs (peerbox contract,
+  Gates; PBX-25 to PBX-33), with `peerbox_gate_common.py`: workspaces, environment failures, link bounds, the
+  evaluation secret, images, the commitment, the public summary and `gate set` refusals; then `paired_normal` and
+  `paired_bounded` verdicts at known samples. Second tier only, strict `XFAIL` until implemented (399 and 205 lines
+  plus 446 shared; 20 to 39 and 14 to 25 seconds measured while every gate case fails at `gate set`).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
