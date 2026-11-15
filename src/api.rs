@@ -72,6 +72,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::peerbox::local_routes())
         .merge(crate::peerbox_proposals::local_routes())
         .merge(crate::runtime_agent::local_routes())
+        .merge(crate::build_cache::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
         .layer(axum::middleware::from_fn_with_state(

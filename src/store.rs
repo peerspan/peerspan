@@ -196,7 +196,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=35).contains(&version) {
+        if !(0..=36).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -336,6 +336,9 @@ impl Store {
         if version < 35 {
             tx.execute_batch(PEERBOX_PROPOSALS)?;
         }
+        if version < 36 {
+            tx.execute_batch(crate::build_cache::SCHEMA)?;
+        }
         crate::peerfs::check_schema(&tx)?;
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;
@@ -351,7 +354,9 @@ impl Store {
         // 34 is peerbox gates (peerbox contract, Gates): gates and evaluations.
         // 35 is peerbox agent proposals (peerbox contract, Agent proposals):
         // the proposal and proposal-update tables.
-        tx.execute_batch("PRAGMA user_version = 35;")?;
+        // 36 is build caches (build cache contract): each runtime agent
+        // profile's last refresh.
+        tx.execute_batch("PRAGMA user_version = 36;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")
