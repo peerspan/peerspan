@@ -235,8 +235,15 @@ def _():
     owner_cli("gate", "pause", pbx())
     main = state["main"]
     base = commit_on(state["wt"], "mv-base", {"mv_base.txt": "an ancestor of the candidate\n"}, start=main)
-    candidate = contribute_link("mv", "mv", {"mv_top.txt": "the candidate\n"}, start=base)["contribution_id"]
-    ancestor = submit_tip("mv-base", base)["contribution_id"]  # the newer, so evaluated second
+    first = contribute_link("mv", "mv", {"mv_top.txt": "the candidate\n"}, start=base)
+    # The queue orders by (submitted_at, contribution_id) and IDs are random, so the ancestor must be submitted at a
+    # later submitted_at to be evaluated second: wait past the timestamp's second before submitting it.
+    settle(1.1)
+    second = submit_tip("mv-base", base)
+    candidate, ancestor = first["contribution_id"], second["contribution_id"]
+    check(first["submitted_at"] < second["submitted_at"] and show()["queue"] == [candidate, ancestor],
+          f"submitted_at {first['submitted_at']} and {second['submitted_at']}, queue {show()['queue']}: want the "
+          f"candidate evaluated first")
     since = mark()
     owner_cli("gate", "resume", pbx())
     started(SLOW, since)
