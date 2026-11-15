@@ -1531,6 +1531,8 @@ fn lost(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
         Some(v) => {
             let mut r = RunResult::from_exited(v, t.internal.streamed);
             r.error = Some(RESTARTED.into());
+            // A lost run reports no memory kills, as the agent output does.
+            r.oom_kills = 0;
             r
         }
         None if t.internal.started => RunResult {
