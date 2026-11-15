@@ -874,13 +874,6 @@ async fn set_gate(store: Arc<Store>, id: String, request: SetRequest) -> Result<
         })
         .await?;
     }
-    if checked.gate.compare != "worst_best" {
-        // Paired comparison is the next slice.
-        return Err(conflict(
-            "not_implemented",
-            "paired comparison is not implemented on this host yet",
-        ));
-    }
     check_runtime(&store, &checked.gate).await?;
     blocking(store, move |s| {
         contribution::with_lock(&id, || set_locked(s, &id, checked))

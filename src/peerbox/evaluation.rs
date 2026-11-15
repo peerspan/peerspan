@@ -592,6 +592,7 @@ async fn measure_all(ctx: &Context, shutdown: &mut watch::Receiver<bool>) -> Res
                     reason: None,
                 },
             };
+            let measured = check_samples(measured, g, side, &mut first_count);
             match measured {
                 Measured::Scored {
                     score,
@@ -654,7 +655,8 @@ async fn measure_all(ctx: &Context, shutdown: &mut watch::Receiver<bool>) -> Res
         };
         (pass, None)
     } else {
-        (false, None)
+        let (pass, value) = paired_bound(g, &f_samples, &c_samples);
+        (pass, Some(value))
     };
     decide(
         ctx,
@@ -668,6 +670,75 @@ async fn measure_all(ctx: &Context, shutdown: &mut watch::Receiver<bool>) -> Res
         },
     )
     .await
+}
+
+/// A paired comparison (Verdict): whether the candidate passes, and the
+/// public `paired`.
+fn paired_bound(g: &Gate, frontier: &[Vec<f64>], candidate: &[Vec<f64>]) -> (bool, Value) {
+    let n = frontier.first().map_or(0, Vec::len);
+    let mean_of =
+        |side: &[Vec<f64>], i: usize| side.iter().map(|m| m[i]).sum::<f64>() / side.len() as f64;
+    let f: Vec<f64> = (0..n).map(|i| mean_of(frontier, i)).collect();
+    let c: Vec<f64> = (0..n).map(|i| mean_of(candidate, i)).collect();
+    let lower = g.direction == "lower";
+    let d: Vec<f64> = f
+        .iter()
+        .zip(&c)
+        .map(|(fi, ci)| if lower { fi - ci } else { ci - fi })
+        .collect();
+    let k = g.min_gain / 100.0;
+    let e: Vec<f64> = d.iter().zip(&f).map(|(di, fi)| di - k * fi).collect();
+    let nf = n as f64;
+    let mean_e = e.iter().sum::<f64>() / nf;
+    let sd = (e.iter().map(|x| (x - mean_e).powi(2)).sum::<f64>() / (nf - 1.0)).sqrt();
+    let left = if g.compare == "paired_normal" {
+        mean_e - 1.645 * sd / nf.sqrt()
+    } else {
+        let [lo, hi] = g.score_range.unwrap_or([0.0, 0.0]);
+        let l = 40f64.ln();
+        let r = (2.0 + k) * (hi - lo);
+        mean_e - (2.0 * sd * sd * l / nf).sqrt() - 7.0 * r * l / (3.0 * (nf - 1.0))
+    };
+    let mean_f = f.iter().sum::<f64>() / nf;
+    let mean_d = d.iter().sum::<f64>() / nf;
+    let round = |x: f64| number((x * 100.0).round() / 100.0);
+    (
+        left >= 0.0,
+        json!({
+            "episodes": n,
+            "mean_gain_percent": round(100.0 * mean_d / mean_f),
+            "margin_bound_percent": round(left * 100.0 / mean_f),
+        }),
+    )
+}
+
+/// The sample checks that need the evaluation (Result line): the count
+/// of its first frontier measurement, and `score_range`.
+fn check_samples(m: Measured, g: &Gate, side: &str, first: &mut Option<usize>) -> Measured {
+    let Measured::Scored {
+        samples: Some(samples),
+        reason,
+        ..
+    } = &m
+    else {
+        return m;
+    };
+    let failed = Measured::Failed {
+        code: "check_failed",
+        reason: Some(reason.clone()),
+    };
+    if let Some([lo, hi]) = g.score_range
+        && g.compare == "paired_bounded"
+        && samples.iter().any(|x| *x < lo || *x > hi)
+    {
+        return failed;
+    }
+    match first {
+        Some(n) if *n != samples.len() => return failed,
+        None if side == "frontier" => *first = Some(samples.len()),
+        _ => {}
+    }
+    m
 }
 
 struct Verdict {
