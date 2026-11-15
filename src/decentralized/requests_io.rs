@@ -537,15 +537,22 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
     Ok(())
 }
 pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
-    poll_with(store, id, false).await
+    poll_with(store, id, false, false).await
 }
 /// `poll` that reads every carrier even when it was read within the last 2
 /// seconds, for an explicit administrator step: an admission without the
 /// exact owner offer and selection, or a resume (spec 16, ML-6).
 pub(crate) async fn poll_fresh(store: Arc<Store>, id: &str) -> Result<()> {
-    poll_with(store, id, true).await
+    poll_with(store, id, true, false).await
 }
-async fn poll_with(store: Arc<Store>, id: &str, fresh: bool) -> Result<()> {
+/// `poll` that retains only the request's own frames and observes nothing,
+/// for the inviter's read right after an automatic return: owner and
+/// selection proofs reach an administrator only through its explicit steps
+/// (guided session contract section22), whatever the mailbox already holds.
+pub(crate) async fn poll_request_only(store: Arc<Store>, id: &str) -> Result<()> {
+    poll_with(store, id, false, true).await
+}
+async fn poll_with(store: Arc<Store>, id: &str, fresh: bool, request_only: bool) -> Result<()> {
     let capture = store.clone();
     let lookup = id.to_owned();
     let Some(plan) = tokio::task::spawn_blocking(move || plan(&capture, &lookup))
@@ -598,7 +605,10 @@ async fn poll_with(store: Arc<Store>, id: &str, fresh: bool) -> Result<()> {
             )
             .await?;
             let raw = bootstrap_io::success(response)?;
-            let incoming = received(&raw, &plan, &now)?;
+            let mut incoming = received(&raw, &plan, &now)?;
+            if request_only {
+                incoming.retain(|frame| frame.role == "request");
+            }
             let target = store.clone();
             let id = id.to_owned();
             tokio::task::spawn_blocking(move || retain(&target, &id, incoming))
@@ -635,7 +645,9 @@ async fn poll_with(store: Arc<Store>, id: &str, fresh: bool) -> Result<()> {
             }
         }
     }
-    if success || plan.endpoints.is_empty() {
+    if request_only && (success || plan.endpoints.is_empty()) {
+        Ok(())
+    } else if success || plan.endpoints.is_empty() {
         let target = store.clone();
         let id = id.to_owned();
         tokio::task::spawn_blocking(move || observer::observe(&target, &id))
