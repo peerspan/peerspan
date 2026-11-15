@@ -32,6 +32,9 @@ from peerbox_common import (BUNDLE_TYPE, bundle, check_record, commit_files, cre
 suite = Suite("peerbox_agents", __doc__)
 bind(suite)
 TOOLS = {"peerbox_list", "peerbox_fetch", "peerbox_submit", "peerbox_status", "peerbox_withdraw", "peerbox_run"}
+# Agent proposals (MCP tools): the shared adapter adds these five, listed whatever the credential.
+PROPOSAL_TOOLS = {"peerbox_propose_create", "peerbox_propose_share", "peerbox_propose_invite",
+                  "peerbox_proposal_status", "peerbox_proposal_cancel"}
 
 
 def case(name, spec, known=None):
@@ -530,9 +533,12 @@ def _():
     if "channel_skip" not in state and "channel" in state:
         tools = need("channel")[0].call("tools/list", {})["tools"]
         named = sorted(t["name"] for t in tools if "peerbox" in (t["name"] + t.get("description", "")).lower())
-        check(set(named) == TOOLS and not [t["name"] for t in tools if re.search(
-            r"review|invite|unshare|accept|reject|decision", t["name"]) and "peerbox" in t["name"]],
-            f"the peerbox tools are {named}, want exactly {sorted(TOOLS)}")
+        # Only the proposal tools prepare a share or invite, for the person to approve (Agent proposals); no tool
+        # reviews, unshares or invites by itself.
+        check(set(named) == TOOLS | PROPOSAL_TOOLS and not [t["name"] for t in tools if re.search(
+            r"review|invite|unshare|accept|reject|decision", t["name"]) and "peerbox" in t["name"]
+            and t["name"] not in PROPOSAL_TOOLS],
+            f"the peerbox tools are {named}, want exactly {sorted(TOOLS | PROPOSAL_TOOLS)}")
         for name in ("peerbox_review", "peerbox_share", "peerbox_invite", "peerbox_accept"):
             event = need("channel")[0].call("tools/call", {"name": name, "arguments": {"destination": "pb-submit"}},
                                             whole=True)
