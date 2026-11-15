@@ -665,6 +665,33 @@ def _():
         check(not workspace(fork(task_id)).exists(), f"{message}: the fork's workspace was kept (RUN-16)")
 
 
+@suite.case("memory", "agents The output (the memory line: 1 process, N processes, the run's memory_mib, however "
+                       "the run ended); runtime The run result (oom_kills)")
+def _():
+    need("ready")
+    ready("codex", "--memory-mib", "6144")
+    # (prompt, final kind, message, kills, committed): each count for a failing exit and for exit 0, and a control.
+    cases = [("oom 1 ; write m1.txt x ; echo rustc killed ; exit 101", "failed", "rustc killed", 1, True),
+             ("oom 1 ; echo built anyway", "succeeded", "built anyway", 1, False),
+             ("oom 3 ; exit 1", "failed", "exit 1", 3, False),
+             ("oom 3 ; write m3.txt y ; echo built", "succeeded", "built", 3, True),
+             ("write m0.txt z ; echo no kills ; exit 2", "failed", "no kills", 0, True)]
+    tasks = [send("codex", prompt) for prompt, *_ in cases]
+    for task_id, (prompt, kind, message, kills, committed) in zip(tasks, cases):
+        found = events(task_id)
+        sent = posts(task_id)
+        check(sent and sent[0][2]["resources"]["memory_mib"] == 6144, f"{prompt}: resources {sent and sent[0][2]}")
+        result = exited(task_id)
+        check(result.get("oom_kills") == kills, f"{prompt}: the fake's exited result {result}")
+        line = (f"Branch: {fork(task_id)} at commit {result['commit']}" if committed
+                else f"Branch: {fork(task_id)}, unchanged from main")
+        memory = {0: "", 1: "Memory: 1 process killed for lack of memory (6144 MiB)\n",
+                  3: "Memory: 3 processes killed for lack of memory (6144 MiB)\n"}[kills]
+        want = f"{message}\n\n{memory}{line}"
+        check(found[-1]["kind"] == kind and found[-1]["output"] == want,
+              f"{prompt}: {kinds(found)} output {found[-1].get('output')!r}, want {want!r}")
+
+
 @suite.case("before_the_start", "agents Transitions (queued to failed); The output (Branch: none, the bound); "
                                 "Running (the credential read at each start)")
 def _():
@@ -827,7 +854,7 @@ def _():
     check(final["kind"] == "succeeded" and final["output"]
           == f"after the restart\n\nBranch: {fork(task_id)}, unchanged from main",
           f"the daemon restarted during a run: {final['kind']} {final.get('output')!r}")
-    task_id = send("codex", "write lost.txt x ; sleep 20")
+    task_id = send("codex", "oom 2 ; write lost.txt x ; sleep 20")  # a lost run has no memory line
     events(task_id, until=has_kind("accepted"))
     fake()
     final = events(task_id, timeout=40)[-1]
