@@ -532,7 +532,10 @@ def _():
           and pending["contribution_id"] in states, f"after the agents' attempts: {status} {states}")
     if "channel_skip" not in state and "channel" in state:
         tools = need("channel")[0].call("tools/list", {})["tools"]
-        named = sorted(t["name"] for t in tools if "peerbox" in (t["name"] + t.get("description", "")).lower())
+        # mark_seen and pending_work name peerbox proposals too (Agent proposals, Telling the agent); they are the
+        # shared tools, not peerbox tools.
+        named = sorted(t["name"] for t in tools if "peerbox" in (t["name"] + t.get("description", "")).lower()
+                       and t["name"] not in ("mark_seen", "pending_work"))
         # Only the proposal tools prepare a share or invite, for the person to approve (Agent proposals); no tool
         # reviews, unshares or invites by itself.
         check(set(named) == TOOLS | PROPOSAL_TOOLS and not [t["name"] for t in tools if re.search(
