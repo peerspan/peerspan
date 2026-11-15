@@ -327,9 +327,9 @@ def _():
     state["images"] = {"before": before, "after": show(), "extra": extra, "record": rec}
 
 
-@case("public_summary", "peerbox What readers see, Verdict: list's gate summary with exactly its keys and the "
-                        "frontier's best score; never the salt, a secret, the checker command or image, a digest or a "
-                        "sample, there or in status")
+@suite.case("public_summary", "peerbox What readers see, Verdict: list's gate summary with exactly its keys and "
+                              "the frontier's best score; never the salt, a secret, the checker command or image, a "
+                              "digest or a sample, there or in status")
 def _():
     run = need("images")[0]
     gate = record(run["after"])

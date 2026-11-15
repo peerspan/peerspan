@@ -889,6 +889,8 @@ struct Entry {
     branch: String,
     head: Option<String>,
     actions: Vec<&'static str>,
+    /// The gate's public summary, or null (Gates, What readers see).
+    gate: Value,
 }
 
 /// `list`: the peerboxes the sender may read, in ascending ID order after
@@ -935,6 +937,10 @@ fn list(store: &Store, checked: &Checked, after: Option<&str>) -> Outcome {
             branch: r.branch.clone(),
             head,
             actions: access.actions.clone(),
+            gate: match store.connection() {
+                Ok(conn) => crate::peerbox::gate::summary_of(store, &conn, &r.peerbox_id),
+                Err(_) => Value::Null,
+            },
         };
         let text = match serde_json::to_string(&entry) {
             Ok(t) => t,

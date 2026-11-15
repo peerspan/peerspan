@@ -119,8 +119,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `peerbox_gate_episodes`, `peerbox_gate_paired`: episode gates on the fake runtime's linked pairs (peerbox contract,
   Gates; PBX-25 to PBX-33), with `peerbox_gate_common.py`: workspaces, environment failures, link bounds, the
   evaluation secret, images, the commitment, the public summary and `gate set` refusals; then `paired_normal` and
-  `paired_bounded` verdicts at known samples. Second tier only, strict `XFAIL` until gates are implemented (442 and
-  209 lines plus 516 shared; about 55 and 14 seconds measured while every gate case fails at `gate set`).
+  `paired_bounded` verdicts at known samples. Second tier only; both pass in full (442 and 209 lines plus 515
+  shared; 84 and 73 seconds measured).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
