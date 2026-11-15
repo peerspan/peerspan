@@ -2177,7 +2177,7 @@ async fn poll(
     if !out.pollable() {
         return Ok((false, false));
     }
-    let status = fetch_status(&store, &out).await?;
+    let mut status = fetch_status(&store, &out).await?;
     let mut after = out.events_after;
     let mut progressed = false;
     // A running task's events are waited for (task contract, polling;
@@ -2214,6 +2214,16 @@ async fn poll(
                 if event.sequence != expected || !event.well_formed() {
                     anyhow::bail!("invalid peer task events");
                 }
+            }
+            // Events that arrived after the status was read, as a held poll's
+            // do, are stored with a status that covers them, never an older
+            // one: otherwise a final event could be notified while the record
+            // still says running (task contract, polling).
+            if events
+                .last()
+                .is_some_and(|e| e.sequence > status.last_event)
+            {
+                status = fetch_status(&store, &out).await?;
             }
         }
         let full = events.len() as i64 == page_size;
