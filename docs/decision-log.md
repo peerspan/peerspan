@@ -16,6 +16,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 Contents:
 - [Full entries](#full-entries), with options:
   - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
+  - [PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries](#pbx-34-to-pbx-37-what-gate-set-does-with-an-absent-runtime-pending-contributions-and-odd-snapshot-entries-2026-11-15) (2026-11-15)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
@@ -107,6 +108,43 @@ Contents:
   - (iii) "the CLI only"
 - **Chosen:** (i), the recommended option. The CLI send is retried, syncing in between, until the receiver rejects it, and any other final outcome fails. One raw `POST /peer/v1/messages` then checks the 403 and its code.
 - **Reason given:** none beyond choosing it.
+
+### PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries (2026-11-15)
+
+- **Date:** 2026-11-15.
+- **Area:** peerbox gates: the first implementation slice (gate configuration).
+- **Source:** the gate implementer, scoping the first slice. Four points the Gates section left open, each brought to the owner with options and a recommendation.
+- **Recorded in:** this log and the contract (this PR).
+- **Contract section:** [peerbox-contract.md, Gates](peerbox-contract.md#gates): Snapshots, Evaluation and Gate CLI and local API.
+- **Implementing PRs:** none yet.
+
+#### PBX-34. `gate set` with the runtime switch off or a runtime that does not answer
+
+- **Options:** (a) 503 `unavailable`, as `PUT /v1/runtime` does, storing nothing; (b) 409 `runtime_unsupported`; (c) accept the gate and skip the checks that need the runtime's report.
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
+
+#### PBX-35. Contributions already pending when a gate is set
+
+- **Options:** (a) queued by the `gate set`, in submission order, and shown in `gate show`'s `queue`; (b) left for review by hand, so only contributions that become pending afterwards are queued.
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
+
+#### PBX-36. The `runtime_disabled` pause
+
+- **Options:** (a) a derived state, nothing stored: shown while the switch is off, evaluation continues by itself when it is on again, and `gate resume` while the switch is off clears only an owner pause; (b) a stored pause that needs a `gate resume` after the switch is on again.
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
+
+#### PBX-37. Snapshot entries a workspace cannot hold
+
+- **Options:** (a) `gate set` refuses a directory holding entries other than directories, regular files and symbolic links, or a symbolic link whose target contains `..`, with 400 `invalid` naming `inputs_dir` or `checker_dir`, and snapshots take the workspace archive's size limit; (b) skip such entries.
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** the owner accepted the recommendation.
 
 ### PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning (2026-11-14)
 

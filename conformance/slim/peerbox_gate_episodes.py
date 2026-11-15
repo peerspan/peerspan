@@ -19,17 +19,16 @@ runs. No VM, no KVM, no model calls. Second tier only. Nothing in the gate contr
 past the network and peerbox setup is a strict expected failure.
 """
 import json
-import re
 
 from harness import Suite, check, wait_for
 from runtime_common import bind, need, state
-from peerbox_common import op_ok, owner_cli, rev, status_all
+from peerbox_common import op_ok, owner_cli, rev, settle, status_all
 from peerbox_fixtures import commit_on
 from peerbox_gate_common import (CHECKER, COMMITTED, HEX64, INPUTS, PORT, REASON, RUNTIME, SUMMARY, check_pair,
                                  commitment, contribute, decided, digests, evaluation_with, gate_args, gate_decision,
                                  gate_peerbox, gate_setup, jcs_check, last_line, line, logged, mark, pairs, pbx,
-                                 record, secret_digest, secret_sha256, set_gate, sha, show, side, status_of,
-                                 submit_tip, tidy, tree_files, workspace)
+                                 record, refused_set, secret_digest, secret_sha256, set_gate, sha, show, side,
+                                 status_of, submit_tip, tidy, tree_files, workspace)
 import fake_runtime
 
 suite = Suite("peerbox_gate_episodes", __doc__)
@@ -280,8 +279,15 @@ def _():
     main, wt = state["main"], state["wt"]
     base = commit_on(wt, "base-x", {"x.txt": "an ancestor of the candidate\n"}, start=main)
     top = commit_on(wt, "moved", {"f/moved.txt": CANDIDATE["moved"]}, start=base)
-    candidate = submit_tip("moved", top)["contribution_id"]  # the older, so evaluated first
-    ancestor = submit_tip("base-x", base)["contribution_id"]
+    first = submit_tip("moved", top)
+    # The queue orders by (submitted_at, contribution_id) and IDs are random, so the ancestor must be submitted at a
+    # later submitted_at to be evaluated second: wait past the timestamp's second before submitting it.
+    settle(1.1)
+    second = submit_tip("base-x", base)
+    candidate, ancestor = first["contribution_id"], second["contribution_id"]
+    check(first["submitted_at"] < second["submitted_at"] and show()["queue"] == [candidate, ancestor],
+          f"submitted_at {first['submitted_at']} and {second['submitted_at']}, queue {show()['queue']}: want the "
+          f"candidate evaluated first")
     since = mark()
     owner_cli("gate", "resume", pbx())
     first_env_started(since)
@@ -398,15 +404,6 @@ def _():
         out[out.index(flag) + 1] = value
         return out
 
-    def refused(args, code, field):
-        """How the CLI reports a refusal: `error: CODE: MESSAGE` on stderr, MESSAGE's first word the field (Naming
-        the field), nothing on stdout, exit 1."""
-        result = owner_cli("gate", "set", pbx(), *args, ok=False)
-        lines = [x for x in result.stderr.splitlines() if x.strip()]
-        want = re.compile(rf"^error: {code}: {field}(?=[\s:,;]|$)" if field else rf"^error: {code}: \S")
-        check(result.code == 1 and result.stdout == "" and lines and want.match(lines[-1]),
-              f"gate set {args[-4:]}: exit {result.code}, stdout {result.stdout[:100]!r}, stderr "
-              f"{' '.join(result.stderr.split())[-200:]!r}, want exit 1 and `error: {code}: {field or 'MESSAGE'}`")
     tidy()
     invalid = [(swap(base, "--score", "time"), "score"),
                (swap(plain, "--score", "time") + ["--compare", "paired_normal"], "score"),
@@ -426,12 +423,12 @@ def _():
                (base + ["--link-connections", "0"], "link"), (base + ["--link-connections", "65"], "link"),
                (base + ["--link-bytes", "0"], "link"), (base + ["--link-bytes", "1073741825"], "link")]
     for args, field in invalid:
-        refused(args, "invalid", field)
+        refused_set(args, "invalid", field)
     try:
         for options, args in (({"links": 0}, base), ({"max_concurrent_runs": 1}, base),
                               ({"images": 0}, base + ["--image", IMAGE])):
             rt.restart(**{**RUNTIME, **options})
-            refused(args, "runtime_unsupported", "")
+            refused_set(args, "runtime_unsupported", "")
     finally:
         rt.restart(**RUNTIME)
     after = record(show())
