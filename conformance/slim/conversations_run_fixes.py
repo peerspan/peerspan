@@ -535,8 +535,9 @@ def _():
     want = terminal_required()
     record = bundle("stdin-only", True)
     args = attach_args("stdin-only", project())
-    # The harness's tty: stdin a terminal, stdout a pipe. attach then asks about capability calls, hence the answer.
-    refused_with(tess.cli(*args, tty=True, input="n\n", timeout=20), want)
+    # The harness's tty: stdin a terminal, stdout a pipe. attach then asks about capability calls and about peerbox
+    # proposals (peerbox contract, Who may propose: the prompt rules of --calls), hence the two answers.
+    refused_with(tess.cli(*args, tty=True, input="n\nn\n", timeout=20), want)
     check(ran(record) == [], f"the fixture ran with a terminal on stdin alone: {ran(record)}")
 
 

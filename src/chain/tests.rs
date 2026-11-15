@@ -1104,7 +1104,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 34);
+    assert_eq!(version, 35);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",
@@ -1120,7 +1120,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
     drop(store);
     Connection::open(path.join("host.db"))
         .unwrap()
-        .execute_batch("PRAGMA user_version = 35;")
+        .execute_batch("PRAGMA user_version = 36;")
         .unwrap();
     assert!(Store::open(&path).is_err());
 }

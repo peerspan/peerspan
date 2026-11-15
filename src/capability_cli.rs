@@ -10,7 +10,7 @@ use crate::{
     admin::Local,
     cli::{
         ApprovalsArgs, ApprovalsCommand, CapabilityCommand, Command, SourcesArgs, SourcesCommand,
-        approval_id, encoded, resolved,
+        approval_id, encoded, proposal_id, resolved,
     },
 };
 use anyhow::{Context, bail};
@@ -165,7 +165,26 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             options,
         } => return call(&local, address, operation, options).await,
         Command::Approvals(args) => return approvals(&local, args).await,
-        Command::Approve { id } => approve(&local, id).await?,
+        Command::Approve { id, person_key } if proposal_id(id) => {
+            crate::peerbox_proposal_cli::approve(&local, id, person_key).await?
+        }
+        Command::Approve {
+            person_key: Some(_),
+            ..
+        } => bail!("--person-key applies only to approving a peerbox proposal (pbp_...)"),
+        Command::Approve { id, .. } => approve(&local, id).await?,
+        Command::Deny {
+            principal,
+            reason,
+            agent,
+            network,
+            ..
+        } if proposal_id(principal) => {
+            if agent.is_some() || network.is_some() {
+                bail!("--agent and --network apply to access rules, not to denying a proposal");
+            }
+            crate::peerbox_proposal_cli::deny(&local, principal, reason).await?
+        }
         Command::Deny {
             principal,
             reason,
@@ -3034,6 +3053,11 @@ fn approval_path(sender: &str, id: &str) -> String {
 
 /// `approvals [--all] [--json]` and `approvals show ID [--json]`.
 async fn approvals(local: &Local<'_>, args: &ApprovalsArgs) -> anyhow::Result<Option<Value>> {
+    if let Some(ApprovalsCommand::Show { id, json }) = &args.command
+        && proposal_id(id)
+    {
+        return crate::peerbox_proposal_cli::show(local, id, *json).await;
+    }
     if let Some(ApprovalsCommand::Show { id, json }) = &args.command {
         let (sender, call) = resolve_approval(local, id).await?;
         let value = local.get(approval_path(&sender, &call)).await?;
@@ -3044,8 +3068,10 @@ async fn approvals(local: &Local<'_>, args: &ApprovalsArgs) -> anyhow::Result<Op
         crate::exit(0)
     }
     let state = if args.all { "all" } else { "pending" };
-    let value = local.get(format!("/v1/approvals?state={state}")).await?;
+    let mut value = local.get(format!("/v1/approvals?state={state}")).await?;
+    let proposals = crate::peerbox_proposal_cli::list(local, args.all).await?;
     if crate::output::json() {
+        value["peerbox_proposals"] = proposals;
         return Ok(Some(value));
     }
     let list = value["approvals"].as_array().cloned().unwrap_or_default();
@@ -3055,6 +3081,8 @@ async fn approvals(local: &Local<'_>, args: &ApprovalsArgs) -> anyhow::Result<Op
     for a in &list {
         println!("{}", readable_approval(a));
     }
+    // Peerbox agent proposals, in a second block after the calls.
+    crate::peerbox_proposal_cli::print_list(&proposals);
     crate::exit(0)
 }
 

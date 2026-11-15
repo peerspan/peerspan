@@ -21,7 +21,7 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from harness import Adapter, Skip, Suite, check, rfc3339, wait_for
+from harness import Adapter, Failure, Skip, Suite, check, rfc3339, wait_for
 from runtime_common import (FINAL, Channel, adapter_upload, bind, enable_for_both, need, new_task_id, peer_events,
                             policy_version, result_of, setup_network, state)
 from peerbox_fixtures import (agent_space, branch_commit, checkout_state, files_under, owner_repo, self_check,
@@ -32,6 +32,9 @@ from peerbox_common import (BUNDLE_TYPE, bundle, check_record, commit_files, cre
 suite = Suite("peerbox_agents", __doc__)
 bind(suite)
 TOOLS = {"peerbox_list", "peerbox_fetch", "peerbox_submit", "peerbox_status", "peerbox_withdraw", "peerbox_run"}
+# Agent proposals (MCP tools): the shared adapter adds these five, listed whatever the credential.
+PROPOSAL_TOOLS = {"peerbox_propose_create", "peerbox_propose_share", "peerbox_propose_invite",
+                  "peerbox_proposal_status", "peerbox_proposal_cancel"}
 
 
 def case(name, spec, known=None):
@@ -490,7 +493,20 @@ def _():
     final_text = "".join(c.get("text", "") for c in content) if isinstance(content, list) else str(content or "")
     check(last.get("state") == "succeeded" and '"exit_code":0' in final_text.replace(" ", ""),
           f"final update {last}, content {final_text[:300]!r}: want the run result")
-    status, view = state["bea"].call("GET", f"/adapter/v1/delegations/{task_id}")
+    # The final update can reach the session before the local record takes the run's last status, so task_status is
+    # polled, within a bound, until that record is final too.
+    seen = {}
+
+    def final_view():
+        seen["answer"] = state["bea"].call("GET", f"/adapter/v1/delegations/{task_id}")
+        status, view = seen["answer"]
+        return status == 200 and (view.get("status") or {}).get("state") in FINAL
+
+    try:
+        wait_for(final_view, timeout=30, interval=0.5, message="task_status of the run to be final")
+    except Failure:
+        pass  # the check below reports the last answer
+    status, view = seen["answer"]
     check(status == 200 and view["request"]["executor"] == "peerbox" and view["request"]["peerbox"]["op"] == "run"
           and view["request"]["peerbox"]["commit"] == main and (view.get("status") or {}).get("state") in FINAL,
           f"task_status of the run: {status} {view}")
@@ -529,10 +545,16 @@ def _():
           and pending["contribution_id"] in states, f"after the agents' attempts: {status} {states}")
     if "channel_skip" not in state and "channel" in state:
         tools = need("channel")[0].call("tools/list", {})["tools"]
-        named = sorted(t["name"] for t in tools if "peerbox" in (t["name"] + t.get("description", "")).lower())
-        check(set(named) == TOOLS and not [t["name"] for t in tools if re.search(
-            r"review|invite|unshare|accept|reject|decision", t["name"]) and "peerbox" in t["name"]],
-            f"the peerbox tools are {named}, want exactly {sorted(TOOLS)}")
+        # mark_seen and pending_work name peerbox proposals too (Agent proposals, Telling the agent); they are the
+        # shared tools, not peerbox tools.
+        named = sorted(t["name"] for t in tools if "peerbox" in (t["name"] + t.get("description", "")).lower()
+                       and t["name"] not in ("mark_seen", "pending_work"))
+        # Only the proposal tools prepare a share or invite, for the person to approve (Agent proposals); no tool
+        # reviews, unshares or invites by itself.
+        check(set(named) == TOOLS | PROPOSAL_TOOLS and not [t["name"] for t in tools if re.search(
+            r"review|invite|unshare|accept|reject|decision", t["name"]) and "peerbox" in t["name"]
+            and t["name"] not in PROPOSAL_TOOLS],
+            f"the peerbox tools are {named}, want exactly {sorted(TOOLS | PROPOSAL_TOOLS)}")
         for name in ("peerbox_review", "peerbox_share", "peerbox_invite", "peerbox_accept"):
             event = need("channel")[0].call("tools/call", {"name": name, "arguments": {"destination": "pb-submit"}},
                                             whole=True)

@@ -114,8 +114,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only. It passes in full.
 - `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
   proposal MCP tools and `approve` on a pseudo-terminal (peerbox contract, Agent proposals; PBX-16 to PBX-21), with
-  `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, and the cases not implemented yet are strict
-  `XFAIL`.
+  `peerbox_common.py` and `peerbox_fixtures.py`; second tier only (1,128 lines plus 546 and 529 shared; 40 seconds
+  measured). It passes in full.
 - `peerbox_gate_episodes`, `peerbox_gate_paired`: episode gates on the fake runtime's linked pairs (peerbox contract,
   Gates; PBX-25 to PBX-33), with `peerbox_gate_common.py`: workspaces, environment failures, link bounds, the
   evaluation secret, images, the commitment, the public summary and `gate set` refusals; then `paired_normal` and

@@ -32,7 +32,9 @@ export async function Peerspan(_input, { bindings } = {}) {
                   ? integer(property)
                   : property.type === 'object'
                     ? schema.record(schema.string(), schema.unknown())
-                    : string(property);
+                    : property.type === 'boolean'
+                      ? schema.boolean()
+                      : string(property);
             return [name, required.includes(name) ? value : value.optional()];
           })
         );

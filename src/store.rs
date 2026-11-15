@@ -29,6 +29,17 @@ PRAGMA user_version = 1;
 /// description.
 const DESCRIPTIONS: &str =
     "CREATE TABLE agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL);";
+/// Database version 35: peerbox agent proposals (peerbox contract, Agent
+/// proposals, Persistence) and their proposal-update notifications, which
+/// have the columns of call-update notifications. Adapter credentials gain
+/// `peerbox_proposals` in their JSON, read as false when absent, and
+/// peerbox records and pending shares a nullable `proposal_id`, so no
+/// existing record is rewritten.
+const PEERBOX_PROPOSALS: &str = "
+CREATE TABLE IF NOT EXISTS peerbox_proposals (proposal_id TEXT PRIMARY KEY, adapter_id TEXT NOT NULL, agent_id TEXT NOT NULL, session_id TEXT NOT NULL, op TEXT NOT NULL, state TEXT NOT NULL, expires_at TEXT NOT NULL, record TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS peerbox_proposals_state ON peerbox_proposals(state, expires_at);
+CREATE TABLE IF NOT EXISTS peerbox_proposal_notifications (id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL, seen_at TEXT, redeliveries INTEGER NOT NULL DEFAULT 0, returned_at TEXT);
+";
 
 /// Serializes directory queries to one host in one network.
 pub(crate) type HostQueryLock = Arc<tokio::sync::Mutex<()>>;
@@ -185,7 +196,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=34).contains(&version) {
+        if !(0..=35).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -322,6 +333,9 @@ impl Store {
         if version < 34 {
             tx.execute_batch(crate::peerbox::gate::SCHEMA)?;
         }
+        if version < 35 {
+            tx.execute_batch(PEERBOX_PROPOSALS)?;
+        }
         crate::peerfs::check_schema(&tx)?;
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;
@@ -335,7 +349,9 @@ impl Store {
         // 32 is peerboxes (peerbox contract): the peerbox tables.
         // 33 is PF-1(a): explicit local PeerFS bindings and typed host signing.
         // 34 is peerbox gates (peerbox contract, Gates): gates and evaluations.
-        tx.execute_batch("PRAGMA user_version = 34;")?;
+        // 35 is peerbox agent proposals (peerbox contract, Agent proposals):
+        // the proposal and proposal-update tables.
+        tx.execute_batch("PRAGMA user_version = 35;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")

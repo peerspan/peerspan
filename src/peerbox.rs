@@ -55,6 +55,10 @@ pub struct Record {
     pub repository: String,
     pub branch: String,
     pub created_at: String,
+    /// The agent proposal that created it (peerbox contract, Agent
+    /// proposals, Execution), or null when the person ran the command.
+    #[serde(default)]
+    pub proposal_id: Option<String>,
 }
 
 /// A failure an operation reports as its final `failed` outcome:
@@ -119,6 +123,9 @@ pub fn commit_id(id: &str) -> bool {
 #[derive(Clone)]
 pub struct Git {
     hooks: PathBuf,
+    /// When set, every command run through [`Git::output`] past it is
+    /// killed with its process group and fails `timeout`.
+    deadline: Option<std::time::Instant>,
 }
 impl Git {
     /// Git for the host whose state directory is `state`, after checking
@@ -142,7 +149,10 @@ impl Git {
             ));
         }
         check_version()?;
-        Ok(Self { hooks })
+        Ok(Self {
+            hooks,
+            deadline: None,
+        })
     }
     /// A `git` command in `dir`.
     pub fn command(&self, dir: &FsPath) -> Command {
@@ -168,13 +178,73 @@ impl Git {
     }
     /// Runs `git ARGS` in `dir`.
     pub fn output(&self, dir: &FsPath, args: &[&str]) -> Result<Output, Failure> {
-        self.command(dir).args(args).output().map_err(|e| {
+        let failed = |e: std::io::Error| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 git_missing()
             } else {
                 Failure::new("internal", format!("git: {e}"))
             }
+        };
+        let Some(deadline) = self.deadline else {
+            return self.command(dir).args(args).output().map_err(failed);
+        };
+        use std::os::unix::process::CommandExt;
+        let mut child = self
+            .command(dir)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .map_err(failed)?;
+        let read = |pipe: Option<Box<dyn Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut out = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut out);
+                }
+                out
+            })
+        };
+        let stdout = read(
+            child
+                .stdout
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+        );
+        let stderr = read(
+            child
+                .stderr
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+        );
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(failed)? {
+                break status;
+            }
+            if std::time::Instant::now() >= deadline {
+                // The whole group, so a pack-objects Git started goes too.
+                // SAFETY: kill(2) on our own child's process group.
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                let _ = child.wait();
+                return Err(Failure::new("timeout", "git did not finish in time"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        Ok(Output {
+            status,
+            stdout: stdout.join().unwrap_or_default(),
+            stderr: stderr.join().unwrap_or_default(),
         })
+    }
+    /// The same Git, its commands killed past `deadline`.
+    pub fn until(&self, deadline: std::time::Instant) -> Self {
+        Self {
+            hooks: self.hooks.clone(),
+            deadline: Some(deadline),
+        }
     }
     /// Runs `git ARGS` in `dir` and returns its trimmed stdout, or `code`
     /// with Git's message.
@@ -375,6 +445,72 @@ pub fn disclosure(
         committers: committers.into_iter().collect(),
         bundle_bytes,
     })
+}
+
+/// The review of an agent's `create` proposal (peerbox contract, Agent
+/// proposals): what a read discloses, with each distinct `{name, email}`
+/// author and committer pair, sorted by name, then email, as UTF-8 bytes,
+/// the first 100 of them, and their number.
+pub fn create_review(
+    git: &Git,
+    repo: &FsPath,
+    branch: &str,
+    scratch: &FsPath,
+) -> Result<Value, Failure> {
+    if !git.is_repository(repo)? {
+        return Err(Failure::new(
+            "invalid",
+            format!("{} is not a Git repository", repo.display()),
+        ));
+    }
+    let head = git.head(repo, branch)?.ok_or_else(|| {
+        Failure::new(
+            "branch_unknown",
+            format!("the repository has no commit on branch {branch:?}"),
+        )
+    })?;
+    let commits: u64 = git
+        .text(repo, &["rev-list", "--count", &head], "unavailable")?
+        .parse()
+        .unwrap_or(0);
+    // Each field ends in a NUL, which no identity holds; the line breaks
+    // between commits fall at the start of the next author name.
+    let out = git.output(
+        repo,
+        &["log", "--format=%an%x00%ae%x00%cn%x00%ce%x00", &head],
+    )?;
+    if !out.status.success() {
+        return Err(Failure::new("unavailable", stderr_of(&out)));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let fields: Vec<&str> = text.split('\0').collect();
+    let mut pairs = std::collections::BTreeSet::new();
+    for chunk in fields.chunks(4) {
+        if let [an, ae, cn, ce] = chunk {
+            let an = an.strip_prefix('\n').unwrap_or(an);
+            pairs.insert((an.as_bytes().to_vec(), ae.as_bytes().to_vec()));
+            pairs.insert((cn.as_bytes().to_vec(), ce.as_bytes().to_vec()));
+        }
+    }
+    let total = pairs.len();
+    let identities: Vec<Value> = pairs
+        .into_iter()
+        .take(100)
+        .map(|(n, e)| {
+            json!({"name": String::from_utf8_lossy(&n), "email": String::from_utf8_lossy(&e)})
+        })
+        .collect();
+    let dir = Scratch::new(scratch)?;
+    let file = dir.path().join("peerbox.bundle");
+    git.bundle(repo, branch, &[], &file)?;
+    let bundle_bytes = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+    Ok(json!({
+        "head": head,
+        "commits": commits,
+        "identities": identities,
+        "identities_total": total,
+        "bundle_bytes": bundle_bytes,
+    }))
 }
 
 /// A private temporary directory under `base`, removed when dropped.
@@ -585,6 +721,7 @@ impl Store {
             repository: c.repository,
             branch: c.branch,
             created_at: now(),
+            proposal_id: None,
         };
         tx.execute(
             "INSERT INTO peerboxes VALUES (?1, ?2, ?3)",
@@ -651,7 +788,7 @@ impl Store {
 /// refusals.
 pub(crate) fn coded(f: Failure) -> Error {
     let status = match f.code {
-        "git_missing" | "unavailable" => 503,
+        "git_missing" | "unavailable" | "timeout" => 503,
         "invalid" | "branch_unknown" => 400,
         _ => 500,
     };

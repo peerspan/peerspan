@@ -41,6 +41,35 @@ const destinationProperty = {
 };
 const peerboxIdProperty = { type: 'string', pattern: '^pbx_[0-9a-f]{32}$', description: 'The peerbox, from peerbox_list.' };
 const contributionIdProperty = { type: 'string', pattern: '^pbc_[0-9a-f]{32}$' };
+// The peerbox proposal tools' arguments (peerbox contract, Agent proposals).
+const proposalIdPattern = '^pbp_[0-9a-f]{32}$';
+const proposalIdProperty = {
+  type: 'string',
+  pattern: proposalIdPattern,
+  description:
+    'Omit for a new proposal. Give the proposal_id of a proposal whose response was lost, with identical arguments, to get that proposal back.'
+};
+const proposalActions = {
+  type: 'array',
+  minItems: 1,
+  maxItems: 3,
+  items: { type: 'string', pattern: '^(?:read|submit|run)$' },
+  description: 'The access: read, and optionally submit and run (submit and run need read). Default: read.'
+};
+const proposalBundleBytes = {
+  type: 'integer',
+  minimum: 1,
+  maximum: 104857600,
+  description: 'The largest bundle each fetch or submission may be, in bytes. Default: 104857600.'
+};
+const proposalMaxPending = {
+  type: 'integer',
+  minimum: 0,
+  maximum: 64,
+  description: 'Pending contributions per person: 1 to 64 with submit (default 4), and 0 without it.'
+};
+const proposalNote =
+  'It does nothing by itself: the person must approve it in a terminal on this machine (peerspan approve), and you cannot approve it. Tell the person what you prepared and why. Returns the proposal view (proposal_id, state pending, args with every default filled in, review, note); its outcome arrives as a kind=peerbox_proposal_update event, and peerbox_proposal_status reports it at any time. Do not propose the same change again while it is pending.';
 const artifactPaths = {
   type: 'array',
   maxItems: 64,
@@ -64,7 +93,7 @@ export const tools = [
   {
     name: 'mark_seen',
     description:
-      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, the task_id of a kind=task_update or kind=task_cancel_requested event, the call_id of a kind=call_update event, or the conversation_id or message_id of a kind=conversation, kind=conversation_roster, or kind=conversation_undelivered event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, the other task_* tools on that task, and a call_status or call_capability that returns the finished call already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
+      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, the task_id of a kind=task_update or kind=task_cancel_requested event, the call_id of a kind=call_update event, the proposal_id of a kind=peerbox_proposal_update event, or the conversation_id or message_id of a kind=conversation, kind=conversation_roster, or kind=conversation_undelivered event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, the other task_* tools on that task, and a call_status or call_capability that returns the finished call already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -73,8 +102,8 @@ export const tools = [
           type: 'array',
           minItems: 1,
           maxItems: 100,
-          items: { type: 'string', pattern: '^(?:delivery|request|task|call|conv|cmsg)_[0-9a-f]{32}$', maxLength: 64 },
-          description: 'Delivery, request, task, call, conversation, or conversation message IDs this session holds.'
+          items: { type: 'string', pattern: '^(?:delivery|request|task|call|pbp|conv|cmsg)_[0-9a-f]{32}$', maxLength: 64 },
+          description: 'Delivery, request, task, call, peerbox proposal, conversation, or conversation message IDs this session holds.'
         }
       },
       required: ['ids']
@@ -83,7 +112,7 @@ export const tools = [
   {
     name: 'pending_work',
     description:
-      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), tasks (queued, running, or cancel_requested), and calls (capability calls of this agent not yet finished, or finished with a kind=call_update event not yet seen; follow each with call_status), and conversations (conversations with messages not yet seen; follow each with conversation_history). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
+      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), tasks (queued, running, or cancel_requested), and calls (capability calls of this agent not yet finished, or finished with a kind=call_update event not yet seen; follow each with call_status), conversations (conversations with messages not yet seen; follow each with conversation_history), and peerbox_proposals (peerbox changes you proposed that are not final yet, or final with a kind=peerbox_proposal_update event not yet seen; follow each with peerbox_proposal_status). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
@@ -575,6 +604,89 @@ export const tools = [
       },
       required: ['destination', 'peerbox_id', 'commit', 'argv']
     }
+  },
+  {
+    name: 'peerbox_propose_create',
+    description:
+      `Prepare a peerbox for the person to approve: the Git repository at repository_path (a local path, resolved through symbolic links), served from branch to the people the person later shares it with, in network_id (default: this host's only coordinator-free network). The review shows the person what a read discloses: the head, the commit count, every author and committer name and email, and the bundle size. ${proposalNote}`,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        repository_path: { type: 'string', minLength: 1, maxLength: 4096, description: 'The local Git repository.' },
+        branch: { type: 'string', minLength: 1, maxLength: 64, description: 'The protected branch to serve.' },
+        title: { type: 'string', minLength: 1, maxLength: 200, description: "Default: the repository directory's name." },
+        network_id: { type: 'string', pattern: '^net_[0-9a-f]{64}$', description: 'Default: the only coordinator-free network.' },
+        proposal_id: proposalIdProperty
+      },
+      required: ['repository_path', 'branch']
+    }
+  },
+  {
+    name: 'peerbox_propose_share',
+    description:
+      `Prepare a share of a peerbox on this host for the person to approve: a signed policy giving each person in principals (person:PERSON_ID, current members of the peerbox's network, 1 to 64) exactly this access, replacing what they hold on the peerbox. The review shows each person's label and their access before and after. ${proposalNote}`,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        peerbox_id: { type: 'string', pattern: '^pbx_[0-9a-f]{32}$', description: 'A peerbox on this host.' },
+        principals: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 64,
+          items: { type: 'string', minLength: 1, maxLength: 128 },
+          description: 'person:PERSON_ID of each person to share with.'
+        },
+        actions: proposalActions,
+        max_bundle_bytes: proposalBundleBytes,
+        max_pending: proposalMaxPending,
+        allow_disconnected: { type: 'boolean', description: 'Keep the access while the person is not a current member. Default: false.' },
+        proposal_id: proposalIdProperty
+      },
+      required: ['peerbox_id', 'principals']
+    }
+  },
+  {
+    name: 'peerbox_propose_invite',
+    description:
+      `Prepare an invite for someone outside the network, for the person to approve: a network invite for label with this access to a peerbox on this host, working for expires_in_seconds (60 to 86400, default 3600) from approval. Once it is executed, its result holds the psb1- code: give it only to the person it is for, privately; whoever holds it can ask to join the network and receives this access once an administrator admits them. ${proposalNote}`,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        peerbox_id: { type: 'string', pattern: '^pbx_[0-9a-f]{32}$', description: 'A peerbox on this host.' },
+        label: { type: 'string', minLength: 1, maxLength: 128, description: "The new member's label." },
+        actions: proposalActions,
+        max_bundle_bytes: proposalBundleBytes,
+        max_pending: proposalMaxPending,
+        expires_in_seconds: { type: 'integer', minimum: 60, maximum: 86400, description: 'How long the code works, from approval. Default: 3600.' },
+        proposal_id: proposalIdProperty
+      },
+      required: ['peerbox_id', 'label']
+    }
+  },
+  {
+    name: 'peerbox_proposal_status',
+    description:
+      'Report a peerbox proposal this agent made, by its proposal_id: the proposal view with its state (pending, approved, executed, failed, denied, expired or cancelled), result, error and note. not_recorded means the host has no record of it for this agent, so nothing was done.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { proposal_id: { type: 'string', pattern: proposalIdPattern } },
+      required: ['proposal_id']
+    }
+  },
+  {
+    name: 'peerbox_proposal_cancel',
+    description:
+      'Withdraw a peerbox proposal of this agent that is still pending; nothing it prepared is done. Returns the proposal view, cancelled.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { proposal_id: { type: 'string', pattern: proposalIdPattern } },
+      required: ['proposal_id']
+    }
   }
 ];
 // The peerbox tools that wait for their task's final event, up to its
@@ -944,6 +1056,7 @@ function validArguments(name, args) {
       );
     if (property.type === 'object')
       return value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (property.type === 'boolean') return typeof value === 'boolean';
     if (property.type === 'array')
       return (
         Array.isArray(value) &&
@@ -1054,6 +1167,56 @@ function callError(error, callId) {
       callRefusalTexts[error.code] ??
       (typeof error.detail?.error === 'string' ? error.detail.error : error.message)
   });
+}
+
+// Peerbox proposals (peerbox contract, Agent proposals, MCP tools).
+const proposalRecovery = 'Nothing was proposed or recorded.';
+export const noProposalsText =
+  'This session may not prepare peerbox changes. The person enables it with peerspan attach --peerbox-proposals.';
+export const proposalToolNames = [
+  'peerbox_propose_create',
+  'peerbox_propose_share',
+  'peerbox_propose_invite',
+  'peerbox_proposal_status',
+  'peerbox_proposal_cancel'
+];
+const proposalNotRecorded = (proposalId) => ({
+  proposal_id: proposalId,
+  state: 'not_recorded',
+  note: 'The host has no record of this proposal for this agent; nothing was done.'
+});
+// proposalRefusal describes a refused proposal route: a refusal of
+// POST /adapter/v1/peerbox/proposals persisted nothing.
+function proposalRefusal(error, proposalId, proposing) {
+  const detail = error.detail ?? {};
+  if (error.status === 403 && error.code === 'no_peerbox_proposals')
+    return { proposal_id: proposalId, code: 'no_peerbox_proposals', error: noProposalsText, recovery: proposalRecovery };
+  const refused = error.status >= 400 && error.status < 500;
+  return {
+    proposal_id: proposalId,
+    code: error.code ?? null,
+    error: typeof detail.error === 'string' ? detail.error : error.message,
+    ...(proposing && {
+      recovery: refused || error.code === 'timeout'
+        ? proposalRecovery
+        : 'Check peerbox_proposal_status with this proposal_id. If it reports not_recorded, nothing was recorded and proposing again makes a new proposal.'
+    }),
+    ...(detail.field !== undefined && { field: detail.field }),
+    ...(detail.principal !== undefined && { principal: detail.principal }),
+    ...(detail.retry_after !== undefined && { retry_after: detail.retry_after }),
+    ...(detail.limit !== undefined && { limit: detail.limit }),
+    ...(error.code === 'duplicate' && detail.proposal_id !== undefined && { duplicate_of: detail.proposal_id }),
+    ...(detail.proposal !== undefined && { proposal: detail.proposal })
+  };
+}
+// The args of a proposal from a propose tool's arguments.
+function proposalArgs(op, args) {
+  const keep = (...keys) => Object.fromEntries(keys.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
+  if (op === 'create')
+    return { repository: args.repository_path, branch: args.branch, ...keep('title', 'network_id') };
+  if (op === 'share')
+    return keep('peerbox_id', 'principals', 'actions', 'max_bundle_bytes', 'max_pending', 'allow_disconnected');
+  return keep('peerbox_id', 'label', 'actions', 'max_bundle_bytes', 'max_pending', 'expires_in_seconds');
 }
 
 // The delegation chain of a task handoff, as event meta: all null or empty
@@ -1339,6 +1502,8 @@ export function createAdapter({
   let approvalNotices = true;
   // Set when the host has no conversation routes.
   let conversations = true;
+  // Set when the host refuses proposal-update claims to this credential.
+  let proposalUpdates = true;
   // The protocol revision the daemon last accepted from this instance.
   let reported;
   const negotiatedVersion = () => {
@@ -1439,7 +1604,48 @@ export function createAdapter({
   // The peerbox tools (peerbox contract, Agents): each submits a peerbox
   // task through POST /adapter/v1/peerbox and, except peerbox_run, waits for
   // its final event up to its deadline.
-  const peerboxTools = new Set(tools.filter((tool) => tool.name.startsWith('peerbox_')).map((tool) => tool.name));
+  const peerboxTools = new Set(
+    tools
+      .filter((tool) => tool.name.startsWith('peerbox_') && !proposalToolNames.includes(tool.name))
+      .map((tool) => tool.name)
+  );
+  // The peerbox proposal tools: each posts to, or reads, the host's
+  // proposal routes; none waits for the person.
+  async function proposalTool(name, args) {
+    const given = typeof args?.proposal_id === 'string' ? args.proposal_id : undefined;
+    if (!validArguments(name, args))
+      return errorResult({
+        ...(given && { proposal_id: given }),
+        code: 'invalid',
+        error: `Invalid ${name} arguments.`,
+        ...(name.startsWith('peerbox_propose_') && { recovery: proposalRecovery })
+      });
+    if (name.startsWith('peerbox_propose_')) {
+      const proposalId = given ?? `pbp_${randomBytes(16).toString('hex')}`;
+      const op = name.slice('peerbox_propose_'.length);
+      try {
+        return textResult(
+          await scopedCall('POST', '/adapter/v1/peerbox/proposals', {
+            proposal_id: proposalId,
+            op,
+            args: proposalArgs(op, args)
+          })
+        );
+      } catch (error) {
+        return errorResult(proposalRefusal(error, proposalId, true));
+      }
+    }
+    try {
+      return textResult(
+        name === 'peerbox_proposal_status'
+          ? await scopedCall('GET', `/adapter/v1/peerbox/proposals/${args.proposal_id}`)
+          : await scopedCall('POST', `/adapter/v1/peerbox/proposals/${args.proposal_id}/cancel`, {})
+      );
+    } catch (error) {
+      if (error.status === 404) return textResult(proposalNotRecorded(args.proposal_id));
+      return errorResult(proposalRefusal(error, args.proposal_id, false));
+    }
+  }
   const httpCodes = { 400: 'invalid', 403: 'forbidden', 404: 'unknown', 409: 'conflict' };
   const failed = (code, message) => errorResult({ error: code, message });
   // Submits OP through DESTINATION; returns the local record. A response
@@ -1648,6 +1854,7 @@ export function createAdapter({
         });
       }
     }
+    if (proposalToolNames.includes(name)) return proposalTool(name, args);
     if (name.startsWith('peerbox_') && peerboxTools.has(name)) return peerboxTool(name, args, signal);
     if (name === 'peerspan_ready') {
       if (!validArguments(name, args) || args.nonce !== nonce)
@@ -2155,6 +2362,21 @@ export function createAdapter({
     }
   }
 
+  // claimProposalUpdate claims the next peerbox proposal update. A
+  // credential without peerbox_proposals (403), or a host without the
+  // route (404), has none to claim.
+  async function claimProposalUpdate() {
+    try {
+      return await scopedCall('POST', '/adapter/v1/peerbox/proposal-updates/next', {});
+    } catch (error) {
+      if ((error.status === 403 && error.code === 'no_peerbox_proposals') || error.status === 404) {
+        proposalUpdates = false;
+        return null;
+      }
+      throw error;
+    }
+  }
+
   // claimApprovalNotice claims the next approval notice for this session's
   // agent. A host without the route (404) has none to claim.
   async function claimApprovalNotice() {
@@ -2370,6 +2592,27 @@ export function createAdapter({
             });
             acknowledge.push(`/adapter/v1/call-updates/${callUpdate.delivery.id}/forwarded`);
           }
+          const proposalUpdate = proposalUpdates ? await claimProposalUpdate() : null;
+          if (proposalUpdate) {
+            if (proposalUpdate.delivery.session_id !== sessionId)
+              throw new AttachmentChanged('invalid proposal update session');
+            if (stop.signal.aborted) return;
+            const view = proposalUpdate.proposal ?? {};
+            await notify({
+              content: JSON.stringify(view),
+              meta: {
+                kind: 'peerbox_proposal_update',
+                proposal_id: proposalUpdate.delivery.proposal_id,
+                notification_id: proposalUpdate.delivery.id,
+                op: view.op ?? null,
+                state: view.state ?? null,
+                error_code: view.error?.code ?? null,
+                session_id: proposalUpdate.delivery.session_id,
+                redelivered: proposalUpdate.redelivered === true
+              }
+            });
+            acknowledge.push(`/adapter/v1/peerbox/proposal-updates/${proposalUpdate.delivery.id}/forwarded`);
+          }
           // A claimed notice is never offered again; it carries no input.
           const notice = approvalNotices ? await claimApprovalNotice() : null;
           if (notice) {
@@ -2416,7 +2659,7 @@ export function createAdapter({
           if (warned) log('Peerspan adapter reconnected to its original attachment.');
           warned = false;
           backoff = 250;
-          if (!handoff && !response && !task && !cancel && !update && !callUpdate && !notice && !conversation) await delay(pollMs, undefined, { signal: stop.signal });
+          if (!handoff && !response && !task && !cancel && !update && !callUpdate && !proposalUpdate && !notice && !conversation) await delay(pollMs, undefined, { signal: stop.signal });
         } catch (error) {
           if (stop.signal.aborted) return;
           if (error.status === 409 && error.detail?.error === 'channel not verified') {

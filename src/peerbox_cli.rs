@@ -23,7 +23,7 @@ use std::{
 
 /// Hosts on software without peerbox rules refuse a policy that has them
 /// (peerbox contract, Compatibility).
-const OLDER_HOSTS: &str = "note: hosts on software without peerbox rules, every Go host included, will stop accepting this person's policy; add a peerbox rule only once every host in the network runs software that implements peerboxes";
+pub(crate) const OLDER_HOSTS: &str = "note: hosts on software without peerbox rules, every Go host included, will stop accepting this person's policy; add a peerbox rule only once every host in the network runs software that implements peerboxes";
 
 fn failure(f: Failure) -> anyhow::Error {
     anyhow::anyhow!("{}: {}", f.code, f.message)
