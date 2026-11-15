@@ -376,9 +376,11 @@ pub(crate) async fn receive(store: Arc<Store>) {
                 let imported =
                     tokio::task::spawn_blocking(move || import(&target, &invite, &code)).await;
                 if matches!(imported, Ok(Ok(true))) {
-                    // Read the request's own mailbox at once, so its frames
-                    // (and the code) are here for `link admit REQUEST_ID`.
-                    let _ = super::requests_io::poll(store.clone(), &id).await;
+                    // Read the request's own mailbox at once, so its request
+                    // frames (and the code) are here for `link admit
+                    // REQUEST_ID`. Owner and selection proofs already there
+                    // wait for the administrator's explicit steps.
+                    let _ = super::requests_io::poll_request_only(store.clone(), &id).await;
                     // This read must not count as a recent poll: the next
                     // command on the request reads the mailbox again.
                     if let Ok(mut polls) = store.bootstrap_polls.lock() {
