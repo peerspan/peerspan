@@ -421,8 +421,8 @@ A gate has one of two **modes** (PBX-25):
 
 | Field | Rules |
 | --- | --- |
-| `version` | 1 for the first gate on the peerbox, plus one each time it is set again. |
-| `state` | `active`, or `paused` with `paused_reason` (`owner`, `frontier_failed`, `generator_failed`, `runtime_disabled` or `dirty_worktree`). |
+| `version` | 1 for the first gate on the peerbox, plus one each time it is set again; a gate set after `gate clear` continues from the cleared gate's version, so a version is never reused on a peerbox. |
+| `state` | `active`, or `paused` with `paused_reason` (`owner`, `frontier_failed`, `generator_failed`, `runtime_disabled` or `dirty_worktree`); `paused_reason` is null while the gate is active. |
 | `mode` | `outputs` or `episode`. |
 | `command` | The candidate command: `argv` as for a runtime task's `run`, but 1 to 64 strings of at most 4,096 bytes summed, so the public summary always fits a `list` entry. |
 | `inputs_sha256` | The digest of the inputs snapshot (below). |
@@ -439,7 +439,7 @@ A gate has one of two **modes** (PBX-25):
 | `link` | Null for `outputs`; for `episode`, `{port, connections, bytes}`: the link port (1 to 65,535), the connections open at once (1 to 64, default 16) and the bytes each way over a pair's life (1 to 1,073,741,824, default 268,435,456). |
 | `cpus`, `memory_mib`, `timeout_seconds` | Each run's bounds, as a runtime task's `resources`, at most what the runtime reports. `cpus` and `memory_mib` bound candidate runs; `timeout_seconds` bounds every run, and a linked pair as a whole. |
 | `checker_cpus`, `checker_memory_mib` | The bounds of check, environment and generator runs; default the candidate's. |
-| `max_changes_bytes` | 65,536 to 104,857,600: bounds a run's **changes size**, the size in bytes of its `changes.tar` as the runtime reports it among the run's result artifacts ([runtime task contract, Result artifacts](runtime-task-contract.md#result-artifacts)); `deleted.txt` is not counted. It is the archive, not the changed files' bytes, because the archive is what comes back and what the runtime drops whole above its 104,857,600-byte limit, and the home host reads its size without unpacking it. An archive holding nothing still has a size (tar's headers and padding), so the bound starts at 65,536 bytes. Everything the candidate run changes in its workspace counts, not only its outputs, so builds should write outside the workspace (a runner script in the inputs can arrange that). The generator run is bounded the same way. |
+| `max_changes_bytes` | 65,536 to 104,857,600: bounds a run's **changes size**, the size in bytes of its `changes.tar` as the runtime reports it among the run's result artifacts ([runtime task contract, Result artifacts](runtime-task-contract.md#result-artifacts)); `deleted.txt` is not counted. It is the archive, not the changed files' bytes, because the archive is what comes back and what the runtime drops whole above its 104,857,600-byte limit, and the home host reads its size without unpacking it. An archive holding nothing still has a size, tar's end-of-archive blocks and padding (10,240 bytes at tar's usual record size), so the bound starts at 65,536 bytes, which leaves room above that for a run's own small changes. A `changes.tar` that the runtime names in `results_same`, because its bytes equal an earlier result's, has that earlier artifact's size, which is the same. Everything the candidate run changes in its workspace counts, not only its outputs, so builds should write outside the workspace (a runner script in the inputs can arrange that). The generator run is bounded the same way. |
 | `salt` | 32 random bytes, drawn at each `gate set`; owner only. |
 | `commitment` | The gate's commitment (below). |
 | `frontier` | Null, or `{commit, scores, measured_at}` from the latest evaluation. |
@@ -449,7 +449,8 @@ state, as a runtime workspace holds them (regular files with their mode, directo
 symbolic links, no `..`), and stores each one's **snapshot digest**: the lowercase hex SHA-256
 of its entries in the byte order of their relative paths, each entry being one byte, `d`, `f`
 or `l`, then the path and a NUL byte, then for a regular file its permission bits as four
-octal digits and the 32-byte SHA-256 of its contents, and for a symbolic link its target and
+octal digits (the mode's low 12 bits, `mode & 0o7777`, so set-ID and sticky bits count) and
+the 32-byte SHA-256 of its contents, and for a symbolic link its target and
 a NUL byte. The digest does not depend on how the snapshot is packed, so anyone holding the
 directory can recompute it. A directory holding any other kind of entry (a socket, a FIFO
 or a device), or a symbolic link whose target contains `..`, is refused with 400 `invalid`
@@ -489,10 +490,12 @@ same order, and shown in `gate show`'s `queue` (PBX-35). The
 home host evaluates queued contributions one at a time, oldest first by `(submitted_at,
 contribution_id)` (PBX-14), each against the protected head when its evaluation starts: that commit is the evaluation's
 **frontier**, fixed for the whole evaluation. A candidate that is not a descendant of the
-frontier is rejected with `not_fast_forward` before any run. A
+frontier is rejected with `not_fast_forward` before any run; its evaluation still draws a
+secret when it starts (Fresh episodes), and its public result carries that secret's digest. A
 contribution superseded, withdrawn, or accepted or rejected by hand while queued or under
-evaluation leaves the queue, and its runs are cancelled: a gate never overrides a decision
-already made. While the gate is paused, evaluations wait; review by hand works.
+evaluation leaves the queue, and its runs still running are cancelled with
+`POST /v1/runs/{run_id}/cancel`, as `gate clear` cancels a running evaluation's: a gate never
+overrides a decision already made. While the gate is paused, evaluations wait; review by hand works.
 
 **Fresh episodes** (PBX-31). When an evaluation starts, the home host draws a 32-byte
 **evaluation secret** and stores it with the evaluation. It is written, as 64 lowercase hex
@@ -509,7 +512,8 @@ results are `changes`, and the bounds are the checker's and `max_changes_bytes`,
 changes size as for a candidate run. What its
 changes hold under `.peerbox-gate/inputs/` replaces the inputs snapshot in every candidate
 run of the evaluation; the rest of its changes are added under `.peerbox-gate/generated/` to
-every check run's workspace, and never to a candidate's. A generator that fails, times out,
+every check run's workspace, each at its path relative to the generator's workspace root (so
+`cases/c1.txt` becomes `.peerbox-gate/generated/cases/c1.txt`), and never to a candidate's. A generator that fails, times out,
 or whose changes size exceeds the bound or whose `changes.tar` was dropped pauses the gate
 with `generator_failed` and
 leaves the contribution queued.
@@ -518,7 +522,12 @@ An evaluation measures the **frontier** (the protected head) and the **candidate
 contribution head), `repeats` times each, in the order frontier, candidate, frontier,
 candidate, and so on (PBX-12). Every run is on the home host's own runtime, under the gate's
 bounds and images, submitted by the home host to itself; none needs a peer's runtime rule
-(PBX-15). A gate naming an image needs a runtime that reports `images` true, and an
+(PBX-15). Each run is a local task of the home host with its own `task_id`, and its `run_id`
+is derived from the home host's ID and that `task_id` as for a runtime task
+([runtime task contract, The runtime's local API](runtime-task-contract.md#the-runtimes-local-api)).
+No runtime rule bounds its results: the home host keeps each result artifact up to the
+artifact contract's 104,857,600-byte limit for one file, with no total bound, and a
+`changes.tar` over that limit is dropped as for a runtime task. A gate naming an image needs a runtime that reports `images` true, and an
 `episode` gate one that reports `links` true and `max_concurrent_runs` of at least 2.
 
 A measurement in `outputs` mode is two runs:
@@ -529,9 +538,10 @@ A measurement in `outputs` mode is two runs:
    **outputs** are the regular files and directories its changes hold under
    `.peerbox-gate/out/`; everything else it wrote, printed or returned is ignored. Its time
    is the run result's `duration_ms` (at least 1). A run that fails, times out or is
-   cancelled, is a **failed measurement** with the code `run_failed`; one whose changes size
-   exceeds `max_changes_bytes`, or whose `changes.tar` was dropped, is one with the code
-   `outputs_too_large`.
+   cancelled, is a **failed measurement** with the code `run_failed`; one that exited 0 but
+   whose changes size exceeds `max_changes_bytes`, or whose `changes.tar` was dropped, is one
+   with the code `outputs_too_large`. A run that both fails and exceeds the bound is
+   `run_failed`.
 2. **Check run.** The workspace is the checker snapshot, the secret, the generator's other
    files and the outputs under `.peerbox-gate/out/`; the run executes `checker` with
    `results: output`. No candidate code runs in it. Its result is its **result line**
@@ -562,6 +572,11 @@ malformed line, a failed or timed-out run, or `pass` false is a failed measureme
 code `check_failed` and the run's `reason` when it gave one; so is a sample outside
 `score_range` with `paired_bounded`, or a sample count that differs from the evaluation's
 first frontier measurement's. A result line over 262,144 bytes is malformed.
+
+A result line is **read** only from a check or environment run that exited 0, and only when
+it is well formed; the line of a run that failed or timed out, and a malformed line, are not
+read, even if part of one parses. A reason is **given** when a read line's `reason` is not
+empty.
 
 A measurement's **score** is the candidate run's `duration_ms` for `score: time`, or the
 result line's `score` for `score: checker`.
@@ -606,13 +621,18 @@ result line's `score` for `score: checker`.
 
 The gate's `frontier` becomes the evaluation's frontier measurements, or the candidate's on a
 promotion. A decision by the gate has `decided_by` `"gate"`, `reason` its code, followed by
-`: ` (a colon and a space) and the checker's reason when it gave one, and `gate` set to its
+`: ` (a colon and a space) and the checker's reason when one was given (Result line), else the
+code alone, and `gate` set to its
 **public result**: `{gate_version, verdict, code, checker_reason, score, direction, min_gain,
 compare, frontier_scores, candidate_scores, secret_sha256, paired}`, where:
 - `verdict` is `promoted` or `rejected`, and `code` is `promoted` for a promotion, else the
   rejection's code (`not_fast_forward`, `run_failed`, `outputs_too_large`, `check_failed` or
   `below_margin`);
-- `checker_reason` is the result line's `reason`, or null when no result line was read;
+- `checker_reason` is the `reason` of the result line that decided, as read (it may be the
+  empty string), or null when that line was not read: for a failed measurement, its own check
+  or environment run's line; otherwise, for a promotion or `below_margin`, the line of the
+  last candidate measurement; null for `not_fast_forward`, `run_failed` and
+  `outputs_too_large`;
 - `score` is the gate's score source, `time` or `checker`, not a value;
 - `frontier_scores` and `candidate_scores` hold one entry per measurement of that side that
   ran, in order: its score, or null for a failed measurement; measurements never started are
@@ -620,8 +640,8 @@ compare, frontier_scores, candidate_scores, secret_sha256, paired}`, where:
 - `secret_sha256` is the lowercase hex SHA-256 of the evaluation's 32 secret bytes;
 - `paired` is null, or with a paired `compare` and no failed measurement
   `{episodes, mean_gain_percent, margin_bound_percent}`: *n*, `100 · mean(d) / mean(f)` and the
-  bound's left side times `100 / mean(f)`, each rounded to the nearest hundredth with halves
-  away from zero, the last at least 0 on a promotion.
+  bound's left side times `100 / mean(f)`, each computed in IEEE 754 binary64 arithmetic and
+  then rounded to the nearest hundredth with halves away from zero, the last at least 0 on a promotion.
 
 The home host also keeps, for its owner only, each run's task ID and outcome,
 the snapshot digests, the salt and each evaluation's secret, through `peerbox gate show` and
@@ -635,8 +655,9 @@ When the runtime's local switch is off, evaluations wait and the gate shows `pau
 another reason, and evaluation continues by itself once the switch is on again, with no
 `gate resume`. `gate resume` while the switch is off clears only an owner pause, so the gate
 then shows `runtime_disabled`. After a restart, an evaluation that had not decided
-starts again from its first measurement, with a new secret; each run it had started is
-cancelled (`POST /v1/runs/{run_id}/cancel`) before the first new run starts.
+starts again from its first measurement, with a new secret; each run it had started that the
+runtime still has running is cancelled (`POST /v1/runs/{run_id}/cancel`) before the first new
+run starts. A run that had already exited needs no cancel.
 
 ### Gate CLI and local API
 
@@ -663,8 +684,8 @@ decimals. A key left out takes its default, as with the CLI, except `inputs_dir`
 **Naming the field.** A 400 `invalid` from `gate set` names one field, the request key that
 cannot stand with the others or is out of range, as the first word of its message:
 - `score` for `time` with `episode` or with a paired `compare`;
-- `generator` or `link` when given with the other mode, and `link` when missing with
-  `episode`;
+- `generator` or `link` when given with the other mode, `link` when missing with `episode`,
+  and `link` (the top-level key, not `link.port`) for any of its fields out of range;
 - `score_range` when missing with `paired_bounded` or given with another `compare`;
 - `image` or `checker_image` for a reference without a digest;
 - otherwise the key out of range.
@@ -682,9 +703,13 @@ a 409.
   result, runs}`. `evaluation_id` is `pbe_` and 16 random bytes in lowercase hex; `secret` is
   64 lowercase hex digits; `frontier` is the evaluation's frontier commit; `decided_at` and
   `result` (the public result above) are null until it decides, and stay null for an
-  evaluation cancelled by a restart or a manual decision. Each entry of `runs` is `{task_id,
-  side, kind, outcome}`, with `side` `frontier`, `candidate` or `evaluation` (the generator)
-  and `kind` `candidate`, `check`, `environment` or `generator`, in the order they started.
+  evaluation cancelled by a restart or a manual decision, and for one whose promotion found
+  the head moved: that one ends undecided, and the contribution's next evaluation is a new
+  entry with a new secret. Each entry of `runs` is `{task_id, side, kind, outcome}`, with
+  `side` `frontier`, `candidate` or `evaluation` (the generator), `kind` `candidate`, `check`,
+  `environment` or `generator`, and `outcome` the run's task state (`queued`, `running`,
+  `succeeded`, `failed`, `rejected`, `expired` or `cancelled`; a timeout is `failed`), in the
+  order they started.
 Evaluations of earlier gate versions stay in the list, each with its `gate_version`, so a
 new `gate set` keeps the record of the secrets the owner may publish.
 
