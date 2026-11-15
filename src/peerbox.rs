@@ -1237,7 +1237,18 @@ async fn decide(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Value>, Error> {
     let request: contribution::DecisionRequest = decode(body)?;
-    Ok(Json(
-        blocking(store, move |s| s.decide(&id, request)).await?,
-    ))
+    let decided = blocking(store.clone(), move |s| s.decide(&id, request)).await?;
+    // A decision by hand on the contribution under evaluation cancels its
+    // runs still running (Gates, Evaluation).
+    if let (Some(peerbox), Some(cid)) = (
+        decided["peerbox_id"].as_str().map(str::to_owned),
+        decided["contribution_id"].as_str().map(str::to_owned),
+    ) {
+        let runs = blocking(store, move |s| {
+            evaluation::stop_running(s, &peerbox, Some(&cid))
+        })
+        .await?;
+        evaluation::cancel_runs(&runs).await;
+    }
+    Ok(Json(decided))
 }

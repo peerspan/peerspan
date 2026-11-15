@@ -20,8 +20,7 @@ runtime switch, manual decisions during an evaluation, `dirty_worktree`, restart
 peerbox_gate_queue.py.
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the runtime task contract. No VM, no
-KVM, no model calls. Second tier only. Nothing in the gate contract is implemented yet: every case past the network
-and peerbox setup is a strict expected failure.
+KVM, no model calls. Second tier only.
 """
 import json
 
@@ -35,7 +34,6 @@ from peerbox_gate_common import (CHECK, CHECKER_MARK, DEFAULT_RESOURCES, HEX64, 
                                  run_result, secret_file, secret_sha256, set_outputs, sha, show, status_of, tidy,
                                  time_score, tree_files, workspace, written)
 
-REASON = "peerbox gates not implemented (peerbox contract, Gates; PBX-9 to PBX-15, PBX-31)"
 suite = Suite("peerbox_gate", __doc__)
 bind(suite)
 IMAGE = "registry.example/solver@sha256:" + "3" * 64
@@ -70,9 +68,6 @@ FAILURE_CHECK = CHECK + [";", "cat", OK_FILE]
 GENERATOR = ["stderr", GEN_MARK, ";", "write", ".peerbox-gate/inputs/fresh.txt", "generated input", ";", "write",
              "cases/c1.txt", "generated case"]
 
-
-def case(name, spec, known=REASON):
-    return suite.case(name, spec, known=known)
 
 
 def evaluate(command, branch, var=None, files=None, timeout=120, **gate):
@@ -134,7 +129,7 @@ def _():
     gate_peerbox(suite)
 
 
-@case("outputs_promotes", "peerbox Evaluation (outputs), Verdict: a candidate writing outputs and a checker echoing "
+@suite.case("outputs_promotes", "peerbox Evaluation (outputs), Verdict: a candidate writing outputs and a checker echoing "
                           "a PEERBOX-GATE line, measured frontier, candidate, frontier, candidate as a candidate run "
                           "then a check run; enough gain promotes and moves the protected branch and the frontier")
 def _():
@@ -165,7 +160,7 @@ def _():
     state["promote"] = {"measured": measured, "record": rec, "frontier": frontier, "evaluation": entry}
 
 
-@case("workspaces", "peerbox Evaluation (outputs), Fresh episodes: a candidate run has the commit's tree without "
+@suite.case("workspaces", "peerbox Evaluation (outputs), Fresh episodes: a candidate run has the commit's tree without "
                     "its .peerbox-gate/ entries plus the inputs snapshot, never the expected outputs or the secret; "
                     "a check run has the checker snapshot, the secret and exactly the outputs")
 def _():
@@ -188,7 +183,7 @@ def _():
           f"{len(secrets)} secrets in the check runs, want gate show's one")
 
 
-@case("candidate_claims", "peerbox Evaluation (outputs): what a candidate prints, its own PEERBOX-GATE line, and "
+@suite.case("candidate_claims", "peerbox Evaluation (outputs): what a candidate prints, its own PEERBOX-GATE line, and "
                           "what it writes outside .peerbox-gate/out/ are ignored; status and list never show run "
                           "output or the checker command; below_margin's checker_reason is the last candidate "
                           "measurement's line's")
@@ -210,7 +205,7 @@ def _():
     check(STDOUT_MARK not in text and CHECKER_MARK not in text, "list or status shows run output or the checker")
 
 
-@case("checker_verdicts", "peerbox Verdict (worst_best, score checker): below min_gain is below_margin and moves "
+@suite.case("checker_verdicts", "peerbox Verdict (worst_best, score checker): below min_gain is below_margin and moves "
                           "nothing, lower and higher; enough gain with higher promotes")
 def _():
     for name, direction, f, c, verdict in (("lower_below", "lower", 100, 95, "rejected"),
@@ -224,7 +219,7 @@ def _():
         check(verdict == "promoted" or rev(state["repo"], "main") == frontier, f"{name}: a rejection moved main")
 
 
-@case("check_failed", "peerbox Result line: a missing line, a malformed one (bad JSON, a key missing or extra, a "
+@suite.case("check_failed", "peerbox Result line: a missing line, a malformed one (bad JSON, a key missing or extra, a "
                       "null score with checker, a reason over 200 bytes, not the last line), pass false and a failed "
                       "check run are check_failed, with the checker's reason only from a well-formed line of a check "
                       "run that exited 0, never a failed run's line")
@@ -237,7 +232,7 @@ def _():
     check(record(show())["state"] == "active", "a candidate's check failure paused the gate")
 
 
-@case("candidate_failures", "peerbox Evaluation (outputs), The gate record (max_changes_bytes): a candidate run that "
+@suite.case("candidate_failures", "peerbox Evaluation (outputs), The gate record (max_changes_bytes): a candidate run that "
                             "fails is run_failed; one whose changes size (its changes.tar, changes outside its "
                             "outputs too) exceeds max_changes_bytes is outputs_too_large; one that does both is "
                             "run_failed; gate show's run outcomes")
@@ -268,7 +263,7 @@ def _():
               f"{branch}: gate show's runs {entry['runs']}, want outcomes {want}")
 
 
-@case("frontier_failed", "peerbox Verdict: a failed frontier measurement stops the evaluation, pauses the gate with "
+@suite.case("frontier_failed", "peerbox Verdict: a failed frontier measurement stops the evaluation, pauses the gate with "
                          "frontier_failed and leaves the contribution queued")
 def _():
     command = outputs_command("no result line on the frontier", [("ff", written(80))])
@@ -284,7 +279,7 @@ def _():
     check(summary["state"] == "paused", f"list's gate state {summary['state']}")
 
 
-@case("not_fast_forward", "peerbox Evaluation: a candidate that is not a descendant of the frontier is rejected "
+@suite.case("not_fast_forward", "peerbox Evaluation: a candidate that is not a descendant of the frontier is rejected "
                           "with not_fast_forward before any run, with empty scores, its evaluation's secret's digest "
                           "and checker_reason null; review by hand while paused")
 def _():
@@ -310,7 +305,7 @@ def _():
     check(status_of(ahead)["decision"]["decided_by"] != "gate", "the owner's acceptance is not the owner's")
 
 
-@case("generator", "peerbox Generator, Fresh episodes, The gate record (images, bounds): the generator runs first "
+@suite.case("generator", "peerbox Generator, Fresh episodes, The gate record (images, bounds): the generator runs first "
                    "on the checker snapshot and the secret; its .peerbox-gate/inputs/ replace the inputs in candidate "
                    "runs, its other files are under .peerbox-gate/generated/ in check runs only; one secret; "
                    "checker_image and checker bounds on generator and check runs")
@@ -353,7 +348,7 @@ def _():
           and CHECKER_MARK not in text, "list shows the generator, the checker or its image")
 
 
-@case("generator_failed", "peerbox Generator: a generator that fails, or whose changes size exceeds max_changes_bytes, "
+@suite.case("generator_failed", "peerbox Generator: a generator that fails, or whose changes size exceeds max_changes_bytes, "
                           "pauses the gate with generator_failed before any candidate run; the contribution stays "
                           "queued")
 def _():
@@ -368,7 +363,7 @@ def _():
                                                                     f"want the generator's alone")
 
 
-@case("time_verdicts", "peerbox Evaluation, Verdict (score time): the candidate run's duration_ms, at least 1, as "
+@suite.case("time_verdicts", "peerbox Evaluation, Verdict (score time): the candidate run's duration_ms, at least 1, as "
                        "the score; promotion and below_margin, higher and lower; a check run with a null score")
 def _():
     steps = (("time-higher", "higher", 10, {"f/time.txt": BIG}, "promoted", 1),
@@ -390,7 +385,7 @@ def _():
     state["time"] = {"record": rec, "after": after, "scores": g["candidate_scores"]}
 
 
-@case("public_summary", "peerbox What readers see: list's gate summary with exactly its keys, the frontier's best "
+@suite.case("public_summary", "peerbox What readers see: list's gate summary with exactly its keys, the frontier's best "
                         "score, link_port null; never the salt, a secret, a digest or the checker command; the "
                         "public result in status as gate show records it")
 def _():
@@ -409,7 +404,7 @@ def _():
           "status's public result differs from gate show's")
 
 
-@case("command_bounds", "peerbox The gate record (command, checker, generator, max_changes_bytes): 1 to 64 strings "
+@suite.case("command_bounds", "peerbox The gate record (command, checker, generator, max_changes_bytes): 1 to 64 strings "
                         "of at most 4,096 bytes summed, and max_changes_bytes at least 65,536; past a bound 400 "
                         "invalid naming the field, the gate unchanged")
 def _():

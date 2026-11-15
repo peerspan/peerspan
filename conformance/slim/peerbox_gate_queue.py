@@ -15,8 +15,7 @@ evaluation (nothing swapped, the candidate evaluated again against the new head)
 its own (cancelled, the owner's rejection kept); `dirty_worktree` pausing; and a restart during an evaluation.
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the runtime task contract. No VM, no
-KVM, no model calls. Second tier only. Nothing in the gate contract is implemented yet: every case past the network
-and peerbox setup is a strict expected failure.
+KVM, no model calls. Second tier only.
 """
 from harness import Suite, check
 from runtime_common import bind, need, state
@@ -29,16 +28,12 @@ from peerbox_gate_common import (CHECK, CHECKER_MARK, DECISION_KEYS, OUT, OUTPUT
                                  refused_set, run_ids, set_outputs, show, started, status_of, submit_tip, tidy,
                                  workspace, written)
 
-REASON = "peerbox gates not implemented (peerbox contract, Gates; PBX-9 to PBX-15, PBX-35, PBX-36)"
 suite = Suite("peerbox_gate_queue", __doc__)
 bind(suite)
 SLOW = ["stderr", CHECKER_MARK, ";", "sleep", "2", ";", "cat", OUT]  # a check run that is still running for 2 s
 SLOWER = ["stderr", CHECKER_MARK, ";", "sleep", "4", ";", "cat", OUT]  # still running once a restarted host is up
 SIDES = [(s, k) for s in ("frontier", "candidate") for k in ("candidate", "check")]
 
-
-def case(name, spec, known=REASON):
-    return suite.case(name, spec, known=known)
 
 
 def command(var, score=80):
@@ -89,7 +84,7 @@ def _():
     share(pbx(), state["bob_principal"], actions=("read", "submit"), extra=("--max-pending", "8"), hosts=[state["b"]])
 
 
-@case("order_one_at_a_time", "peerbox Evaluation (PBX-14, PBX-35): contributions queued while paused, shown in "
+@suite.case("order_one_at_a_time", "peerbox Evaluation (PBX-14, PBX-35): contributions queued while paused, shown in "
                              "gate show's queue oldest first by (submitted_at, contribution_id), evaluated in that "
                              "order and one at a time, each frontier, candidate as a candidate run then a check run")
 def _():
@@ -114,7 +109,7 @@ def _():
                                                       for e in evaluations), "gate show's runs are not those started")
 
 
-@case("superseded_while_queued", "peerbox Evaluation: a contribution superseded or withdrawn while queued leaves the "
+@suite.case("superseded_while_queued", "peerbox Evaluation: a contribution superseded or withdrawn while queued leaves the "
                                  "queue and is never evaluated")
 def _():
     argv = command("sup")
@@ -135,7 +130,7 @@ def _():
           "a superseded or withdrawn contribution was evaluated")
 
 
-@case("pause_resume_review", "peerbox Gate CLI (pause, resume), Evaluation: paused with owner, evaluations wait, "
+@suite.case("pause_resume_review", "peerbox Gate CLI (pause, resume), Evaluation: paused with owner, evaluations wait, "
                              "review by hand works; resume makes it active")
 def _():
     set_outputs(command("pr"))
@@ -157,7 +152,7 @@ def _():
     check(posts(since) == [], "resume evaluated a contribution decided by hand")
 
 
-@case("clear", "peerbox Gate CLI (clear): removes the gate, cancelling a running evaluation; queued contributions "
+@suite.case("clear", "peerbox Gate CLI (clear): removes the gate, cancelling a running evaluation; queued contributions "
                "stay pending for review by hand; gate show 404 not_found and list's gate null; the next gate set "
                "continues from the cleared gate's version")
 def _():
@@ -182,7 +177,7 @@ def _():
     check(again == version + 1, f"gate set after gate clear: version {again}, want {version + 1}, never reused")
 
 
-@case("runtime_disabled", "peerbox Evaluation (PBX-36), Gate CLI: with the switch off the gate shows paused with "
+@suite.case("runtime_disabled", "peerbox Evaluation (PBX-36), Gate CLI: with the switch off the gate shows paused with "
                           "runtime_disabled and evaluations wait; gate set is 503 unavailable; resume clears only an "
                           "owner pause; with the switch on evaluation goes on by itself")
 def _():
@@ -213,7 +208,7 @@ def _():
     gate_state("active")
 
 
-@case("gate_busy", "peerbox Gate CLI and local API: gate set while an evaluation runs is refused with 409 "
+@suite.case("gate_busy", "peerbox Gate CLI and local API: gate set while an evaluation runs is refused with 409 "
                    "gate_busy, by the CLI and PUT, leaving the gate and the evaluation as they were")
 def _():
     a = need("a")[0]
@@ -232,7 +227,7 @@ def _():
     gate_decision(decided(cid, timeout=120), "promoted")
 
 
-@case("accepted_by_hand_meanwhile", "peerbox Verdict, Evaluation: the owner accepting another contribution during an "
+@suite.case("accepted_by_hand_meanwhile", "peerbox Verdict, Evaluation: the owner accepting another contribution during an "
                                     "evaluation swaps nothing and that evaluation ends undecided; the candidate returns "
                                     "to the front of the queue and is evaluated again against the new head")
 def _():
@@ -270,7 +265,7 @@ def _():
           f"{main} undecided, then {base} decided")
 
 
-@case("rejected_by_hand_meanwhile", "peerbox Evaluation: the owner rejecting the candidate during its evaluation "
+@suite.case("rejected_by_hand_meanwhile", "peerbox Evaluation: the owner rejecting the candidate during its evaluation "
                                     "cancels it and its runs; the owner's rejection is kept and it is not evaluated "
                                     "again")
 def _():
@@ -299,7 +294,7 @@ def _():
     gate_state("active")
 
 
-@case("dirty_worktree", "peerbox Verdict: a promotion into a checked-out protected branch with a dirty worktree "
+@suite.case("dirty_worktree", "peerbox Verdict: a promotion into a checked-out protected branch with a dirty worktree "
                         "pauses the gate with dirty_worktree and leaves the contribution queued")
 def _():
     repo = state["repo"]
@@ -317,7 +312,7 @@ def _():
     gate_decision(decided(cid, timeout=120), "promoted", frontier=main)
 
 
-@case("restart_during_evaluation", "peerbox Evaluation: after a restart an undecided evaluation starts again from "
+@suite.case("restart_during_evaluation", "peerbox Evaluation: after a restart an undecided evaluation starts again from "
                                    "its first measurement with a new secret; each run it had started that is still "
                                    "running is cancelled before the first new run")
 def _():

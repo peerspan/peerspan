@@ -755,7 +755,8 @@ fn check_request(r: SetRequest) -> Result<Checked, Error> {
     let max_changes_bytes = within(
         "max_changes_bytes",
         r.max_changes_bytes.unwrap_or(104_857_600),
-        1,
+        // An empty changes.tar still has a size (The gate record).
+        65_536,
         104_857_600,
     )?;
     let (inputs_dir, checker_dir) = (PathBuf::from(inputs_dir), PathBuf::from(checker_dir));
@@ -867,14 +868,6 @@ fn random_hex() -> Result<String, Error> {
 
 async fn set_gate(store: Arc<Store>, id: String, request: SetRequest) -> Result<Value, Error> {
     let checked = check_request(request)?;
-    if checked.gate.mode != "episode" {
-        // Outputs mode (candidate runs with check runs, and the generator)
-        // is not evaluated by this host yet.
-        return Err(conflict(
-            "not_implemented",
-            "mode outputs is not implemented on this host yet; use --mode episode",
-        ));
-    }
     {
         let id = id.clone();
         blocking(store.clone(), move |s| {
@@ -994,8 +987,9 @@ fn clear(store: &Store, id: &str) -> Result<Value, Error> {
         )?;
         tx.commit()?;
         // A running evaluation sees the gate gone and cancels its runs; its
-        // snapshot parts go once it has.
-        if super::evaluation::running(&*store.connection()?, id)?.is_none() {
+        // snapshot parts go once it has. `conn` is the store's only
+        // connection, so it is used again rather than locked twice.
+        if super::evaluation::running(&conn, id)?.is_none() {
             let (a, b) = gate.parts(store, id);
             let _ = std::fs::remove_file(a);
             let _ = std::fs::remove_file(b);
@@ -1065,7 +1059,18 @@ async fn clear_route(
     State(store): State<Arc<Store>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Error> {
-    Ok(Json(blocking(store, move |s| clear(s, &id)).await?))
+    let cleared = {
+        let id = id.clone();
+        blocking(store.clone(), move |s| clear(s, &id)).await?
+    };
+    // Clearing cancels a running evaluation: its runs are cancelled before
+    // the answer, so a gate set right after finds none running.
+    let runs = blocking(store, move |s| {
+        super::evaluation::stop_running(s, &id, None)
+    })
+    .await?;
+    super::evaluation::cancel_runs(&runs).await;
+    Ok(Json(cleared))
 }
 async fn pause_route(
     State(store): State<Arc<Store>>,
