@@ -183,8 +183,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema34 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema34')
+                raise CheckFailure('old binary did not refuse schema35 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema35')
         finally:
             self.process = None
             PROCESSES.discard(process)
@@ -365,9 +365,9 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 34 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
+        require(upgraded['version'] == 35 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
                 and all(upgraded['tables'][name] == () for name in PEERBOX - original['tables'].keys()),
-                'installed upgrade did not create schema34 with the complete table histories and empty peerbox tables')
+                'installed upgrade did not create schema35 with the complete table histories and empty peerbox tables')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
         host.binary = old_binary
@@ -393,7 +393,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(restored_records['version'] == expected_version, 'old binary changed restored schema version')
         preserve_history(original, restored_records)
         require(tree(restored.config) == manifests['config'], 'old binary changed restored original key/config')
-        return {'original_schema': expected_version, 'upgraded_schema': 34,
+        return {'original_schema': expected_version, 'upgraded_schema': 35,
                 'backup_mode_hash_match': True, 'public_history_retained': True,
                 'pending_review_retained': pending is not None, 'new_review': True,
                 'old_binary_refused_without_db_mutation': True, 'complete_restore_reopened': True,

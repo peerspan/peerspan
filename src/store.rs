@@ -29,7 +29,7 @@ PRAGMA user_version = 1;
 /// description.
 const DESCRIPTIONS: &str =
     "CREATE TABLE agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL);";
-/// Database version 34: peerbox agent proposals (peerbox contract, Agent
+/// Database version 35: peerbox agent proposals (peerbox contract, Agent
 /// proposals, Persistence) and their proposal-update notifications, which
 /// have the columns of call-update notifications. Adapter credentials gain
 /// `peerbox_proposals` in their JSON, read as false when absent, and
@@ -196,7 +196,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=34).contains(&version) {
+        if !(0..=35).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
