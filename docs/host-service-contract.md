@@ -603,3 +603,42 @@ host-specific facts:
 - Activity kinds are `peerbox.gate_set`, `peerbox.gate_paused` (an owner pause, or a
   pause with `frontier_failed`, `generator_failed` or `dirty_worktree`) and `peerbox.gate_evaluated`, with
   `peerbox.decided` for each decision the gate records. `gate clear` records none.
+
+## Build caches on this host
+
+The Rust host implements the host side of the [build cache contract](build-cache-contract.md#host-the-profiles-build-cache),
+with these host-specific facts:
+
+- `agent runtime set ... --build-cache COMMAND [--build-cache-interval DURATION]` sends
+  `build_cache: {command, interval_seconds}` in `PUT /v1/agents/{agent_id}/runtime`;
+  `--build-cache-interval` parses as `--timeout` does and needs `--build-cache`. A profile
+  without `build_cache` is returned without the field, as before; one with it returns it.
+  A profile with `build_cache` is refused with 409 `runtime_unavailable` unless the
+  runtime's `GET /v1/runtime` reports `peerfs_caches` true.
+- `agent runtime cache show [AGENT] [--json]`, `cache refresh AGENT` and `cache clear AGENT`
+  call `GET /v1/agents/{agent_id}/runtime/cache` (or `GET /v1/agents/runtime/cache`, every
+  profile with `build_cache` in agent ID order), `POST .../runtime/cache/refresh` and
+  `DELETE .../runtime/cache`. `show` returns `{agent_id, name, commit, saved_at, bytes,
+  last_refresh}`, where `last_refresh` is null or `{started_at, run_id, commit, ended_at,
+  saved, reason}`. All three are 404 for an agent without `build_cache`.
+- **Not yet available:** the host has no way to reach the runtime's peerfs space. The
+  runtime's local API serves no cache or branch route and `GET /v1/runtime` does not name
+  the space, so the host cannot read the branch's head or the cache's current version, nor
+  run `cache rm`. Until it can, `cache show` and `cache clear` answer 503 `unavailable`, and
+  the check starts no refresh: it stops at the branch head, after every other condition.
+- Refresh runs go straight to the runtime's local API, as a peerbox gate's runs do; they
+  are not received task records. The check runs when the daemon starts and every 60
+  seconds after, on the host's clock (so the debug-build test clock moves it). "No task of
+  any runtime agent is queued" counts tasks that are `queued` and not yet dispatched. The
+  check also starts no refresh while the runtime reports `peerfs_caches` false.
+- `cache refresh` is kept until a refresh is dispatched, and forgotten when the profile
+  loses `build_cache` or is cleared. A refresh already dispatched or running when that
+  happens finishes and is recorded.
+- A start the runtime answers 429 puts the profile's refresh state back as it was, since no
+  run exists; another 4xx ends the refresh with `saved` false and the reason `the runtime
+  refused the run: ERROR`. When nothing was saved, `reason` is `timed out`, `signal N`,
+  `exit N` for a failing exit, or the result's `error`, in that order of precedence; this
+  host never cancels a refresh, so it never reports `cancelled`.
+- Each profile's last refresh is stored in the `runtime_cache_refreshes` table (schema 36).
+  The activity `runtime.cache_refreshed` has the subject `AGENT_ID/COMMIT/SAVED`, with
+  `SAVED` `true` or `false`.
