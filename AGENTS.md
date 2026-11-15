@@ -105,8 +105,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   against `conformance/slim/fake_runtime.py`; second tier only. Both pass in full (`peerbox` takes about 8 minutes,
   `peerbox_runs` about 70 seconds).
 - `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
-  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, and the cases not
-  implemented yet are strict `XFAIL`.
+  contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only. It passes in full.
 - `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
   proposal MCP tools and `approve` on a pseudo-terminal (peerbox contract, Agent proposals; PBX-16 to PBX-21), with
   `peerbox_common.py` and `peerbox_fixtures.py`; second tier only, and the cases not implemented yet are strict

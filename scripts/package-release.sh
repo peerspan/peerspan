@@ -167,7 +167,7 @@ copy_integration() {
   done
 }
 
-copy_integration shared adapter.mjs presentation.mjs provider.mjs tools.mjs
+copy_integration shared adapter.mjs peerbox.mjs presentation.mjs provider.mjs tools.mjs
 copy_integration claude-channel integration.json package.json package-lock.json README.md \
   channel.mjs provider.mjs
 copy_integration codex integration.json package.json package-lock.json README.md \

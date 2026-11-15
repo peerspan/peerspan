@@ -202,6 +202,30 @@ pub struct AdapterRun {
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub workspace_archive: Option<String>,
 }
+/// A peerbox task through a peerbox route (peerbox contract, Agents).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdapterPeerbox {
+    pub destination: String,
+    pub task_id: String,
+    pub peerbox: crate::peerbox_task::PeerboxOp,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub input: Option<String>,
+    /// The digest of a bundle the adapter uploaded, required for `submit`.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub bundle: Option<String>,
+}
+/// The route actions that allow a peerbox operation through a route
+/// (peerbox contract, Agents, Routes), or `None` for an unknown operation.
+fn peerbox_route_actions(op: &str) -> Option<&'static [&'static str]> {
+    use crate::policy::{PEERBOX_ACTIONS, PEERBOX_RUN, PEERBOX_SUBMIT};
+    match op {
+        "list" | "fetch" | "status" => Some(&PEERBOX_ACTIONS),
+        "submit" | "withdraw" => Some(&[PEERBOX_SUBMIT]),
+        "run" => Some(&[PEERBOX_RUN]),
+        _ => None,
+    }
+}
 /// A directory session's delegation by address (launch slice 4); `to` and
 /// `network` are taken from the body first.
 #[derive(Clone, Deserialize)]
@@ -1125,6 +1149,178 @@ impl Store {
         insert(&tx, &mut out)?;
         tx.commit()?;
         Ok(out)
+    }
+    /// A peerbox task through a peerbox route (peerbox contract, Agents):
+    /// ownership, repeats and the deadline as for delegations; it cites
+    /// the host owner's policy, and `bundle` becomes the task's input
+    /// artifact.
+    pub fn prepare_adapter_peerbox(
+        &self,
+        auth: &AdapterAuth,
+        r: AdapterPeerbox,
+    ) -> Result<OutboundTask, Error> {
+        if !valid_name(&r.destination) || !valid_id(&r.task_id, "task", 16) {
+            return Err(Error::Invalid("invalid peerbox task".into()));
+        }
+        let Some(allowed) = peerbox_route_actions(&r.peerbox.op) else {
+            return Err(Error::Invalid("op".into()));
+        };
+        if r.bundle.is_some() && r.peerbox.op != "submit" {
+            return Err(Error::Invalid("bundle".into()));
+        }
+        let input = r
+            .input
+            .unwrap_or_else(|| format!("peerbox {}", r.peerbox.op));
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (a, ss) = authority(&tx, auth)?;
+        let route: OutboundRoute = read(
+            &tx,
+            "SELECT record FROM adapter_routes WHERE adapter_id = ?1 AND name = ?2",
+            params![a.id, r.destination],
+        )
+        .map_err(|e| match e {
+            Error::NotFound => Error::Forbidden,
+            other => other,
+        })?;
+        let expiry = time(&route.expires_at)?;
+        if route.revoked_at.is_some()
+            || !allowed.contains(&route.action.as_str())
+            || expiry <= crate::clock::now()
+            || input.len() as i64 > route.max_message_bytes
+        {
+            return Err(Error::Forbidden);
+        }
+        let artifacts = match &r.bundle {
+            None => None,
+            Some(sha) => {
+                let size: Option<i64> = tx
+                    .query_row(
+                        "SELECT json_extract(record, '$.size') FROM artifact_files WHERE sha256 = ?1",
+                        [sha],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                let size =
+                    size.ok_or_else(|| Error::Invalid("bundle is not a stored upload".into()))?;
+                Some(vec![ArtifactEntry {
+                    name: "contribution.bundle".into(),
+                    size,
+                    sha256: sha.clone(),
+                    media_type: crate::peerbox::BUNDLE_TYPE.into(),
+                }])
+            }
+        };
+        let reused: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 AND (json_extract(record, '$.route_id') IS NULL OR json_extract(record, '$.route_id') != ?3))",
+            params![r.task_id, a.id, route.id],
+            |row| row.get(0),
+        )?;
+        if reused {
+            return Err(Error::Conflict(
+                "task ID belongs to another destination".into(),
+            ));
+        }
+        if let Some(old) = tx
+            .query_row(
+                "SELECT record FROM outbound_tasks WHERE peer = ?1 AND task_id = ?2",
+                params![route.peer_host_id, r.task_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            let mut old: OutboundTask = serde_json::from_str(&old)?;
+            fill(&tx, &mut old)?;
+            let Some(owner) = &old.adapter_id else {
+                return Err(Error::Conflict(
+                    "task belongs to owner administration".into(),
+                ));
+            };
+            let session = old
+                .request
+                .origin
+                .as_ref()
+                .and_then(|o| o.session_id.as_deref());
+            if *owner != a.id || session != Some(ss.id.as_str()) {
+                return Err(Error::Forbidden);
+            }
+            if old.route_id.as_deref() != Some(route.id.as_str())
+                || old.request.input != input
+                || old.request.peerbox.as_ref() != Some(&r.peerbox)
+                || old.request.artifacts != artifacts
+            {
+                return Err(Error::Conflict(
+                    "task ID reused with different fields".into(),
+                ));
+            }
+            if time(&old.request.deadline)? <= crate::clock::now() && old.submit_state != "accepted"
+            {
+                return Err(Error::Forbidden);
+            }
+            return Ok(old);
+        }
+        if route_used(&tx, &route.id)? >= route.max_messages {
+            return Err(Error::Forbidden);
+        }
+        let cited = self.cited_policy(&tx, &route.peer_host_id)?;
+        let deadline = (crate::clock::now() + DEFAULT_DEADLINE)
+            .min(expiry)
+            .min(time(&cited.valid_until)?);
+        if let Some(inputs) = &artifacts {
+            self.check_uploads(&tx, inputs)?;
+        }
+        let request = TaskRequest {
+            executor: Some(crate::peerbox_task::EXECUTOR.into()),
+            run: None,
+            peerbox: Some(r.peerbox),
+            task_id: r.task_id,
+            grant_id: None,
+            policy: Some(cited.reference()),
+            self_access: None,
+            target_agent_id: String::new(),
+            deadline: rfc3339(deadline),
+            input,
+            origin: Some(Origin {
+                agent_id: ss.agent_id.clone(),
+                session_id: Some(ss.id.clone()),
+            }),
+            artifacts,
+            delegation: None,
+        };
+        crate::peerbox_task::validate(&request)?;
+        let mut out = OutboundTask {
+            peer_host_id: route.peer_host_id.clone(),
+            request,
+            submit_state: "unknown".into(),
+            status: None,
+            events_after: 0,
+            cancel_state: None,
+            adapter_id: Some(a.id.clone()),
+            route_id: Some(route.id),
+            attempts: 0,
+            next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
+            error: None,
+            status_queries: 0,
+            parent: None,
+            delegation: None,
+            artifacts: Vec::new(),
+            to: None,
+        };
+        insert(&tx, &mut out)?;
+        tx.commit()?;
+        Ok(out)
+    }
+    /// The stored events of a task this session delegated, as
+    /// [`Store::delegation`] authorizes it.
+    pub fn delegation_events(
+        &self,
+        auth: &AdapterAuth,
+        task_id: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<TaskEvent>, Error> {
+        let out = self.delegation(auth, task_id)?;
+        self.outbound_task_events(&out.peer_host_id, task_id, after, limit)
     }
     /// The task for a delegation through a route or by address: a forward
     /// of a task this session claimed, or a new one, with its deadline,
@@ -2263,7 +2459,12 @@ pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/adapter/v1/delegations", post(delegate))
         .route("/adapter/v1/runs", post(adapter_run))
+        .route("/adapter/v1/peerbox", post(adapter_peerbox))
         .route("/adapter/v1/delegations/{task_id}", get(delegation))
+        .route(
+            "/adapter/v1/delegations/{task_id}/events",
+            get(delegation_events),
+        )
         .route("/adapter/v1/task-updates/next", post(next_update))
         .route(
             "/adapter/v1/task-updates/{id}/forwarded",
@@ -2400,6 +2601,35 @@ async fn adapter_run(
     .await?;
     let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     Ok(Json(submit(store, out, status_only).await?))
+}
+async fn adapter_peerbox(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<OutboundTask>, Error> {
+    let request: AdapterPeerbox = decode(body)?;
+    let auth = crate::adapter::token(&headers);
+    let out = blocking(store.clone(), move |s| {
+        s.prepare_adapter_peerbox(&auth, request)
+    })
+    .await?;
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
+    Ok(Json(submit(store, out, status_only).await?))
+}
+async fn delegation_events(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+    query: Result<Query<Page>, QueryRejection>,
+) -> Result<Json<Vec<TaskEvent>>, Error> {
+    let (after, limit) = bounds(query)?;
+    let auth = crate::adapter::token(&headers);
+    Ok(Json(
+        blocking(store, move |s| {
+            s.delegation_events(&auth, &task_id, after, limit)
+        })
+        .await?,
+    ))
 }
 /// A delegation by address: checked, resolved, authorized, then persisted.
 async fn address_delegation(
