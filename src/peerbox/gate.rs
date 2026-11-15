@@ -1019,8 +1019,10 @@ fn show(store: &Store, id: &str) -> Result<Value, Error> {
 /// Deletes a peerbox's gate and evaluations with the peerbox.
 pub(crate) fn delete_with(conn: &Connection, id: &str) -> Result<(), Error> {
     conn.execute("DELETE FROM peerbox_gates WHERE peerbox_id = ?1", [id])?;
+    // An evaluation with runs still on the runtime stays, as a record to
+    // clean up, until their cancellation is confirmed.
     conn.execute(
-        "DELETE FROM peerbox_gate_evaluations WHERE peerbox_id = ?1",
+        "DELETE FROM peerbox_gate_evaluations WHERE peerbox_id = ?1 AND json_extract(record, '$.state') != 'running' AND COALESCE(json_extract(record, '$.cleanup'), 0) = 0",
         [id],
     )?;
     Ok(())

@@ -238,8 +238,20 @@ async fn clean_up(store: &Arc<Store>) -> Result<bool, Error> {
             }
         }
         if done {
-            let id = e.evaluation_id.clone();
-            run_blocking(store, move |s| update(s, &id, |e| e.cleanup = false)).await?;
+            let (id, peerbox) = (e.evaluation_id.clone(), e.peerbox_id.clone());
+            run_blocking(store, move |s| {
+                update(s, &id, |e| e.cleanup = false)?;
+                // A deleted peerbox's evaluation was kept only for this.
+                let conn = s.connection()?;
+                if super::record(&conn, &peerbox)?.is_none() {
+                    conn.execute(
+                        "DELETE FROM peerbox_gate_evaluations WHERE evaluation_id = ?1",
+                        [&id],
+                    )?;
+                }
+                Ok(())
+            })
+            .await?;
         } else {
             clean = false;
         }
@@ -958,9 +970,16 @@ async fn measure(
         if *shutdown.borrow() {
             return Err(Stop::Shutdown);
         }
-        // Evaluations wait while the runtime's switch is off.
-        let switch = run_blocking(&ctx.store, |s| s.runtime_switch()).await?;
-        let Some(switch) = switch else {
+        // Evaluations wait while the runtime's switch is off or the gate
+        // is paused.
+        let (peerbox, version) = (ctx.rec.peerbox_id.clone(), g.version);
+        let (switch, paused) = run_blocking(&ctx.store, move |s| {
+            let paused = gate::load(&*s.connection()?, &peerbox)?
+                .is_some_and(|g| g.version == version && g.paused_reason.is_some());
+            Ok((s.runtime_switch()?, paused))
+        })
+        .await?;
+        let Some(switch) = switch.filter(|_| !paused) else {
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         };
