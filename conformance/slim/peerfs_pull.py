@@ -227,7 +227,10 @@ def _():
              ("no such local space", ("main", "space_" + "0" * 32, one), {}, 404, "not_found"),
              ("a malformed destination", ("main", "space_X", one), {}, 400, "invalid"),
              ("a malformed branch", ("a/b", dest["L"]["id"], one), {}, 400, "invalid"),
-             ("another network", ("main", dest["other"]["id"], one), {"network": net1}, 409, "conflict"),
+             ("another network named", ("main", dest["other"]["id"], one), {"network": net1}, 409, "conflict"),
+             # Without --network the pull runs in the binding's own network, where S's
+             # discovery does not list the branch (pull 6).
+             ("another network, not named", ("main", dest["other"]["id"], one), {}, 404, "not_found"),
              ("a prepared destination", ("main", dest["prepared"]["id"], one), {}, 409, "conflict"),
              ("a released destination", ("main", dest["released"]["id"], one), {}, 409, "conflict"),
              ("the destination provider down", ("main", dest["down"]["id"], one), {}, 503, "unavailable")]
@@ -237,9 +240,6 @@ def _():
         status, value = pull(*args, **kw)
         if not (status == want and isinstance(value, dict) and value.get("code") == code):
             problems.append(f"{label}: {status} {value}")
-    status, value = pull("main", dest["other"]["id"], one)
-    if status not in (404, 409):
-        problems.append(f"another network without --network: {status} {value}")
     changed = dest["changed"]
     changed["directory"].chmod(0o750)
     try:
