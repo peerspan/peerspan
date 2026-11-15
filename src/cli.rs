@@ -481,6 +481,9 @@ pub enum Command {
         name: String,
         #[arg(long = "with", value_name = "PRINCIPAL")]
         with: String,
+        /// Accepted as on share; unshare never asks
+        #[arg(long)]
+        yes: bool,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]

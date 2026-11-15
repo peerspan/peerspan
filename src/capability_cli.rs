@@ -100,6 +100,7 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             with,
             network,
             person_key,
+            yes: _,
         } => unshare(&local, resolved(network), person_key.as_deref(), name, with).await?,
         Command::Trust {
             host,
@@ -951,8 +952,17 @@ fn print_warnings(created: &Value) {
         eprintln!("warning: {}", w.as_str().unwrap_or_default());
     }
 }
-/// The reach statement of the review and `shares`.
-fn reach_statement(principal: &str, gh: bool, bounds: &Value, sentence: &str) -> String {
+/// The reach statement of the review and `shares`. `every_checked` is
+/// whether Peerspan checks every argument of the capability's operations
+/// (`unchecked_arguments` found none); it matters only for a bounded
+/// capability on a source other than `gh`.
+fn reach_statement(
+    principal: &str,
+    gh: bool,
+    bounds: &Value,
+    sentence: &str,
+    every_checked: bool,
+) -> String {
     let combinations = peerspan_host::bounds::of_record(bounds);
     if combinations.is_empty() {
         if gh {
@@ -969,11 +979,51 @@ fn reach_statement(principal: &str, gh: bool, bounds: &Value, sentence: &str) ->
         format!(
             "{principal} can use these operations only where {allowed}; Peerspan refuses other calls. The credential reaches more than the bound. {sentence}"
         )
+    } else if every_checked {
+        format!(
+            "{principal} can use these operations only where {allowed}; Peerspan checks every argument of these operations and refuses other calls."
+        )
     } else {
         format!(
             "{principal} can use these operations only where {allowed}; Peerspan refuses other calls. Arguments Peerspan does not check can still reach anything the credentials they run with on this host can reach."
         )
     }
+}
+/// For each of the record's operations in order, its top-level input
+/// arguments other than the bound names, sorted, as `OP: A, B`, leaving out
+/// operations with none. None when the source's snapshot does not describe
+/// every operation, so which arguments go unchecked is not known.
+fn unchecked_arguments(record: &Value, source: &Value) -> Option<Vec<String>> {
+    let combinations = peerspan_host::bounds::of_record(&record["bounds"]);
+    let names = peerspan_host::bounds::names(&combinations);
+    let mut parts = Vec::new();
+    for op in record["operations"].as_array().into_iter().flatten() {
+        let op = op.as_str().unwrap_or_default();
+        let properties = source["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|t| t["name"].as_str() == Some(op))
+            .map(|t| &t["input_schema"]["properties"])?;
+        let mut others: Vec<&String> = properties
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.keys())
+            .filter(|k| !names.contains(k))
+            .collect();
+        others.sort();
+        if !others.is_empty() {
+            parts.push(format!(
+                "{op}: {}",
+                others
+                    .iter()
+                    .map(|k| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+    Some(parts)
 }
 /// The review's bounds block, when the capability has a bound.
 fn bounds_block(record: &Value, source: &Value, gh: bool) -> Vec<String> {
@@ -991,39 +1041,15 @@ fn bounds_block(record: &Value, source: &Value, gh: bool) -> Vec<String> {
                 .into(),
         );
     } else {
-        let names = peerspan_host::bounds::names(&combinations);
-        let mut parts = Vec::new();
-        for op in record["operations"].as_array().into_iter().flatten() {
-            let op = op.as_str().unwrap_or_default();
-            let schema = source["tools"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|t| t["name"].as_str() == Some(op))
-                .map(|t| t["input_schema"]["properties"].clone())
-                .unwrap_or(Value::Null);
-            let mut others: Vec<&String> = schema
-                .as_object()
-                .into_iter()
-                .flat_map(|m| m.keys())
-                .filter(|k| !names.contains(k))
-                .collect();
-            others.sort();
-            if !others.is_empty() {
-                parts.push(format!(
-                    "{op}: {}",
-                    others
-                        .iter()
-                        .map(|k| k.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
+        match unchecked_arguments(record, source) {
+            Some(parts) if parts.is_empty() => {
+                out.push("  Peerspan checks every argument of these operations.".into())
             }
-        }
-        if parts.is_empty() {
-            out.push("  Peerspan checks every argument of these operations.".into());
-        } else {
-            out.push(format!("  Not checked by Peerspan: {}.", parts.join("; ")));
+            Some(parts) => out.push(format!("  Not checked by Peerspan: {}.", parts.join("; "))),
+            None => out.push(
+                "  Not checked by Peerspan: not known, since the source's snapshot does not describe every operation."
+                    .into(),
+            ),
         }
     }
     if !record["resources"].is_null() {
@@ -1708,7 +1734,13 @@ async fn share(
     let sentence = peerspan_host::gh::sentence(Some(&reach), source_view["account"].as_str());
     eprintln!(
         "{}",
-        reach_statement(&shown, gh, &record["bounds"], &sentence)
+        reach_statement(
+            &shown,
+            gh,
+            &record["bounds"],
+            &sentence,
+            unchecked_arguments(&record, &source_view).is_some_and(|p| p.is_empty()),
+        )
     );
     agent_review(&principal, &persons, &me, &content);
     if !yes {
@@ -2211,7 +2243,14 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
             "auth": c["auth"],
             "credential_text": credential_text,
             "bounds": c["bounds"],
-            "reach": reach_statement("Recipients", gh, &c["bounds"], &sentence),
+            "reach": reach_statement(
+                "Recipients",
+                gh,
+                &c["bounds"],
+                &sentence,
+                unchecked_arguments(c, builtin.as_ref().unwrap_or(&remote_source))
+                    .is_some_and(|p| p.is_empty()),
+            ),
             "capability": name,
             "host": host,
             "source": c["source"],
