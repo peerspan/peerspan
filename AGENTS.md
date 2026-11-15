@@ -106,8 +106,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   submissions refused before anything is stored and the previous schema; stored contributions, review, status,
   cancellation, restarts and withdrawal; the policy body, `list` paging and several rules on one peerbox, with a
   renewal on the test clock; invitations, a share waiting for the owner's key, an expired or cancelled invite and a
-  lapsed sender on the test clock. Second tier only (308, 413, 241 and 222 lines plus 546 and 529 shared; 62, 41,
-  51 and 53 seconds measured).
+  lapsed sender on the test clock. `peerbox` runs on every push; the other three are second tier only (308, 413,
+  241 and 222 lines plus 546 and 529 shared; 62, 41, 51 and 53 seconds measured).
 - `peerbox_runs`: runs on a peerbox's exact commits against `conformance/slim/fake_runtime.py` (peerbox Runs,
   PBX-4), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only (355 lines, 47 seconds measured).
 - `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
