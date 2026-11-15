@@ -7,7 +7,7 @@ peerbox on a Git fixture repository whose `main` holds an executable, a symbolic
 `.gitattributes` with `export-ignore`, `export-subst` and an end-of-line rule. The fake runtime logs each start
 request and unpacks the workspace archive into a run directory it keeps, so the suite compares the workspace with
 the commit's tree directly, and its `cat` step reads files from inside the run. The rest of the peerbox contract is
-peerbox.py; the shared fixtures are peerbox_common.py and runtime_common.py.
+peerbox.py and the suites split from it; the shared fixtures are peerbox_common.py and runtime_common.py.
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the runtime task contract it extends.
 No VM, no KVM, no model calls. Nothing in the contract is implemented yet: every case past the network setup is a

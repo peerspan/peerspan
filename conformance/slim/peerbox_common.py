@@ -1,4 +1,5 @@
-"""Shared fixtures and helpers of the peerbox slim suites (peerbox.py, peerbox_runs.py).
+"""Shared fixtures and helpers of the peerbox slim suites (peerbox.py, peerbox_contributions.py, peerbox_rules.py,
+peerbox_invites.py, peerbox_runs.py, peerbox_agents.py, peerbox_proposals.py).
 
 Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with the runtime task, task, artifact and
 coordinator-free contracts it extends. It builds on runtime_common.py: a suite calls `runtime_common.bind(suite)` and
@@ -19,9 +20,11 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from harness import (Failure, attention, check, link_view, peer, pull_until, rfc3339, select, commit as link_commit,
-                     finalize, join_request, wait_for, wait_linked)
-from runtime_common import (cite, learn, new_task_id, policy_statement, policy_version, receiver_events, state, upload)
+from harness import (Failure, attention, check, create_network, join_new_person, link_machine, link_view, peer,
+                     pull_until, rfc3339, select, ssh_key, commit as link_commit, finalize, join_request, wait_for,
+                     wait_linked)
+from runtime_common import (cite, learn, new_task_id, policy_statement, policy_version, receiver_events,
+                            run_side_by_side, state, upload)
 import runtime_common
 
 REASON = "peerboxes not implemented (peerbox contract)"
@@ -481,3 +484,63 @@ def b64url_json(code, prefix):
 def settle(seconds=2.0):
     """Give a background worker (a sweep, a recheck) a moment before asserting that nothing happened."""
     time.sleep(seconds)
+
+
+# The network of peerbox.py and the suites split from it (decentralized-spec 6, 8).
+
+def person_id(host, key):
+    return host.ok("person", "show", "--person-key", key)["person_id"]
+
+
+def peerbox_network(suite, people=("bob", "carol"), second_machine=False):
+    """alice creates a coordinator-free network; PEOPLE (of bob and carol) join as other people and, with
+    SECOND_MACHINE, alice links alice2, side by side. Fills `state`: a, a2, b, c, net, alice_public, alice_key,
+    alice_pid, and for each person WHO_key, WHO_pid, WHO_p (the principal) and WHO_public; bob's own policy allows
+    alice (for a peerbox of his); `learners`, every host but alice's, learn her current policy."""
+    short = {"bob": "b", "carol": "c"}
+    a = state["a"] = suite.host("alice")
+    if second_machine:
+        state["a2"] = suite.host("alice2")
+    for who in people:
+        state[short[who]] = suite.host(who)
+    net = state["net"] = create_network(a, "peerbox", "alice")["id"]
+    state["alice_public"] = a.api("GET", f"/v2/networks/{net}")[1]["person_public_key"]
+    state["alice_key"] = a.home / ".config/peerspan/person_ed25519"
+    calls = []
+    for who in people:
+        state[f"{who}_key"] = ssh_key(state[short[who]].root, who)
+        calls.append((join_new_person, (a, state[short[who]], who, state[f"{who}_key"], net), {}))
+    if second_machine:
+        calls.append((link_machine, (a, state["a2"], net, state["alice_public"]), {"key": state["alice_key"]}))
+    run_side_by_side(*calls)
+    state["alice_pid"] = person_id(a, state["alice_key"])
+    for who in people:
+        host = state[short[who]]
+        state[f"{who}_pid"] = person_id(host, state[f"{who}_key"])
+        state[f"{who}_p"] = principal(state[f"{who}_pid"])
+        state[f"{who}_public"] = host.api("GET", f"/v2/networks/{net}")[1]["person_public_key"]
+    if "bob" in people:
+        state["b"].ok("allow", "alice", "--person-key", state["bob_key"])  # bob's own policy, for his peerbox
+    state["learners"] = ([state["a2"]] if second_machine else []) + [state[short[w]] for w in people]
+    for host in state["learners"]:
+        learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
+
+
+# Invitations (peerbox Invitations for new participants).
+
+def invite_code(*args, host=None):
+    """`peerbox invite ARGS` on HOST (alice's by default): (the code, its decoded psb1- body, the invitation ID)."""
+    result = owner_cli("invite", *args, host=host)
+    text = result.stdout + result.stderr
+    found = PSB1.search(text)
+    check(found, f"peerbox invite printed no psb1- code: exit {result.code}")
+    inner = b64url_json(found.group(0), "psb1-")
+    made = result.json
+    check(isinstance(made, dict) and set(made) == {"code", "invitation_id", "expires_at"}
+          and made["code"] == found.group(0) and made["invitation_id"], "peerbox invite --json is not "
+                                                                         "{code, invitation_id, expires_at}")
+    return made["code"], inner, made["invitation_id"]
+
+
+def pending_shares(host=None):
+    return owner_cli("invite", "--list", host=host).stdout

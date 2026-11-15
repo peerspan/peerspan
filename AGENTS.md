@@ -101,9 +101,15 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `runtime`, `runtime_policy`, `runtime_renewal`, `runtime_runs`, `runtime_results`, `runtime_peerfs`, `runtime_agents`:
   runtime tasks against `conformance/slim/fake_runtime.py` (runtime task contract, RUN-1 to RUN-7), and
   runtime agents' tasks on peerfs forks (runtime agent contract, RUN-8 to RUN-11); second tier only.
-- `peerbox`, `peerbox_runs`: peerboxes (peerbox contract, PBX-1 to PBX-8), with `peerbox_common.py`; runs
-  against `conformance/slim/fake_runtime.py`; second tier only. Both pass in full (`peerbox` takes about 8 minutes,
-  `peerbox_runs` about 70 seconds).
+- `peerbox`, `peerbox_contributions`, `peerbox_rules`, `peerbox_invites`: peerboxes (peerbox contract, PBX-1 to
+  PBX-8), split by area, with `peerbox_common.py` and `peerbox_fixtures.py`: create, the request checks, fetch,
+  submissions refused before anything is stored and the previous schema; stored contributions, review, status,
+  cancellation, restarts and withdrawal; the policy body, `list` paging and several rules on one peerbox, with a
+  renewal on the test clock; invitations, a share waiting for the owner's key, an expired or cancelled invite and a
+  lapsed sender on the test clock. Second tier only (308, 413, 241 and 222 lines plus 546 and 529 shared; 62, 41,
+  51 and 53 seconds measured).
+- `peerbox_runs`: runs on a peerbox's exact commits against `conformance/slim/fake_runtime.py` (peerbox Runs,
+  PBX-4), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only (355 lines, 47 seconds measured).
 - `peerbox_agents`: agents' peerbox routes, `POST /adapter/v1/peerbox` and the peerbox MCP tools (peerbox
   contract, Agents), with `peerbox_common.py` and `peerbox_fixtures.py`; second tier only. It passes in full.
 - `peerbox_proposals`: agent-proposed, owner-approved peerbox create, share and invite through the adapter, the
