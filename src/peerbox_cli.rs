@@ -4,7 +4,7 @@
 use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, edit_conflict, top_principal},
     admin::Local,
-    cli::{Command, PeerboxAction, PeerboxCommand, encoded},
+    cli::{Command, GateCommand, PeerboxAction, PeerboxCommand, encoded},
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -279,6 +279,7 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             let (value, _, _) = operation(&local, peer, op).await?;
             Ok(Some(value))
         }
+        PeerboxCommand::Gate(gate) => gate_command(&local, gate).await.map(Some),
         PeerboxCommand::Review {
             target,
             accept,
@@ -674,6 +675,117 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     .await
 }
 
+/// `peerbox gate` (Gate CLI and local API): every refusal prints
+/// `error: CODE: MESSAGE` and exits 1.
+async fn gate_command(local: &Local<'_>, command: &GateCommand) -> anyhow::Result<Value> {
+    let path = |id: &str| format!("/v1/peerboxes/{}/gate", encoded(id));
+    match command {
+        GateCommand::Set(args) => {
+            let crate::cli::GateSetArgs {
+                peerbox,
+                inputs_dir,
+                command,
+                checker_dir,
+                checker,
+                score,
+                direction,
+                min_gain,
+                mode,
+                generator,
+                compare,
+                score_range,
+                image,
+                checker_image,
+                link_port,
+                link_connections,
+                link_bytes,
+                repeats,
+                cpus,
+                memory_mib,
+                checker_cpus,
+                checker_memory_mib,
+                timeout,
+                max_changes_bytes,
+            } = args.as_ref();
+            let argv = |flag: &str, text: &str| -> anyhow::Result<Value> {
+                let v: Vec<String> = serde_json::from_str(text)
+                    .with_context(|| format!("{flag} takes a JSON array of strings"))?;
+                Ok(json!(v))
+            };
+            let dir = |p: &Path| -> anyhow::Result<String> {
+                Ok(std::path::absolute(p)?.to_string_lossy().into_owned())
+            };
+            let mut body = json!({
+                "inputs_dir": dir(inputs_dir)?,
+                "command": argv("--command", command)?,
+                "checker_dir": dir(checker_dir)?,
+                "checker": argv("--checker", checker)?,
+                "score": score,
+                "direction": direction,
+                "min_gain": min_gain,
+            });
+            let mut put = |key: &str, value: Value| body[key] = value;
+            if let Some(v) = mode {
+                put("mode", json!(v));
+            }
+            if let Some(v) = generator {
+                put("generator", argv("--generator", v)?);
+            }
+            if let Some(v) = compare {
+                put("compare", json!(v));
+            }
+            if let Some(v) = score_range {
+                put("score_range", json!(v));
+            }
+            if let Some(v) = image {
+                put("image", json!(v));
+            }
+            if let Some(v) = checker_image {
+                put("checker_image", json!(v));
+            }
+            if link_port.is_some() || link_connections.is_some() || link_bytes.is_some() {
+                let mut link = serde_json::Map::new();
+                for (k, v) in [
+                    ("port", link_port),
+                    ("connections", link_connections),
+                    ("bytes", link_bytes),
+                ] {
+                    if let Some(v) = v {
+                        link.insert(k.into(), json!(v));
+                    }
+                }
+                put("link", Value::Object(link));
+            }
+            for (k, v) in [
+                ("repeats", repeats),
+                ("cpus", cpus),
+                ("memory_mib", memory_mib),
+                ("checker_cpus", checker_cpus),
+                ("checker_memory_mib", checker_memory_mib),
+                ("max_changes_bytes", max_changes_bytes),
+            ] {
+                if let Some(v) = v {
+                    put(k, json!(v));
+                }
+            }
+            if let Some(t) = timeout {
+                put("timeout_seconds", json!(crate::task_run::seconds(t)?));
+            }
+            local.put(path(peerbox), body).await.map_err(with_code)
+        }
+        GateCommand::Pause { peerbox } => local
+            .post(format!("{}/pause", path(peerbox)), json!({}))
+            .await
+            .map_err(with_code),
+        GateCommand::Resume { peerbox } => local
+            .post(format!("{}/resume", path(peerbox)), json!({}))
+            .await
+            .map_err(with_code),
+        GateCommand::Clear { peerbox } => local.delete(path(peerbox)).await.map_err(with_code),
+        GateCommand::Show { peerbox, .. } => local.get(path(peerbox)).await.map_err(with_code),
+    }
+}
+
 /// A 409 from the daemon as its code and message, so the command exits 1
 /// printing the code.
 fn with_code(e: anyhow::Error) -> anyhow::Error {
@@ -729,9 +841,22 @@ async fn review(
         let listed = local
             .get(format!("/v1/peerboxes/{}/contributions", encoded(id)))
             .await?;
+        // A gated peerbox's pending contributions are queued or under
+        // evaluation (Gate CLI and local API).
+        let queue = local
+            .get(format!("/v1/peerboxes/{}/gate", encoded(id)))
+            .await
+            .ok()
+            .map(|g| g["queue"].clone());
         for mut c in listed.as_array().cloned().unwrap_or_default() {
             if c["state"] != "pending" {
                 continue;
+            }
+            if let Some(queue) = &queue {
+                let queued = queue
+                    .as_array()
+                    .is_some_and(|q| q.contains(&c["contribution_id"]));
+                c["gate"] = json!(if queued { "queued" } else { "under evaluation" });
             }
             let (base, head) = (
                 c["base"].as_str().unwrap_or_default().to_owned(),

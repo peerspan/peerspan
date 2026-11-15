@@ -571,3 +571,29 @@ and nonzero exit, with fixed incomplete/inspect-the-same-request-before-resume
 guidance. It adds no proof fetch, retry, approval, signature or success claim;
 other commands and error codes retain their existing behavior. See the bounded
 completion verification clarifications in guided section47.
+
+## Peerbox gates on this host
+
+The Rust host implements the [peerbox contract's Gates](peerbox-contract.md#gates) for
+`episode` gates, including paired comparison, with these host-specific facts:
+
+- `peerbox gate set|pause|resume|clear|show` and `PUT|GET|DELETE /v1/peerboxes/{id}/gate`,
+  `POST .../gate/pause` and `.../gate/resume` behave as that section says. A gate in
+  `outputs` mode, the default, and so a generator, is refused after the checks that name a
+  field, with 409 `not_implemented`: candidate runs with check runs are not evaluated yet.
+- The home host evaluates one contribution at a time across all its gated peerboxes. Each
+  measurement's two runs go straight to the runtime's local API; they are not received task
+  records. Their `task_id`s are `task_` and 16 random bytes in lowercase hex, and each
+  `run_id` is derived from this host's ID and that task ID, as for a received task.
+- A pair that the runtime refuses (429, 422 or no answer) is cancelled and started again a
+  second later. A pair still running past `timeout_seconds` is cancelled, and its
+  environment's measurement fails. After 15 seconds more, runs that have not ended are
+  treated as failed.
+- The latest 20 evaluations of each peerbox are kept; older ones are deleted.
+- Snapshots are kept as workspace-archive parts in `peerbox-gates/` in the state directory,
+  and each evaluation's archives in `peerbox-gate-runs/` while it runs.
+- Activity kinds are `peerbox.gate_set`, `peerbox.gate_paused` (an owner pause, or a
+  pause with `frontier_failed` or `dirty_worktree`) and `peerbox.gate_evaluated`, with
+  `peerbox.decided` for each decision the gate records. `gate clear` records none.
+- `list` entries do not carry `gate` yet: the peerbox suites still require the five keys
+  without it, and the contract's `gate` key waits for them.

@@ -93,7 +93,7 @@ def _():
     gate_peerbox(suite)
 
 
-@case("episode_promotes", "peerbox Evaluation (episode; PBX-26, PBX-27), Verdict: the environment's score promotes "
+@suite.case("episode_promotes", "peerbox Evaluation (episode; PBX-26, PBX-27), Verdict: the environment's score promotes "
                           "and moves the frontier; frontier, candidate, frontier, candidate as linked pairs, listen "
                           "first; several connections reach the listener")
 def _():
@@ -120,7 +120,7 @@ def _():
     state["promote"] = {"pairs": found, "record": rec, "show": after, "frontier": frontier, "order": order}
 
 
-@case("workspaces", "peerbox Evaluation, episode mode: the environment's workspace is the checker snapshot and the "
+@suite.case("workspaces", "peerbox Evaluation, episode mode: the environment's workspace is the checker snapshot and the "
                     "secret, no candidate tree or outputs; the candidate's is its tree without .peerbox-gate/ entries "
                     "plus the inputs snapshot, never the checker snapshot, the secret or anything generated")
 def _():
@@ -141,7 +141,7 @@ def _():
         check(secret not in bot.values(), "the secret in a candidate run's workspace")
 
 
-@case("episode_rejects", "peerbox Verdict (worst_best, higher): less than min_gain is below_margin, nothing moves, "
+@suite.case("episode_rejects", "peerbox Verdict (worst_best, higher): less than min_gain is below_margin, nothing moves, "
                          "and the gate's frontier is the evaluation's frontier measurements")
 def _():
     rec, frontier, found, after = evaluate("reject", direction="higher")
@@ -154,7 +154,7 @@ def _():
     state["reject"] = {"pairs": found, "record": rec, "show": after}
 
 
-@case("candidate_line_ignored", "peerbox Evaluation, episode mode: what the candidate run writes, prints or returns "
+@suite.case("candidate_line_ignored", "peerbox Evaluation, episode mode: what the candidate run writes, prints or returns "
                                 "and how it exits are ignored; its own PEERBOX-GATE line changes nothing")
 def _():
     rec, _, _, _ = evaluate("claim", files={"claim.txt": line(1, reason="I win")}, tail=(";", "exit", "3"))
@@ -162,7 +162,7 @@ def _():
     check(g["frontier_scores"] == [100] and g["candidate_scores"] == [99], f"scores {g}")
 
 
-@case("environment_fails_on_frontier", "peerbox Verdict (PBX-30): a failed environment measurement on the frontier "
+@suite.case("environment_fails_on_frontier", "peerbox Verdict (PBX-30): a failed environment measurement on the frontier "
                                        "stops the evaluation, pauses the gate with frontier_failed and leaves the "
                                        "contribution queued")
 def _():
@@ -178,7 +178,7 @@ def _():
     check(len(pairs(since)) == 1 and rev(state["repo"], "main") == frontier, "more than the frontier's measurement ran")
 
 
-@case("environment_fails_on_candidate", "peerbox Verdict (PBX-30): an environment without a valid result line, or "
+@suite.case("environment_fails_on_candidate", "peerbox Verdict (PBX-30): an environment without a valid result line, or "
                                         "with pass false, on a candidate rejects it with check_failed, in episode "
                                         "mode too; checker_reason null without a line, else its reason after `: `")
 def _():
@@ -190,7 +190,7 @@ def _():
         check(record(after)["state"] == "active" and len(found) == 2, f"{name}: a candidate's failure paused the gate")
 
 
-@case("link_bounds", "peerbox The gate record (link), Evaluation; runtime Linked runs: the gate's connections and "
+@suite.case("link_bounds", "peerbox The gate record (link), Evaluation; runtime Linked runs: the gate's connections and "
                      "bytes on both runs; a connection beyond them refused while the others go on; the link closed "
                      "at its bytes and the environment deciding")
 def _():
@@ -212,7 +212,7 @@ def _():
         check((closed, served) == want, f"the {role}'s link closed by {closed}, carried {served}, want {want}")
 
 
-@case("evaluation_secret", "peerbox Fresh episodes (PBX-31), Verdict, What `gate show` returns: one secret in every "
+@suite.case("evaluation_secret", "peerbox Fresh episodes (PBX-31), Verdict, What `gate show` returns: one secret in every "
                            "environment run of an evaluation, a new one in the next; gate show's evaluation, newest "
                            "first, with that secret, its secret_sha256, the public result and the runs in start order")
 def _():
@@ -237,7 +237,7 @@ def _():
     check(seen[0] != seen[1], "two evaluations shared a secret")
 
 
-@case("secret_after_restart", "peerbox Evaluation, Fresh episodes: after a restart an undecided evaluation starts "
+@suite.case("secret_after_restart", "peerbox Evaluation, Fresh episodes: after a restart an undecided evaluation starts "
                               "again from its first measurement with a new secret; the runs it had started cancelled")
 def _():
     a = need("a")[0]
@@ -270,7 +270,7 @@ def _():
           f"the evaluation cut by the restart {old}, want decided_at and result null")
 
 
-@case("secret_after_head_moved", "peerbox Verdict, Fresh episodes: the owner moving the head during an evaluation "
+@suite.case("secret_after_head_moved", "peerbox Verdict, Fresh episodes: the owner moving the head during an evaluation "
                                  "promotes nothing; the candidate is evaluated again against the new head with a new "
                                  "secret")
 def _():
@@ -310,7 +310,7 @@ def _():
           "secret_sha256 or frontier of the second evaluation")
 
 
-@case("images_and_bounds", "peerbox The gate record (image, checker_image, bounds, link; PBX-28): the candidate's "
+@suite.case("images_and_bounds", "peerbox The gate record (image, checker_image, bounds, link; PBX-28): the candidate's "
                            "image and bounds on the connect run, the checker's on the environment run, one timeout")
 def _():
     extra = ("--image", IMAGE, "--checker-image", CHECKER_IMAGE, "--cpus", "1", "--memory-mib", "1024",
@@ -333,9 +333,9 @@ def _():
     state["images"] = {"before": before, "after": show(), "extra": extra, "record": rec}
 
 
-@case("public_summary", "peerbox What readers see, Verdict: list's gate summary with exactly its keys and the "
-                        "frontier's best score; never the salt, a secret, the checker command or image, a digest or a "
-                        "sample, there or in status")
+@suite.case("public_summary", "peerbox What readers see, Verdict: list's gate summary with exactly its keys and "
+                              "the frontier's best score; never the salt, a secret, the checker command or image, a "
+                              "digest or a sample, there or in status")
 def _():
     run = need("images")[0]
     gate = record(run["after"])
@@ -356,7 +356,7 @@ def _():
                                                       "checker command or image, or samples")
 
 
-@case("commitment", "peerbox Commitment (PBX-32), Snapshots: SHA-256 of `peerbox-gate-commitment-v1` and a line "
+@suite.case("commitment", "peerbox Commitment (PBX-32), Snapshots: SHA-256 of `peerbox-gate-commitment-v1` and a line "
                     "feed and the RFC 8785 JSON of the salt, the snapshot digests recomputed from the directories "
                     "and the record's fields; unchanged by an evaluation; changed by gate set, here PUT "
                     "/v1/peerboxes/{id}/gate with the CLI's body, answering 200 with the record; earlier "
@@ -390,7 +390,7 @@ def _():
           "gate set dropped the earlier version's evaluations")
 
 
-@case("gate_set_refusals", "peerbox Gate CLI and local API: 400 invalid naming the field for the episode, paired, "
+@suite.case("gate_set_refusals", "peerbox Gate CLI and local API: 400 invalid naming the field for the episode, paired, "
                            "range, image and link rules; 409 runtime_unsupported for an image without images and for "
                            "episode without links or two slots; each leaving the gate unchanged")
 def _():

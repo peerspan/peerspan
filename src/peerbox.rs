@@ -24,6 +24,8 @@ use std::{
 };
 
 pub mod contribution;
+pub mod evaluation;
+pub mod gate;
 #[cfg(test)]
 mod tests;
 pub use contribution::runnable_commit;
@@ -638,6 +640,7 @@ impl Store {
             "DELETE FROM peerbox_pending_shares WHERE peerbox_id = ?1",
             [id],
         )?;
+        gate::delete_with(&tx, id)?;
         append_event(&tx, "peerbox.deleted", id, &now())?;
         tx.commit()?;
         Ok(json!({"peerbox_id": id, "deleted": true}))
@@ -666,6 +669,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/peerboxes/{id}", get(show).delete(delete))
         .route("/v1/peerboxes/{id}/contributions", get(list_contributions))
         .merge(crate::peerbox_invite::local_routes())
+        .merge(gate::local_routes())
         .route(
             "/v1/peerboxes/contributions/{id}/decision",
             axum::routing::post(decide),
@@ -755,6 +759,20 @@ pub fn workspace_archive(
     commit: &str,
     out: &FsPath,
     limit: i64,
+) -> Result<u64, Failure> {
+    workspace_archive_with(git, repo, commit, out, limit, None)
+}
+/// `workspace_archive` for a gate's candidate run (Gates, Evaluation):
+/// with `inputs`, the commit's entries under `.peerbox-gate/` are left out
+/// and the inputs snapshot's entries (a part written by `gate::snapshot`)
+/// follow the tree, within the same bound.
+pub fn workspace_archive_with(
+    git: &Git,
+    repo: &FsPath,
+    commit: &str,
+    out: &FsPath,
+    limit: i64,
+    inputs: Option<&FsPath>,
 ) -> Result<u64, Failure> {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::fs::OpenOptionsExt;
@@ -866,6 +884,9 @@ pub fn workspace_archive(
             {
                 continue;
             }
+            if inputs.is_some() && path.split(|b| *b == b'/').next() == Some(b".peerbox-gate") {
+                continue;
+            }
             let head = std::str::from_utf8(head)
                 .map_err(|_| Failure::new("unavailable", "git ls-tree: a malformed entry"))?;
             let mut fields = head.split(' ');
@@ -973,6 +994,10 @@ pub fn workspace_archive(
             "unavailable",
             "git ls-tree could not list the commit's tree",
         ));
+    }
+    if let Some(part) = inputs {
+        let mut part = std::fs::File::open(part).map_err(internal)?;
+        std::io::copy(&mut part, &mut tar).map_err(|e| tar.failure(e))?;
     }
     crate::tar::end(&mut tar).map_err(|e| tar.failure(e))?;
     tar.inner.flush().map_err(|e| tar.failure(e))?;

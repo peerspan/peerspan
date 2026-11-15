@@ -119,8 +119,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `peerbox_gate_episodes`, `peerbox_gate_paired`: episode gates on the fake runtime's linked pairs (peerbox contract,
   Gates; PBX-25 to PBX-33), with `peerbox_gate_common.py`: workspaces, environment failures, link bounds, the
   evaluation secret, images, the commitment, the public summary and `gate set` refusals; then `paired_normal` and
-  `paired_bounded` verdicts at known samples. Second tier only, strict `XFAIL` until gates are implemented (439 and
-  209 lines plus 697 shared; about 55 and 14 seconds measured while every gate case fails at `gate set`).
+  `paired_bounded` verdicts at known samples. Second tier only; both pass in full (439 and 209 lines plus 697
+  shared; 84 and 73 seconds measured).
 - `peerbox_gate`, `peerbox_gate_queue`: outputs gates on the fake runtime (peerbox contract, Gates; PBX-9 to PBX-15,
   and the generator of PBX-31), with `peerbox_gate_common.py`: promotion, both workspaces, a candidate's own result
   line and writes outside its outputs, `below_margin` for both score sources and directions, `check_failed`,
