@@ -576,24 +576,30 @@ completion verification clarifications in guided section47.
 
 ## Peerbox gates on this host
 
-The Rust host implements the [peerbox contract's Gates](peerbox-contract.md#gates) for
-`episode` gates, including paired comparison, with these host-specific facts:
+The Rust host implements the [peerbox contract's Gates](peerbox-contract.md#gates) in both
+modes, `outputs` with its generator and `episode` with paired comparison, with these
+host-specific facts:
 
 - `peerbox gate set|pause|resume|clear|show` and `PUT|GET|DELETE /v1/peerboxes/{id}/gate`,
-  `POST .../gate/pause` and `.../gate/resume` behave as that section says. A gate in
-  `outputs` mode, the default, and so a generator, is refused after the checks that name a
-  field, with 409 `not_implemented`: candidate runs with check runs are not evaluated yet.
+  `POST .../gate/pause` and `.../gate/resume` behave as that section says. `gate clear`, and
+  a contribution decided by hand, end a running evaluation and cancel its runs before
+  answering.
 - The home host evaluates one contribution at a time across all its gated peerboxes. Each
-  measurement's two runs go straight to the runtime's local API; they are not received task
-  records. Their `task_id`s are `task_` and 16 random bytes in lowercase hex, and each
-  `run_id` is derived from this host's ID and that task ID, as for a received task.
-- A pair that the runtime refuses (429, 422 or no answer) is cancelled and started again a
-  second later. A pair still running past `timeout_seconds` is cancelled, and its
-  environment's measurement fails. After 15 seconds more, runs that have not ended are
-  treated as failed.
+  measurement's runs (a candidate run and its check run in `outputs` mode, a linked pair in
+  `episode` mode) and the generator's run go straight to the runtime's local API; they are
+  not received task records. Their `task_id`s are `task_` and 16 random bytes in lowercase
+  hex, and each `run_id` is derived from this host's ID and that task ID, as for a received
+  task.
+- In `outputs` mode the generator, when set, runs once per evaluation before its
+  measurements; a generator run that fails pauses the gate with `generator_failed`. A check
+  run receives the candidate's outputs, the regular files and directories under
+  `.peerbox-gate/out/` in its `changes.tar`, with their modes.
+- A run or pair that the runtime refuses (429, 422 or no answer) is cancelled and started
+  again a second later. One still running past `timeout_seconds` is cancelled, and its
+  measurement fails. After 15 seconds more, runs that have not ended are treated as failed.
 - The latest 20 evaluations of each peerbox are kept; older ones are deleted.
 - Snapshots are kept as workspace-archive parts in `peerbox-gates/` in the state directory,
   and each evaluation's archives in `peerbox-gate-runs/` while it runs.
 - Activity kinds are `peerbox.gate_set`, `peerbox.gate_paused` (an owner pause, or a
-  pause with `frontier_failed` or `dirty_worktree`) and `peerbox.gate_evaluated`, with
+  pause with `frontier_failed`, `generator_failed` or `dirty_worktree`) and `peerbox.gate_evaluated`, with
   `peerbox.decided` for each decision the gate records. `gate clear` records none.
