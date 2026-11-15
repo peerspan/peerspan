@@ -1170,9 +1170,10 @@ async fn measure(
     let outcome = |r: &Followed| -> &'static str {
         match &r.exited {
             None => "failed",
-            Some(x) if x["timed_out"] == json!(true) => "timed_out",
+            // A timeout is `failed` (gate show: outcome).
+            Some(x) if x["timed_out"] == json!(true) => "failed",
             Some(x) if x["error"].is_string() => "failed",
-            Some(_) if timed_out => "timed_out",
+            Some(_) if timed_out => "failed",
             Some(x) if x["exit_code"] == json!(0) => "succeeded",
             Some(_) => "failed",
         }
@@ -1193,19 +1194,20 @@ async fn measure(
     }
     let env = &runs[0];
     let line = result_line(&env.tail, env.cut, g);
+    // A line is read only from a run that exited 0 (Result line).
     Ok(match (outcome(env), line) {
-        ("succeeded", Ok(l)) if l.pass => Measured::Scored {
+        ("succeeded", Some(l)) if l.pass => Measured::Scored {
             score: l.score.unwrap_or(0.0),
             samples: l.samples,
             reason: l.reason,
         },
-        (_, Ok(l)) => Measured::Failed {
+        ("succeeded", Some(l)) => Measured::Failed {
             code: "check_failed",
             reason: Some(l.reason),
         },
-        (_, Err(reason)) => Measured::Failed {
+        _ => Measured::Failed {
             code: "check_failed",
-            reason,
+            reason: None,
         },
     })
 }
@@ -1218,8 +1220,10 @@ struct Line {
 }
 
 /// A check or environment run's result line (Result line): its last
-/// non-empty stdout line, `PEERBOX-GATE ` and a JSON object.
-fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, Option<String>> {
+/// non-empty stdout line, `PEERBOX-GATE ` and a JSON object. None when
+/// there is none or it is malformed: a malformed line is not read, even
+/// when part of it parses.
+fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Option<Line> {
     let mut end = tail.len();
     let (start, stop) = loop {
         let start = tail[..end]
@@ -1231,25 +1235,18 @@ fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, Option<String>>
             break (start, end);
         }
         if start == 0 {
-            return Err(None);
+            return None;
         }
         end = start - 1;
     };
     if (start == 0 && cut) || stop - start > MAX_LINE {
-        return Err(None);
+        return None;
     }
-    let line = std::str::from_utf8(&tail[start..stop]).map_err(|_| None)?;
+    let line = std::str::from_utf8(&tail[start..stop]).ok()?;
     let line = line.strip_suffix('\r').unwrap_or(line);
-    let json = line.strip_prefix("PEERBOX-GATE ").ok_or(None)?;
-    let v: Value = serde_json::from_str(json).map_err(|_| None)?;
-    let o = v.as_object().ok_or(None)?;
-    // A line that was read gives its reason, even when it is malformed
-    // otherwise (Result line; Verdict: checker_reason).
-    let given = o
-        .get("reason")
-        .and_then(Value::as_str)
-        .filter(|r| r.len() <= 200)
-        .map(str::to_owned);
+    let json = line.strip_prefix("PEERBOX-GATE ")?;
+    let v: Value = serde_json::from_str(json).ok()?;
+    let o = v.as_object()?;
     let paired = g.compare != "worst_best";
     let mut keys = vec!["pass", "reason", "score"];
     if paired {
@@ -1259,36 +1256,32 @@ fn result_line(tail: &[u8], cut: bool, g: &Gate) -> Result<Line, Option<String>>
     let mut have: Vec<&str> = o.keys().map(String::as_str).collect();
     have.sort_unstable();
     if have != keys {
-        return Err(given.clone());
+        return None;
     }
-    let pass = o["pass"].as_bool().ok_or_else(|| given.clone())?;
-    let reason = o["reason"].as_str().ok_or_else(|| given.clone())?;
+    let pass = o["pass"].as_bool()?;
+    let reason = o["reason"].as_str()?;
     if reason.len() > 200 {
-        return Err(given.clone());
+        return None;
     }
     let positive = |x: &Value| x.as_f64().filter(|f| f.is_finite() && *f > 0.0);
     let score = if g.score == "time" {
         if !o["score"].is_null() {
-            return Err(given.clone());
+            return None;
         }
         None
     } else {
-        Some(positive(&o["score"]).ok_or_else(|| given.clone())?)
+        Some(positive(&o["score"])?)
     };
     let samples = if paired {
-        let list = o["samples"].as_array().ok_or_else(|| given.clone())?;
+        let list = o["samples"].as_array()?;
         if !(30..=10_000).contains(&list.len()) {
-            return Err(given.clone());
+            return None;
         }
-        Some(
-            list.iter()
-                .map(|x| positive(x).ok_or_else(|| given.clone()))
-                .collect::<Result<Vec<_>, _>>()?,
-        )
+        Some(list.iter().map(positive).collect::<Option<Vec<_>>>()?)
     } else {
         None
     };
-    Ok(Line {
+    Some(Line {
         pass,
         score,
         reason: reason.to_owned(),

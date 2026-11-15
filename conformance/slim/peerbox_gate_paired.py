@@ -19,7 +19,7 @@ past the network and peerbox setup is a strict expected failure.
 from harness import Suite, check
 from runtime_common import bind, state
 from peerbox_common import rev
-from peerbox_gate_common import (REASON, contribute, decided, gate_decision, gate_peerbox, gate_setup, line, mark,
+from peerbox_gate_common import (contribute, decided, gate_decision, gate_peerbox, gate_setup, line, mark,
                                  near_half, pairs, paired_bound, rounded, set_gate)
 
 suite = Suite("peerbox_gate_paired", __doc__)
@@ -83,10 +83,6 @@ FILE = {"rare_normal": "rare_bounded"}  # one frontier file: the bounded gate re
 
 def result_line(values):
     return line(round(sum(values) / len(values), 4), samples=values)
-
-
-def case(name, spec, known=REASON):
-    return suite.case(name, spec, known=known)
 
 
 def gate_options(s):
@@ -208,10 +204,8 @@ def _():
         run(name)
 
 
-@case("too_few_samples", "peerbox Result line: fewer than 30 samples is a malformed line, check_failed, and not read: "
-                         "checker_reason null and the decision's reason the code alone",
-      known="the host reads a line with fewer than 30 samples, giving checker_reason \"\" (peerbox Result line, as "
-            "settled by #279: a malformed line is not read)")
+@suite.case("too_few_samples", "peerbox Result line: fewer than 30 samples is a malformed line, check_failed, and not read: "
+                         "checker_reason null and the decision's reason the code alone")
 def _():
     run("few")
 
