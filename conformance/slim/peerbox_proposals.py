@@ -19,9 +19,7 @@ control characters (Git refnames and `peerspan invite` labels cannot hold them, 
 Shape); the agent-supplied path and title and the repository identities carry the escapes instead.
 
 Written from docs/peerbox-contract.md (cited as "peerbox <section>") and the per-call approval, agent tools and call
-update sections of docs/capabilities-contract.md it reuses. No VM, no KVM, no model calls. Nothing in the Agent
-proposals section is implemented yet: every case past the fixtures, the network and peerbox setup and the MCP session
-is a strict expected failure.
+update sections of docs/capabilities-contract.md it reuses. No VM, no KVM, no model calls.
 """
 import json
 import os
@@ -40,7 +38,6 @@ from peerbox_common import (DEFAULT_BUNDLE, PSB1, Prompted, admit_waiting, commi
 suite = Suite("peerbox_proposals", __doc__)
 bind(suite)
 clock = suite.use_clock()
-REASON = "peerbox agent proposals not implemented (peerbox contract, Agent proposals)"
 PBP = re.compile(r"^pbp_[0-9a-f]{32}$")
 RECORD_KEYS = {"proposal_id", "op", "args", "review", "request_sha256", "proposal_sha256", "origin", "state",
                "requested_at", "expires_at", "decided_at", "reason", "result", "error"}
@@ -70,8 +67,8 @@ RAW_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # anything an escaped
 HOUR = 3600
 
 
-def case(name, spec, known=REASON):
-    return suite.case(name, spec, known=known)
+def case(name, spec):
+    return suite.case(name, spec)
 
 
 def hide(text):
@@ -410,7 +407,7 @@ def _():
 
 @case("attach_flag", "peerbox Agent proposals, Who may propose: attach --peerbox-proposals and "
                      "--no-peerbox-proposals with the prompt, terminal and re-attach rules of --calls (capabilities "
-                     "Opt-in at attach)", known=None)
+                     "Opt-in at attach)")
 def _():
     a = need("a")[0]
     bundles = suite.work / "integrations"
@@ -462,7 +459,7 @@ def _():
 
 @case("mcp_tools", "peerbox Agent proposals, MCP tools: the five tools listed whatever the credential; "
                    "no_peerbox_proposals with its exact text; propose, status, cancel; not_recorded; "
-                   "additionalProperties", known=None)
+                   "additionalProperties")
 def _():
     a = need("a")[0]
     nomi = need("nomi_channel")[0]
@@ -537,7 +534,7 @@ def _():
 
 @case("shape_and_target", "peerbox Agent proposals, Proposing 1 and 4: 400 invalid naming the field, 404 unknown, 400 "
                           "unknown_principal; network, repeated and 65 principals 400 invalid naming principals "
-                          "(PBX-18); not a repository, branch_unknown; nothing persisted", known=None)
+                          "(PBX-18); not a repository, branch_unknown; nothing persisted")
 def _():
     pia, repo, pbx = need("pia", "repo", "pbx")
     bob_p = state["bob_p"]
@@ -635,7 +632,7 @@ def _():
 
 @case("create_executed", "peerbox Agent proposals: create proposed through a symbolic link (args made absolute and "
                          "resolved, title defaulted), review the disclosure, listed by approvals, approved at a "
-                         "terminal, executed, provenance in peerbox show; approving twice changes nothing", known=None)
+                         "terminal, executed, provenance in peerbox show; approving twice changes nothing")
 def _():
     a, pia, net = need("a", "pia", "net")
     repo = init_repo(suite.work / "create-repo")
@@ -686,7 +683,7 @@ def _():
 
 @case("share_executed", "peerbox Agent proposals: share proposed with defaults filled in, the people and before "
                         "access reviewed, the compatibility line, signed on approval with the person key; result "
-                        "policy_version; nothing signed when the access is already held", known=None)
+                        "policy_version; nothing signed when the access is already held")
 def _():
     a, b, pia, pbx = need("a", "b", "pia", "pbx")
     view = proposed(pia, "share", {"peerbox_id": pbx, "principals": [state["bob_p"]], "actions": ["read", "submit"]})
@@ -721,7 +718,7 @@ def _():
 
 @case("invite_executed_and_join", "peerbox Agent proposals: invite approved and executed; the psb1- code reaching the "
                                   "agent with its note; provenance in invite --list; dan joining with it as peerbox "
-                                  "join does, his rule signed with the proposal's access", known=None)
+                                  "join does, his rule signed with the proposal's access")
 def _():
     a, pia, pbx, net = need("a", "pia", "pbx", "net")
     view = proposed(pia, "invite", invite_args("dan", actions=["read", "submit"], max_pending=2))
@@ -754,7 +751,7 @@ def _():
 
 @case("approve_refusals", "peerbox Agent proposals, Approving: approve without a terminal, declined at the prompt, a "
                           "wrong digest (409 proposal_changed), an unknown ID (404), a reason over 1,024 bytes (400); "
-                          "the proposal stays pending", known=None)
+                          "the proposal stays pending")
 def _():
     a, pia = need("a", "pia")
     view = proposed(pia, "invite", invite_args("refusals"))
@@ -777,8 +774,7 @@ def _():
 
 
 @case("deny_and_cancel", "peerbox Agent proposals: deny with a reason and without a terminal, cancel, each changing "
-                         "nothing; 409 conflict for cancel, approve and deny after; the denied and cancelled notes",
-      known=None)
+                         "nothing; 409 conflict for cancel, approve and deny after; the denied and cancelled notes")
 def _():
     a, pia, pbx = need("a", "pia", "pbx")
     version, boxes, invites = policy_version(a, state["alice_public"]), shown(), owner_cli("invite", "--list").stdout
@@ -924,7 +920,7 @@ def _():
 
 @case("status_and_pending_work", "peerbox Agent proposals, Approving (Telling the person) and Telling the agent: "
                                  "peerbox_proposals_pending and the peerbox_proposal_pending item; pending_work, "
-                                 "GET /adapter/v1/pending and GET /v1/sessions/{id}/pending until seen", known=None)
+                                 "GET /adapter/v1/pending and GET /v1/sessions/{id}/pending until seen")
 def _():
     a, pbx = need("a", "pbx")
     pwa = credential(a, "pwa")
@@ -961,7 +957,7 @@ def _():
 
 @case("no_budget_no_approving_route", "peerbox Agent proposals, Routes and budgets, Why text from others cannot "
                                       "approve: no route budget consumed; no adapter, peer or channel route approves, "
-                                      "creates or lists a proposal", known=None)
+                                      "creates or lists a proposal")
 def _():
     a, b, pia, pbx = need("a", "b", "pia", "pbx")
     added = a.cli("adapter", "route", "add", "--adapter", pia.adapter_id, "--name", "budget", "--peer", b.id,
@@ -1003,7 +999,7 @@ def _():
 
 @case("limits", "peerbox Agent proposals, Proposing 3: 5 pending per credential and 20 per host (429 limit), 20 per "
                 "credential per hour (429 rate_limited, retry_after); the pending limit answering when both apply; "
-                "repeats never counted; nothing persisted", known=None)
+                "repeats never counted; nothing persisted")
 def _():
     a = need("a")[0]
     need("pia")
@@ -1041,7 +1037,7 @@ def _():
 
 
 @case("restart_interrupted", "peerbox Agent proposals, Execution: the approved note while it runs; a restart while "
-                             "approved fails it with interrupted, nothing stored", known=None)
+                             "approved fails it with interrupted, nothing stored")
 def _():
     a, pia = need("a", "pia")
     repo = init_repo(suite.work / "held-repo")
@@ -1077,8 +1073,7 @@ def _():
 
 @case("updates_and_expiry", "peerbox Agent proposals, Telling the agent and Execution (Expiry): one "
                             "peerbox_proposal_update per executed, failed, denied and expired proposal and none for a "
-                            "cancel; expiry after 1 hour (test clock) changing nothing; approve after expiry 409",
-      known=None)
+                            "cancel; expiry after 1 hour (test clock) changing nothing; approve after expiry 409")
 def _():
     a, pbx = need("a", "pbx")
     eva = credential(a, "eva")
