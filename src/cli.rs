@@ -1374,6 +1374,8 @@ pub enum AgentCommand {
     Credential(AgentCredentialCommand),
 }
 
+// Parsed once per process; boxing the profile options buys nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 pub enum AgentRuntimeCommand {
     /// Create or replace an agent's launch profile; omitted options take
@@ -1410,6 +1412,14 @@ pub enum AgentRuntimeCommand {
         /// Tasks of this agent dispatched or running at once; default 3
         #[arg(long, value_name = "N")]
         max_runs: Option<i64>,
+        /// Keep a build cache of the branch, built by this shell command in
+        /// /workspace, such as "cargo build --tests"; default none
+        #[arg(long, value_name = "COMMAND")]
+        build_cache: Option<String>,
+        /// Least time between the starts of two cache refreshes, such as
+        /// 10m or 1h; default 10m
+        #[arg(long, value_name = "DURATION", requires = "build_cache")]
+        build_cache_interval: Option<String>,
     },
     /// Show one agent's launch profile, or every profile
     Show {
@@ -1420,6 +1430,33 @@ pub enum AgentRuntimeCommand {
         json: bool,
     },
     /// Remove an agent's launch profile
+    Clear {
+        /// Agent ID or name on this host
+        agent: String,
+    },
+    /// Show, refresh or clear the build cache of a profile with one
+    #[command(subcommand)]
+    Cache(AgentRuntimeCacheCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentRuntimeCacheCommand {
+    /// Show one profile's build cache and last refresh, or every profile's
+    Show {
+        /// Agent ID or name on this host
+        agent: Option<String>,
+        /// Print the JSON (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Refresh the cache at the next check, even if the branch is unchanged
+    /// or the interval has not passed
+    Refresh {
+        /// Agent ID or name on this host
+        agent: String,
+    },
+    /// Remove the cache from the runtime's peerfs space; tasks build cold
+    /// until the next refresh
     Clear {
         /// Agent ID or name on this host
         agent: String,

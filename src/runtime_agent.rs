@@ -90,6 +90,10 @@ pub struct Profile {
     pub memory_mib: i64,
     pub timeout_seconds: i64,
     pub max_runs: i64,
+    /// The profile's build cache (build cache contract), shown only when
+    /// set. Older profiles have none stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<crate::build_cache::BuildCache>,
 }
 
 /// `PUT /v1/agents/{agent_id}/runtime`: the profile's fields but
@@ -114,6 +118,8 @@ struct ProfileRequest {
     timeout_seconds: Option<i64>,
     #[serde(default)]
     max_runs: Option<i64>,
+    #[serde(default)]
+    build_cache: Option<crate::build_cache::BuildCacheRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +155,10 @@ impl ProfileRequest {
             memory_mib: self.memory_mib.unwrap_or(2048),
             timeout_seconds: self.timeout_seconds.unwrap_or(3600),
             max_runs: self.max_runs.unwrap_or(3),
+            build_cache: self
+                .build_cache
+                .map(crate::build_cache::BuildCacheRequest::build_cache)
+                .transpose()?,
         };
         if !matches!(profile.harness.as_str(), "codex" | "claude") {
             return Err(invalid("harness"));
@@ -347,6 +357,11 @@ pub(crate) fn run_body(
     if let Some(image) = &profile.image {
         body["image"] = image.as_str().into();
     }
+    // A task of a profile with a build cache holds the cache's current
+    // version (build cache contract, Tasks).
+    if profile.build_cache.is_some() {
+        body["peerfs_cache"] = crate::build_cache::cache_name(profile).into();
+    }
     Ok(body)
 }
 
@@ -523,6 +538,13 @@ async fn set(
     if report["peerfs"] != Value::Bool(true) {
         return Err(unavailable());
     }
+    if profile.build_cache.is_some() && report["peerfs_caches"] != Value::Bool(true) {
+        return Err(coded(
+            409,
+            "runtime_unavailable",
+            "a build cache needs a runtime that reports peerfs_caches true",
+        ));
+    }
     if profile.image.is_some() && report["images"] != Value::Bool(true) {
         return Err(coded(
             409,
@@ -552,6 +574,9 @@ async fn set(
     }
     blocking(store, move |s| {
         s.store_profile(&profile.agent_id, Some(profile.clone()))?;
+        if profile.build_cache.is_none() {
+            crate::build_cache::forget_request(s, &profile.agent_id)?;
+        }
         s.activity("runtime.agent_set", &profile.agent_id)?;
         Ok(Json(profile))
     })
@@ -565,6 +590,7 @@ async fn clear(
     blocking(store, move |s| {
         let agent = s.agent(&id)?;
         if s.store_profile(&agent.id, None)? {
+            crate::build_cache::forget_request(s, &agent.id)?;
             s.activity("runtime.agent_cleared", &agent.id)?;
         }
         Ok(Json(json!({})))

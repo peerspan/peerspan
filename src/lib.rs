@@ -17,6 +17,7 @@ pub mod api;
 pub mod approvals;
 pub mod artifact;
 pub mod bounds;
+pub mod build_cache;
 pub mod builtin;
 pub mod call_outbound;
 pub(crate) mod call_timing;

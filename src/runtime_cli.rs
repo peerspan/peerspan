@@ -5,8 +5,8 @@ use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, edit_conflict, top_principal},
     admin::Local,
     cli::{
-        AgentCommand, AgentCredentialCommand, AgentRuntimeCommand, Command, RuntimeCommand,
-        encoded, resolved,
+        AgentCommand, AgentCredentialCommand, AgentRuntimeCacheCommand, AgentRuntimeCommand,
+        Command, RuntimeCommand, encoded, resolved,
     },
 };
 use anyhow::{Context, bail};
@@ -144,6 +144,8 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
             memory_mib,
             timeout,
             max_runs,
+            build_cache,
+            build_cache_interval,
         } => {
             let id = agent_id(local, agent).await?;
             let mut body = json!({
@@ -167,6 +169,18 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
                     body[field] = value;
                 }
             }
+            if let Some(command) = build_cache {
+                let mut cache = json!({ "command": command });
+                if let Some(interval) = build_cache_interval {
+                    let seconds = crate::task_run::seconds(interval).map_err(|_| {
+                        anyhow::anyhow!(
+                            "--build-cache-interval {interval:?} is not a duration such as 90s, 10m or 2h"
+                        )
+                    })?;
+                    cache["interval_seconds"] = seconds.into();
+                }
+                body["build_cache"] = cache;
+            }
             local
                 .put(format!("/v1/agents/{}/runtime", encoded(&id)), body)
                 .await
@@ -186,6 +200,43 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
             let id = agent_id(local, agent).await?;
             local
                 .delete(format!("/v1/agents/{}/runtime", encoded(&id)))
+                .await
+        }
+        AgentRuntimeCommand::Cache(command) => agent_cache(local, command).await,
+    }
+}
+
+/// `agent runtime cache show|refresh|clear` (build cache contract, The host
+/// refresh).
+async fn agent_cache(
+    local: &Local<'_>,
+    command: &AgentRuntimeCacheCommand,
+) -> anyhow::Result<Value> {
+    match command {
+        AgentRuntimeCacheCommand::Show { agent: None, .. } => {
+            local.get("/v1/agents/runtime/cache".into()).await
+        }
+        AgentRuntimeCacheCommand::Show {
+            agent: Some(agent), ..
+        } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .get(format!("/v1/agents/{}/runtime/cache", encoded(&id)))
+                .await
+        }
+        AgentRuntimeCacheCommand::Refresh { agent } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .post(
+                    format!("/v1/agents/{}/runtime/cache/refresh", encoded(&id)),
+                    json!({}),
+                )
+                .await
+        }
+        AgentRuntimeCacheCommand::Clear { agent } => {
+            let id = agent_id(local, agent).await?;
+            local
+                .delete(format!("/v1/agents/{}/runtime/cache", encoded(&id)))
                 .await
         }
     }

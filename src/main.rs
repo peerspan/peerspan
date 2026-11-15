@@ -1412,6 +1412,7 @@ async fn run_daemon(
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let runtime_tasks = peerspan_host::runtime_task::worker(store.clone(), peer_shutdown.clone());
+    let build_caches = peerspan_host::build_cache::worker(store.clone(), peer_shutdown.clone());
     let peerbox_tasks = peerspan_host::peerbox_task::worker(store.clone(), peer_shutdown.clone());
     let peerbox_invites =
         peerspan_host::peerbox_invite::worker(store.clone(), peer_shutdown.clone());
@@ -1477,6 +1478,10 @@ async fn run_daemon(
         },
         async {
             runtime_tasks.await;
+            Ok(())
+        },
+        async {
+            build_caches.await;
             Ok(())
         },
         async {
