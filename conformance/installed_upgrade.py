@@ -365,7 +365,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 33 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
+        require(upgraded['version'] == 34 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
                 and all(upgraded['tables'][name] == () for name in PEERBOX - original['tables'].keys()),
                 'installed upgrade did not create schema33 with the complete table histories and empty peerbox tables')
         preserve_history(original, upgraded, fresh_flow=fresh)
@@ -393,7 +393,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(restored_records['version'] == expected_version, 'old binary changed restored schema version')
         preserve_history(original, restored_records)
         require(tree(restored.config) == manifests['config'], 'old binary changed restored original key/config')
-        return {'original_schema': expected_version, 'upgraded_schema': 33,
+        return {'original_schema': expected_version, 'upgraded_schema': 34,
                 'backup_mode_hash_match': True, 'public_history_retained': True,
                 'pending_review_retained': pending is not None, 'new_review': True,
                 'old_binary_refused_without_db_mutation': True, 'complete_restore_reopened': True,

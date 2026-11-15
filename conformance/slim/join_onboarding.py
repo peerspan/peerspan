@@ -558,7 +558,7 @@ def _():
     legacy.stop(); migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (33,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
+    check(migrated["$version"] == (34,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
     check(without(migrated, "$schema", "$version", TABLE, *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "additive migration changed prior authority/registry/history")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed table definitions")
     for kind, ddl in [("table", f"CREATE TABLE {TABLE} (marker TEXT)"), ("view", f"CREATE VIEW {TABLE} AS SELECT 'reserved' AS marker"),
@@ -577,7 +577,7 @@ def _():
         refuse_start(corrupt)
     future = clone_state(h, "future34")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 34")
+        db.execute("PRAGMA user_version = 35")
     refuse_start(future)
 
 
