@@ -60,7 +60,7 @@ Artifact files are private files under `artifacts/` in the state directory, name
 | --- | --- | --- |
 | (used by `task submit --artifact PATH`) | `POST /v1/artifacts?name=N&media_type=M` with the raw file | Stores the upload and returns its manifest entry. A file over 100 MiB returns 413 (`too_large`) once 104,857,601 bytes have been read; a host may close the connection without reading the rest, so clients must tolerate a broken pipe before reading the status. |
 | `task submit ... [--artifact PATH ...] [--artifact-type TYPE ...]` | `POST /v1/tasks` with `artifacts` | The CLI uploads each file, named after its base name, with the `--artifact-type` at the same position (default `application/octet-stream`), then submits the manifest. Every entry must name a stored file of that size and digest, or the request returns 400. |
-| `task artifact --peer HOST ID SHA256 --out PATH` | `GET /v1/tasks/{peer}/{id}/artifacts/{sha256}` | Writes an input or fetched result to a new file at `PATH`, created exclusively with mode 0600, and prints `{path, sha256, size}`. A result not yet fetched returns 409. |
+| `task artifact [--peer HOST] ID SHA256 --out PATH` | `GET /v1/tasks/{peer}/{id}/artifacts/{sha256}` | Writes an input or fetched result to a new file at `PATH`, created exclusively with mode 0600, and prints `{path, sha256, size}`. A result not yet fetched returns 409. Without `--peer`, the host is found as for `task inspect` ([task contract](task-contract.md)). |
 
 The local record gains `artifacts`, a list of `{direction, name, size, sha256, media_type, state}`, where `direction` is `input` or `result` and `state` is `stored`, `pending`, or `pruned`.
 

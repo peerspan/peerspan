@@ -368,6 +368,7 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     if let cli::Command::Task(cli::TaskCommand::To(args)) = command {
         return addressing::task_to(&socket, args).await;
     }
+    let command = with_task_peer(command, &socket).await?;
     if let Some(value) = artifact_command(&command, &socket).await? {
         return Ok(value);
     }
@@ -1538,6 +1539,67 @@ const TRANSFER_TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// `task submit` with artifacts uploads each file first, and `task artifact`
 /// saves one to a new file; both stream through the local socket.
+/// `task inspect|events|artifact|cancel` without `--peer`: the receiving
+/// host of the one submitted task with this ID, from `GET /v1/tasks`
+/// (task contract, Submitter). Several hosts with the ID need `--peer`.
+async fn with_task_peer(mut command: cli::Command, socket: &Path) -> anyhow::Result<cli::Command> {
+    use cli::{Command, TaskCommand};
+    let id = match &command {
+        Command::Task(
+            TaskCommand::Inspect { peer: None, id }
+            | TaskCommand::Events { peer: None, id, .. }
+            | TaskCommand::Cancel { peer: None, id }
+            | TaskCommand::Artifact { peer: None, id, .. },
+        ) => id.clone(),
+        _ => return Ok(command),
+    };
+    const PAGE: usize = 1000;
+    let mut hosts = std::collections::BTreeSet::new();
+    let mut after = 0;
+    loop {
+        let page = tokio::time::timeout(
+            LOCAL_TIMEOUT,
+            call(
+                socket.to_path_buf(),
+                Method::GET,
+                format!("/v1/tasks?after={after}&limit={PAGE}"),
+                None,
+            ),
+        )
+        .await
+        .context("local host daemon request timed out")??;
+        let entries = page.as_array().context("task list is not a list")?;
+        for entry in entries {
+            if entry["task"]["request"]["task_id"].as_str() == Some(id.as_str())
+                && let Some(host) = entry["task"]["peer_host_id"].as_str()
+            {
+                hosts.insert(host.to_owned());
+            }
+            after = entry["sequence"].as_i64().unwrap_or(after).max(after);
+        }
+        if entries.len() < PAGE {
+            break;
+        }
+    }
+    let host = match hosts.len() {
+        1 => hosts.into_iter().next().unwrap_or_default(),
+        0 => bail!("no submitted task {id}; see peerspan task list"),
+        _ => bail!(
+            "task {id} was submitted to several hosts ({}); give --peer HOST",
+            hosts.into_iter().collect::<Vec<_>>().join(", ")
+        ),
+    };
+    if let Command::Task(
+        TaskCommand::Inspect { peer, .. }
+        | TaskCommand::Events { peer, .. }
+        | TaskCommand::Cancel { peer, .. }
+        | TaskCommand::Artifact { peer, .. },
+    ) = &mut command
+    {
+        *peer = Some(host);
+    }
+    Ok(command)
+}
 async fn artifact_command(command: &cli::Command, socket: &Path) -> anyhow::Result<Option<Value>> {
     use cli::{Command, TaskCommand};
     match command {
@@ -1590,6 +1652,9 @@ async fn artifact_command(command: &cli::Command, socket: &Path) -> anyhow::Resu
             sha256,
             out,
         }) => {
+            let peer = peer
+                .as_deref()
+                .context("task artifact: the receiving host was not resolved")?;
             let path = format!(
                 "/v1/tasks/{}/{}/artifacts/{}",
                 cli::encoded(peer),
