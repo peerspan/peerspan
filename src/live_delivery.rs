@@ -551,7 +551,7 @@ impl Store {
     pub fn mark_seen(&self, auth: &AdapterAuth, ids: &[String]) -> Result<Vec<String>, Error> {
         if ids.is_empty() || ids.len() > 100 || !ids.iter().all(|id| valid_item(id)) {
             return Err(Error::Invalid(
-                "ids must be 1 to 100 delivery, request, task, call, proposal, conversation, or conversation message IDs".into(),
+                "ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs".into(),
             ));
         }
         let mut conn = self.connection()?;
