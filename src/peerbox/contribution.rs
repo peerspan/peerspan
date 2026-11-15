@@ -53,6 +53,9 @@ pub struct Decision {
     pub decided_by: String,
     pub old_head: String,
     pub new_head: String,
+    /// The public result of a decision by the gate (Gates, Verdict).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Value>,
 }
 
 /// One peerbox run on a contribution's head.
@@ -1070,6 +1073,7 @@ impl Store {
             decided_by: by,
             old_head: old,
             new_head: new,
+            gate: None,
         });
         if !accept {
             c.ended_at = Some(at.clone());
@@ -1083,6 +1087,91 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(c.view())
+    }
+
+    /// Records a decision by the gate (Gates, Verdict): under the
+    /// peerbox's lock, only on a contribution still pending, and a
+    /// promotion only as a compare-and-swap from exactly `frontier`.
+    pub(crate) fn gate_decide(
+        &self,
+        id: &str,
+        frontier: &str,
+        promote: bool,
+        reason: String,
+        public: Value,
+    ) -> Result<GateOutcome, Error> {
+        let (peerbox, rec) = {
+            let conn = self.connection()?;
+            let Some(c) = load(&conn, id)? else {
+                return Ok(GateOutcome::NotPending);
+            };
+            let Some(rec) = record(&conn, &c.peerbox_id)? else {
+                return Ok(GateOutcome::NotPending);
+            };
+            (c.peerbox_id, rec)
+        };
+        with_lock(&peerbox, || {
+            let c = load(&*self.connection()?, id)?.ok_or(Error::NotFound)?;
+            if c.state != PENDING {
+                return Ok(GateOutcome::NotPending);
+            }
+            let git = Git::new(self.state_directory()).map_err(super::coded)?;
+            let repo = PathBuf::from(&rec.repository);
+            if promote {
+                let head = git.head(&repo, &rec.branch).map_err(super::coded)?;
+                if head.as_deref() != Some(frontier) {
+                    return Ok(GateOutcome::HeadMoved);
+                }
+                match self.fast_forward(&git, &repo, &rec, frontier, &c.head) {
+                    Ok(()) => {}
+                    Err(Error::Coded {
+                        code: "dirty_worktree",
+                        ..
+                    }) => {
+                        return Ok(GateOutcome::DirtyWorktree);
+                    }
+                    Err(Error::Coded {
+                        code: "head_moved", ..
+                    }) => {
+                        return Ok(GateOutcome::HeadMoved);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            let at = stamp(crate::clock::now());
+            let mut conn = self.connection()?;
+            let tx = conn.transaction()?;
+            let mut c = load(&tx, id)?.ok_or(Error::NotFound)?;
+            if c.state != PENDING {
+                return Ok(GateOutcome::NotPending);
+            }
+            c.state = if promote { ACCEPTED } else { REJECTED }.into();
+            c.decision = Some(Decision {
+                decision: c.state.clone(),
+                reason,
+                decided_at: at.clone(),
+                decided_by: "gate".into(),
+                old_head: frontier.into(),
+                new_head: if promote {
+                    c.head.clone()
+                } else {
+                    frontier.into()
+                },
+                gate: Some(public),
+            });
+            if !promote {
+                c.ended_at = Some(at.clone());
+            }
+            save(&tx, &c)?;
+            append_event(
+                &tx,
+                "peerbox.decided",
+                &format!("{}/{}", c.peerbox_id, c.contribution_id),
+                &at,
+            )?;
+            tx.commit()?;
+            Ok(GateOutcome::Recorded)
+        })
     }
 
     /// Review steps 2 to 4 for accepting `new` onto the protected head
@@ -1147,6 +1236,18 @@ impl Store {
         }
         Ok(())
     }
+}
+
+/// What a decision by the gate found.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum GateOutcome {
+    Recorded,
+    /// Decided, superseded or withdrawn meanwhile: nothing is recorded.
+    NotPending,
+    /// The protected head is no longer the frontier: the contribution is
+    /// evaluated again.
+    HeadMoved,
+    DirtyWorktree,
 }
 
 /// Saves contributions inside a task's final transaction. A contribution
