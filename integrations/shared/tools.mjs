@@ -3,7 +3,7 @@ import http from 'node:http';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
-import { lostCallRecovery } from './adapter.mjs';
+import { lostCallRecovery, untimedTools } from './adapter.mjs';
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const socketDirectory = () => `/tmp/peerspan-tools-${process.getuid()}`;
 // The daemon's protocol_version pattern.
@@ -220,10 +220,11 @@ export async function proxyTool(socket, callerSession, name, args, protocolVersi
         : args;
   // The host may hold call_capability for up to 50 s; list_capabilities may
   // return up to 16 MiB.
-  // fs_pull returns when its pull ends, which has no time bound.
+  // fs_pull returns when its pull ends, which has no time bound; the peerbox
+  // tools other than peerbox_run wait up to their task's deadline.
   const timeout = name === 'call_capability' ? 60000 : 40000;
   const signals = [
-    ...(name === 'fs_pull' ? [] : [AbortSignal.timeout(timeout)]),
+    ...(untimedTools.includes(name) ? [] : [AbortSignal.timeout(timeout)]),
     ...(signal ? [signal] : [])
   ];
   const limit = name === 'list_capabilities' ? 67108864 : 1048576;

@@ -121,7 +121,8 @@ pub struct CreateOutboundRoute {
     pub adapter_id: String,
     pub name: String,
     pub peer_host_id: String,
-    /// The target agent; a `runtime.run` route names only the host.
+    /// The target agent; a `runtime.run` or peerbox route names only the
+    /// host.
     #[serde(default)]
     pub target_agent_id: String,
     #[serde(default)]
@@ -272,16 +273,20 @@ impl Store {
             .map(DateTime::parse_from_rfc3339)
             .transpose()
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
-        // A runtime.run route names a host, not an agent, and cites the
-        // host owner's policy (runtime task contract, Agents).
-        let runtime = r.action.as_deref() == Some(crate::policy::RUNTIME_ACTION);
+        // A runtime.run or peerbox route names a host, not an agent, and
+        // cites the host owner's policy (runtime task contract, Agents;
+        // peerbox contract, Agents).
+        let runtime = r
+            .action
+            .as_deref()
+            .is_some_and(crate::policy::host_route_action);
         if runtime
             && (!r.target_agent_id.is_empty() || r.grant_id.is_some() || r.delegation_depth != 0)
         {
-            return Err(Error::Invalid(
-                "a runtime.run route names a host, not an agent, and cites the host owner's policy"
-                    .into(),
-            ));
+            return Err(Error::Invalid(format!(
+                "a {} route names a host, not an agent, and cites the host owner's policy",
+                r.action.as_deref().unwrap_or_default()
+            )));
         }
         if exp.is_some_and(|exp| exp <= crate::clock::now())
             || !valid_name(&r.name)

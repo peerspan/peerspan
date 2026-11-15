@@ -40,8 +40,21 @@ pub const TASK_ACTION: &str = "task.submit";
 pub const DELEGATE_ACTION: &str = "task.delegate";
 /// The actions grants and policy rules may name.
 pub const ACTIONS: [&str; 3] = [ACTION, TASK_ACTION, DELEGATE_ACTION];
-/// The actions adapter routes may name.
-pub const ROUTE_ACTIONS: [&str; 3] = [ACTION, TASK_ACTION, RUNTIME_ACTION];
+/// The actions adapter routes may name, the peerbox actions included
+/// (peerbox contract, Agents).
+pub const ROUTE_ACTIONS: [&str; 6] = [
+    ACTION,
+    TASK_ACTION,
+    RUNTIME_ACTION,
+    PEERBOX_READ,
+    PEERBOX_SUBMIT,
+    PEERBOX_RUN,
+];
+/// Whether a route with `action` names a host, not an agent, and cites the
+/// host owner's policy: `runtime.run` and the peerbox actions.
+pub fn host_route_action(action: &str) -> bool {
+    action == RUNTIME_ACTION || PEERBOX_ACTIONS.contains(&action)
+}
 /// Whether a granted action authorizes a requested one: `task.delegate`
 /// implies `task.submit`.
 pub(crate) fn allows(granted: &str, requested: &str) -> bool {

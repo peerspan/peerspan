@@ -2153,7 +2153,7 @@ pub enum RouteCommand {
         name: String,
         #[arg(long)]
         peer: String,
-        /// The target agent; a runtime.run route names none
+        /// The target agent; a runtime.run or peerbox route names none
         #[arg(long)]
         agent: Option<String>,
         /// Grant ID; otherwise cite the target owner's policy
@@ -2169,8 +2169,9 @@ pub enum RouteCommand {
         max_message_bytes: i64,
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
         max_messages: i64,
-        /// What the route sends: messages, tasks, or runs in the host's runtime
-        #[arg(long, value_parser = ["message.append", "task.submit", "runtime.run"], default_value = "message.append")]
+        /// What the route sends: messages, tasks, runs in the host's runtime,
+        /// or peerbox tasks
+        #[arg(long, value_parser = ["message.append", "task.submit", "runtime.run", "peerbox.read", "peerbox.submit", "peerbox.run"], default_value = "message.append")]
         action: String,
         /// Let receivers of tasks sent through it pass them on this many
         /// further hops (0 to 2; task.submit only)
