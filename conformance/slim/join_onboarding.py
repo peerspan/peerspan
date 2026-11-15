@@ -575,7 +575,7 @@ def _():
         with closing(sqlite3.connect(db_path(corrupt))) as db, db:
             db.executescript(ddl)
         refuse_start(corrupt)
-    future = clone_state(h, "future34")
+    future = clone_state(h, "future35")
     with closing(sqlite3.connect(db_path(future))) as db, db:
         db.execute("PRAGMA user_version = 35")
     refuse_start(future)

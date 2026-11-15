@@ -183,8 +183,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema33 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema33')
+                raise CheckFailure('old binary did not refuse schema34 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema34')
         finally:
             self.process = None
             PROCESSES.discard(process)
@@ -367,7 +367,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         upgraded = logical(database(host.state))
         require(upgraded['version'] == 34 and (CONVERSATIONS | GUIDED | PEERBOX) <= upgraded['tables'].keys()
                 and all(upgraded['tables'][name] == () for name in PEERBOX - original['tables'].keys()),
-                'installed upgrade did not create schema33 with the complete table histories and empty peerbox tables')
+                'installed upgrade did not create schema34 with the complete table histories and empty peerbox tables')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
         host.binary = old_binary

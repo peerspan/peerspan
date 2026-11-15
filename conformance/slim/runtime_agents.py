@@ -924,9 +924,10 @@ def _():
     check(path is not None, "no state database in the copy")
     db = sqlite3.connect(str(path))
     current = db.execute("PRAGMA user_version").fetchone()[0]
-    # A real database of the previous version has no PeerFS bindings (schema 33); keep the copy one, so the
-    # host's refusal of that namespace below its version still holds.
-    db.execute("DROP TABLE IF EXISTS peerfs_bindings")
+    # A real database of the previous version (33) has PeerFS bindings but not the proposal tables that schema
+    # 34 adds (peerbox Agent proposals), so the copy drops only those before lowering its version.
+    for table in ("peerbox_proposal_notifications", "peerbox_proposals"):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
     db.execute(f"PRAGMA user_version = {current - 1}")
     db.commit()
     db.close()
@@ -934,6 +935,9 @@ def _():
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         check(db.execute("PRAGMA user_version").fetchone()[0] == current, "the previous version was not upgraded")
+        names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        check({"peerfs_bindings", "peerbox_proposals", "peerbox_proposal_notifications"} <= names,
+              f"the upgraded database lacks tables: {sorted(names)}")
     finally:
         db.close()
     copy.stop()

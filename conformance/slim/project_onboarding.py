@@ -702,7 +702,7 @@ def _():
             db.execute("DROP TABLE onboarding_project_flows")
             db.execute("CREATE TABLE onboarding_project_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future34")
+    future = clone_state(source, "future35")
     with closing(sqlite3.connect(db_path(future))) as db, db:
         db.execute("PRAGMA user_version = 35")
     refuse_start(future)
