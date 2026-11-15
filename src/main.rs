@@ -1556,6 +1556,7 @@ async fn with_task_peer(mut command: cli::Command, socket: &Path) -> anyhow::Res
     const PAGE: usize = 1000;
     let mut hosts = std::collections::BTreeSet::new();
     let mut after = 0;
+    // A page is also bounded in bytes, so only an empty page ends the list.
     loop {
         let page = tokio::time::timeout(
             LOCAL_TIMEOUT,
@@ -1569,6 +1570,10 @@ async fn with_task_peer(mut command: cli::Command, socket: &Path) -> anyhow::Res
         .await
         .context("local host daemon request timed out")??;
         let entries = page.as_array().context("task list is not a list")?;
+        if entries.is_empty() {
+            break;
+        }
+        let previous = after;
         for entry in entries {
             if entry["task"]["request"]["task_id"].as_str() == Some(id.as_str())
                 && let Some(host) = entry["task"]["peer_host_id"].as_str()
@@ -1577,8 +1582,8 @@ async fn with_task_peer(mut command: cli::Command, socket: &Path) -> anyhow::Res
             }
             after = entry["sequence"].as_i64().unwrap_or(after).max(after);
         }
-        if entries.len() < PAGE {
-            break;
+        if after == previous {
+            bail!("task list did not advance past sequence {after}");
         }
     }
     let host = match hosts.len() {
