@@ -20,7 +20,9 @@ import json
 import math
 import os
 import re
-from decimal import Decimal
+import stat
+import tempfile
+from decimal import ROUND_HALF_UP, Decimal
 
 from harness import check, wait_for
 from runtime_common import make_tar, need, setup_network, state
@@ -34,6 +36,7 @@ PORT = 7000
 RUNTIME = {"max_concurrent_runs": 2, "log_workspaces": 1}  # the fake's options: two slots for a linked pair
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 LINK_ID = re.compile(r"^lnk_[0-9a-f]{32}$")
+EVALUATION_ID = re.compile(r"^pbe_[0-9a-f]{32}$")
 INPUTS = {"seed.txt": "the inputs snapshot\n"}
 CHECKER = {"env.txt": "the environment\n", "episodes/holdout.txt": "held-out episode definitions\n"}
 DEFAULT_LINK = {"connections": 16, "bytes": 268435456}  # peerbox The gate record, link
@@ -45,6 +48,11 @@ PUBLIC_RESULT = {"gate_version", "verdict", "code", "checker_reason", "score", "
 SUMMARY = {"version", "state", "mode", "command", "score", "direction", "min_gain", "compare", "score_range", "image",
            "link_port", "commitment", "frontier"}
 # peerbox Commitment: the record's fields under the salt, in the contract's order (JCS sorts them anyway).
+# peerbox Gate CLI and local API, What `gate show` returns.
+SHOW_KEYS = {"gate", "queue", "evaluations"}
+EVALUATION_KEYS = {"evaluation_id", "contribution_id", "gate_version", "secret", "secret_sha256", "frontier",
+                   "started_at", "decided_at", "result", "runs"}
+EVALUATION_RUN_KEYS = {"task_id", "side", "kind", "outcome"}
 COMMITTED = ("mode", "command", "inputs_sha256", "checker", "checker_sha256", "generator", "score", "direction",
              "min_gain", "repeats", "compare", "score_range", "image", "checker_image", "link", "cpus", "memory_mib",
              "checker_cpus", "checker_memory_mib", "timeout_seconds", "max_changes_bytes")
@@ -184,31 +192,32 @@ def set_gate(name, **kw):
 
 
 def show():
+    """`GET /v1/peerboxes/{id}/gate`: 200 with exactly {gate, queue, evaluations} (What `gate show` returns)."""
     status, body = state["a"].api("GET", f"/v1/peerboxes/{pbx()}/gate")
-    check(status == 200 and isinstance(body, dict), f"GET /v1/peerboxes/{{id}}/gate: {status} {str(body)[:300]}")
+    check(status == 200 and isinstance(body, dict) and set(body) == SHOW_KEYS,
+          f"GET /v1/peerboxes/{{id}}/gate: {status} {str(body)[:300]}, want 200 with exactly {sorted(SHOW_KEYS)}")
+    check(isinstance(body["gate"], dict) and isinstance(body["queue"], list) and isinstance(body["evaluations"], list)
+          and len(body["evaluations"]) <= 20, f"gate show's gate, queue and evaluations {str(body)[:300]}")
+    for entry in body["evaluations"]:
+        check(isinstance(entry, dict) and set(entry) == EVALUATION_KEYS and EVALUATION_ID.match(entry["evaluation_id"])
+              and HEX64.match(entry["secret"]) and entry["secret_sha256"] == secret_sha256(entry["secret"])
+              and all(isinstance(r, dict) and set(r) == EVALUATION_RUN_KEYS for r in entry["runs"]),
+              f"an evaluation in gate show {str(entry)[:300]}, want exactly {sorted(EVALUATION_KEYS)}")
     return body
 
 
 def record(shown):
-    """The gate record in a `gate show` answer: its `gate` object when it has one, else the answer itself (the shape
-    around the record is not specified)."""
-    inner = shown.get("gate")
-    return inner if isinstance(inner, dict) and "version" in inner else shown
+    """The gate record in a `gate show` answer, with its salt as 64 lowercase hex digits."""
+    rec = shown["gate"]
+    check(isinstance(rec.get("salt"), str) and HEX64.match(rec["salt"]), f"the gate's salt {rec.get('salt')!r}")
+    return rec
 
 
-def secrets_in(value):
-    """Every 64-hex value under a key `secret` in VALUE (`gate show`'s evaluations and their secrets)."""
-    found = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "secret" and isinstance(item, str) and HEX64.match(item):
-                found.append(item)
-            else:
-                found += secrets_in(item)
-    elif isinstance(value, list):
-        for item in value:
-            found += secrets_in(item)
-    return found
+def evaluation_with(shown, digest):
+    """The evaluation in `gate show` whose secret an environment run had (DIGEST: its secret file's SHA-256)."""
+    found = [e for e in shown["evaluations"] if secret_file(e["secret"]) == digest]
+    check(len(found) == 1, f"{len(found)} evaluations in gate show with the environment runs' secret, want 1")
+    return found[0]
 
 
 def secret_sha256(secret_hex):
@@ -258,8 +267,10 @@ def decided(cid, timeout=90):
     return rec
 
 
-def gate_decision(rec, verdict, code=None, checker_reason=None, frontier=None):
-    """peerbox Verdict: a decision by the gate with the public result; returns that result."""
+def gate_decision(rec, verdict, code=None, checker_reason="", frontier=None):
+    """peerbox Verdict: a decision by the gate with the public result; returns that result. CHECKER_REASON is the
+    result line's `reason` (every environment here gives "" unless a case says otherwise), None when no result line
+    was read."""
     d = rec["decision"]
     check(isinstance(d, dict) and set(d) == DECISION_KEYS and d["decided_by"] == "gate",
           f"the decision {d}, want the gate's with exactly {sorted(DECISION_KEYS)}")
@@ -267,6 +278,15 @@ def gate_decision(rec, verdict, code=None, checker_reason=None, frontier=None):
     check(isinstance(g, dict) and set(g) == PUBLIC_RESULT, f"the public result {g}, want {sorted(PUBLIC_RESULT)}")
     check(g["verdict"] == verdict and isinstance(g["secret_sha256"], str) and HEX64.match(g["secret_sha256"]),
           f"verdict {g['verdict']} secret_sha256 {g['secret_sha256']!r}, want {verdict}")
+    code = "promoted" if verdict == "promoted" else code
+    # `reason` is the code, then ": " and the checker's reason when it gave one. Whether an empty reason is one given
+    # is not settled, so with "" both the bare code and "CODE: " are taken.
+    reasons = ({f"{code}: {checker_reason}"} if checker_reason
+               else {code, f"{code}: "} if checker_reason == "" else {code})
+    check(g["code"] == code and g["checker_reason"] == checker_reason and d["reason"] in reasons
+          and g["score"] == "checker", f"code {g['code']!r}, checker_reason {g['checker_reason']!r}, reason "
+                                       f"{d['reason']!r}, score {g['score']!r}: want {code!r}, {checker_reason!r}, "
+                                       f"one of {sorted(reasons)}, checker")
     if frontier is not None:
         check(d["old_head"] == frontier, f"old_head {d['old_head']}, want the evaluation's frontier {frontier}")
     if verdict == "promoted":
@@ -274,12 +294,8 @@ def gate_decision(rec, verdict, code=None, checker_reason=None, frontier=None):
               f"a promotion: state {rec['state']} {d}")
         check(rev(state["repo"], "main") == rec["head"], "the protected branch did not move to the candidate")
     else:
-        reasons = {code} if checker_reason is None else {f"{code}:{checker_reason}", f"{code}: {checker_reason}"}
-        given = {checker_reason} if checker_reason else {None, ""}  # none given: null or empty (not specified)
-        check(rec["state"] == "rejected" and d["decision"] == "rejected" and g["code"] == code
-              and d["reason"] in reasons and g["checker_reason"] in given and d["old_head"] == d["new_head"],
-              f"a rejection: state {rec['state']}, code {g['code']}, reason {d['reason']!r}, want {code} "
-              f"{checker_reason!r}")
+        check(rec["state"] == "rejected" and d["decision"] == "rejected" and d["old_head"] == d["new_head"],
+              f"a rejection: state {rec['state']}, {d}")
     return g
 
 
@@ -389,22 +405,62 @@ def jcs(value):
     return "{" + ",".join(jcs(k) + ":" + jcs(value[k]) for k in keys) + "}"
 
 
-def salt_hex(salt):
-    """The salt as lowercase hex: `gate show` may give it as hex or base64 (not specified)."""
-    if isinstance(salt, str) and HEX64.match(salt):
-        return salt
-    try:
-        raw = base64.b64decode(salt, validate=True)
-    except (ValueError, TypeError):
-        raw = b""
-    check(len(raw) == 32, f"the gate's salt {salt!r} is not 32 bytes in hex or base64")
-    return raw.hex()
+def digests():
+    """{inputs_sha256, checker_sha256} recomputed from the directories the suite passes to `gate set`."""
+    return {"inputs_sha256": snapshot_digest(state["inputs"]), "checker_sha256": snapshot_digest(state["checker"])}
 
 
 def commitment(rec):
+    """The commitment of REC with its snapshot digests recomputed (peerbox Snapshots), after checking that the
+    record holds those digests."""
+    want = digests()
+    held = {k: rec.get(k) for k in want}
+    check(held == want, f"the record's snapshot digests {held}, want {want}")
     body = {k: rec[k] for k in COMMITTED}
-    body["salt"] = salt_hex(rec["salt"])
+    body.update(want, salt=rec["salt"])
     return sha(b"peerbox-gate-commitment-v1\n" + jcs(body).encode())
+
+
+# Snapshot digests (peerbox The gate record, Snapshots).
+
+def snapshot_digest(root):
+    """The lowercase hex SHA-256 of ROOT's entries in the byte order of their relative paths: `d` PATH NUL for a
+    directory; `f` PATH NUL, the permission bits as four octal digits and the 32-byte SHA-256 of the contents for a
+    regular file; `l` PATH NUL TARGET NUL for a symbolic link. ROOT itself is not an entry."""
+    entries = []
+    for base, dirs, files in os.walk(root):
+        for name in dirs + files:
+            full = os.path.join(base, name)
+            rel = os.fsencode(os.path.relpath(full, root))
+            mode = os.lstat(full).st_mode
+            if stat.S_ISLNK(mode):
+                entries.append((rel, b"l" + rel + b"\0" + os.fsencode(os.readlink(full)) + b"\0"))
+            elif stat.S_ISDIR(mode):
+                entries.append((rel, b"d" + rel + b"\0"))
+            else:
+                check(stat.S_ISREG(mode), f"{full}: not a directory, regular file or symbolic link")
+                with open(full, "rb") as f:
+                    contents = hashlib.sha256(f.read()).digest()
+                entries.append((rel, b"f" + rel + b"\0" + b"%04o" % (mode & 0o7777) + contents))
+    return sha(b"".join(entry for _, entry in sorted(entries)))
+
+
+def digest_check(work):
+    """Host-free: snapshot_digest of a fixed directory against its preimage, written out by hand from the
+    definition, and that preimage's SHA-256. `a-b` sorts between `a` and `a/x` (0x2d < 0x2f), which a walk in
+    directory order would not give."""
+    root = tempfile.mkdtemp(prefix="gate-digest-", dir=work)
+    os.mkdir(os.path.join(root, "a"))
+    for path, data, mode in (("a/x", b"hi\n", 0o644), ("a-b", b"", 0o755)):
+        with open(os.path.join(root, path), "wb") as f:
+            f.write(data)
+        os.chmod(os.path.join(root, path), mode)
+    os.symlink("a/x", os.path.join(root, "l"))
+    preimage = (b"da\0" + b"fa-b\0" + b"0755" + hashlib.sha256(b"").digest() + b"fa/x\0" + b"0644"
+                + hashlib.sha256(b"hi\n").digest() + b"ll\0a/x\0")
+    want = "6ad3cb7430ccca6d64c0da04546021d935f0a913b42bb147a6dba63c3dd350b8"
+    got = snapshot_digest(root)
+    check(sha(preimage) == want and got == want, f"snapshot_digest {got}, want {want}")
 
 
 # Paired comparison (peerbox Verdict).
@@ -430,17 +486,30 @@ def paired_bound(frontier, candidate, direction, min_gain, compare, score_range=
     return left >= 0, n, 100 * (sum(d) / n) / mean_f, left * 100 / mean_f
 
 
-def two_decimals(got, exact):
-    """GOT is EXACT rounded to two decimals (either rounding of a half)."""
-    return (isinstance(got, (int, float)) and not isinstance(got, bool) and abs(got * 100 - round(got * 100)) < 1e-6
-            and abs(got - exact) <= 0.005 + 1e-9)
+def hundredths(value):
+    """peerbox Verdict: VALUE rounded to the nearest hundredth, halves away from zero."""
+    return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def jcs_check():
-    """Host-free: the canonical JSON of RFC 8785's rules on the values a gate record holds."""
+def near_half(value):
+    """VALUE is within 1e-6 of a half-hundredth, where two computations of it could round apart."""
+    return abs(abs(value * 100) % 1 - 0.5) < 1e-6
+
+
+def rounded(got, exact):
+    """GOT is EXACT rounded to the nearest hundredth with halves away from zero."""
+    return isinstance(got, (int, float)) and not isinstance(got, bool) and abs(got - hundredths(exact)) < 1e-9
+
+
+def jcs_check(work):
+    """Host-free: the canonical JSON of RFC 8785's rules on the values a gate record holds; rounding halves away
+    from zero; the snapshot digest."""
     vectors = [({"b": [1, 2.5, None, True], "a": "é\n", "A": {}}, '{"A":{},"a":"é\\n","b":[1,2.5,null,true]}'),
                ([10.0, 0.5, 1e-7, 1e-6, 1e21, 1e16, 333.33], "[10,0.5,1e-7,0.000001,1e+21,10000000000000000,333.33]"),
                # RFC 8785 3.2.3: keys by UTF-16 code units, so U+1F600 (D83D DE00) sorts before U+FB33.
                ({"דּ": 1, "\U0001f600": 2, "€": 3}, '{"€":3,"\U0001f600":2,"דּ":1}')]
     for value, want in vectors:
         check(jcs(value) == want, f"jcs({value!r}) = {jcs(value)!r}, want {want!r}")
+    halves = {0.125: 0.13, -0.125: -0.13, 0.375: 0.38, -2.625: -2.63, 1.234: 1.23, -1.236: -1.24}
+    check(all(hundredths(v) == w for v, w in halves.items()), f"hundredths {[hundredths(v) for v in halves]}")
+    digest_check(work)

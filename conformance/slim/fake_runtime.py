@@ -70,12 +70,15 @@ Linked pairs (docs/runtime-task-contract.md, "Linked runs"; PBX-26, PBX-27). `GE
 unless started with `--links 0`; such a fake answers a run with a `link` 422 `unavailable`. `link` is
 `{id, role, port, max_connections, max_bytes}`, each checked as that section says (otherwise 400 `invalid` naming
 `link`); a run whose `link` takes a role its partner holds, differs from its partner's `port`, `max_connections` or
-`max_bytes`, or is the third with that `id`, is 400 `invalid`. The fake stands for each guest's `127.0.0.1:PORT` with
-a real loopback port of its own: the link listens on one for the `connect` side, and the `listen` side's `serve` step
-listens on another, which the link dials, splicing each connection it accepts to it as one ordered byte stream each
-way. A connection is refused at once (a TCP reset) while the `listen` side has no listener on the link's port, beyond
-`max_connections` open at once, or once the link is closed. When either direction has carried `max_bytes` (summed over
-the pair's connections and its life), every connection is closed and new ones are refused; the link ends, closing its
+`max_bytes`, or is the third with that `id`, is 400 `invalid`. An `id` stays taken until both its runs are deleted
+(`DELETE /v1/runs/{run_id}`), then is free for a new pair; a `connect` run is accepted before its partner arrives or
+after it has ended, its connections refused until the `listen` side's listener is up. The fake stands for each
+guest's `127.0.0.1:PORT` with a real loopback port of its own: the link listens on one for the `connect` side, and
+the `listen` side's `serve` step listens on another, which the link dials, splicing each connection it accepts to it
+as one ordered byte stream each way. A connection is refused at once (a TCP reset) while the `listen` side has no
+listener on the link's port, beyond `max_connections` open at once, or once the link is closed. Exactly `max_bytes`
+are carried in each direction at most (summed over the pair's connections and its life): the byte past it is not
+delivered, every connection is closed and new ones are refused; the link ends, closing its
 connections, when either run exits, and the other run goes on. Two steps use it:
 
     serve PORT COUNT          (listen side) listens on the guest's 127.0.0.1:PORT and reads each accepted connection
@@ -810,7 +813,7 @@ class Runtime:
                     else:
                         self.peerfs.setdefault(name, os.path.join(self.peerfs_root, name))
         self.runs = {}
-        self.links = {}  # link id -> Link, kept so that no third run takes an id
+        self.links = {}  # link id -> Link, kept until both its runs are deleted so that no third run takes the id
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.log_lock = threading.Lock()
@@ -1058,7 +1061,13 @@ class Runtime:
         run = self.get(run_id)
         run.cancel.set()
         with self.lock:
-            self.runs.pop(run_id, None)
+            if self.runs.get(run_id) is run:
+                del self.runs[run_id]
+            link = run.link
+            # Linked runs: an `id` stays taken until both its runs are deleted.
+            if (link is not None and self.links.get(link.id) is link and len(link.runs) == 2
+                    and all(self.runs.get(r.request["run_id"]) is not r for r in link.runs.values())):
+                del self.links[link.id]
             self.changed.notify_all()
         shutil.rmtree(run.dir, ignore_errors=True)
 
@@ -1248,7 +1257,8 @@ def self_check(directory=None):
     """Start the fake twice (with and without links) on private sockets and check its linked pairs: `links` in the
     report, a pair joined on its port with several connections, connections refused before the listener and beyond
     `max_connections`, the link closed at `max_bytes` and by either run's exit while the other goes on, other ports
-    unreachable, and the refusals of a third run, a mismatched partner and malformed fields. Returns the seconds."""
+    unreachable, the refusals of a third run, a mismatched partner and malformed fields, an id free again once both
+    its runs are deleted, and a connect run accepted before its partner or after it has ended. Returns the seconds."""
     import http.client
     import io
     import subprocess
@@ -1399,6 +1409,34 @@ def self_check(directory=None):
             want(got == 400 and answer.get("code") == "invalid", f"link {bad}: {got} {answer}")
         finish(sock, first)
         finish(sock, second)
+        # The id stays taken until both its runs are deleted: with one deleted a third run is still refused (either
+        # role); with both deleted the id is free and a new pair on it is joined.
+        got, _ = call(sock, "DELETE", f"/v1/runs/{first}")
+        want(got == 200, f"DELETE the listen run: {got}")
+        start(sock, ["echo", "x"], {**link, "role": "listen"}, status=400)
+        start(sock, ["echo", "x"], {**link, "role": "connect"}, status=400)
+        got, _ = call(sock, "DELETE", f"/v1/runs/{second}")
+        want(got == 200, f"DELETE the connect run: {got}")
+        env, _ = start(sock, ["serve", "7000", "1"], link)
+        bot, _ = start(sock, ["connect", "7000", "1", "msg.txt"], {**link, "role": "connect"})
+        want(finish(sock, env)[0] == b"hello\n" and finish(sock, bot)[2] == 0, "a pair on an id freed by deletes")
+        start(sock, ["echo", "x"], {**link, "role": "connect"}, status=400)
+        # A connect run before its partner: accepted, refused until the listener is up, then joined.
+        link = new_link("connect")
+        bot, _ = start(sock, ["connect", "7000", "1", "msg.txt"], link)
+        time.sleep(0.5)
+        env, _ = start(sock, ["serve", "7000", "1"], {**link, "role": "listen"})
+        env_out, bot_out = finish(sock, env), finish(sock, bot)
+        refusals = [e["reason"] for e in logged("link_refused", link["id"])]
+        want(env_out[0] == b"hello\n" and b"1 open, 0 refused" in bot_out[1] and set(refusals) == {"no_listener"},
+             f"connect before listen: env {env_out}, connect {bot_out}, refusals {refusals}")
+        # A connect run after its partner has ended: accepted, its connection refused, and it goes on.
+        link = new_link("listen")
+        env, _ = start(sock, ["exit", "0"], link)
+        finish(sock, env)
+        bot, _ = start(sock, ["connect", "7000", "1", "msg.txt", ";", "echo", "went on"], {**link, "role": "connect"})
+        out = finish(sock, bot)
+        want(out[0] == b"went on\n" and b"0 open, 1 refused" in out[1], f"connect after the listen side ended: {out}")
     finally:
         process.kill()
         process.wait()
