@@ -24,6 +24,8 @@ use std::{
 };
 
 pub mod contribution;
+pub mod evaluation;
+pub mod gate;
 #[cfg(test)]
 mod tests;
 pub use contribution::runnable_commit;
@@ -638,6 +640,7 @@ impl Store {
             "DELETE FROM peerbox_pending_shares WHERE peerbox_id = ?1",
             [id],
         )?;
+        gate::delete_with(&tx, id)?;
         append_event(&tx, "peerbox.deleted", id, &now())?;
         tx.commit()?;
         Ok(json!({"peerbox_id": id, "deleted": true}))
@@ -666,6 +669,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/peerboxes/{id}", get(show).delete(delete))
         .route("/v1/peerboxes/{id}/contributions", get(list_contributions))
         .merge(crate::peerbox_invite::local_routes())
+        .merge(gate::local_routes())
         .route(
             "/v1/peerboxes/contributions/{id}/decision",
             axum::routing::post(decide),

@@ -932,6 +932,9 @@ pub enum PeerboxCommand {
         peerbox: String,
         contribution: String,
     },
+    /// Set, pause, resume, clear or show a peerbox's gate
+    #[command(subcommand)]
+    Gate(GateCommand),
     /// List pending contributions, or accept or reject one
     Review {
         /// A peerbox (list its pending contributions) or a contribution
@@ -946,6 +949,82 @@ pub enum PeerboxCommand {
         #[arg(long)]
         json: bool,
     },
+}
+#[derive(Debug, Subcommand)]
+pub enum GateCommand {
+    /// Snapshot the directories and set the gate, active, at the next version
+    Set(Box<GateSetArgs>),
+    /// Pause the gate; evaluations wait and review by hand works
+    Pause { peerbox: String },
+    /// Resume the gate, clearing any paused reason
+    Resume { peerbox: String },
+    /// Remove the gate, cancelling a running evaluation
+    Clear { peerbox: String },
+    /// Show the gate record, the queue and the latest evaluations
+    Show {
+        peerbox: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+/// `peerbox gate set`'s arguments (Gate CLI and local API).
+#[derive(Debug, clap::Args)]
+pub struct GateSetArgs {
+    pub peerbox: String,
+    #[arg(long, value_name = "DIR", required = true)]
+    pub inputs_dir: PathBuf,
+    /// The candidate command, a JSON array of strings
+    #[arg(long, value_name = "JSON_ARGV", required = true)]
+    pub command: String,
+    #[arg(long, value_name = "DIR", required = true)]
+    pub checker_dir: PathBuf,
+    /// The checker or environment command, a JSON array of strings
+    #[arg(long, value_name = "JSON_ARGV", required = true)]
+    pub checker: String,
+    /// time or checker
+    #[arg(long, value_name = "SOURCE", required = true)]
+    pub score: String,
+    /// lower or higher
+    #[arg(long, value_name = "WHICH", required = true)]
+    pub direction: String,
+    #[arg(long, value_name = "PERCENT", required = true)]
+    pub min_gain: f64,
+    /// outputs (the default) or episode
+    #[arg(long, value_name = "MODE")]
+    pub mode: Option<String>,
+    /// A command run once per evaluation, a JSON array of strings
+    #[arg(long, value_name = "JSON_ARGV")]
+    pub generator: Option<String>,
+    /// worst_best (the default), paired_normal or paired_bounded
+    #[arg(long, value_name = "HOW")]
+    pub compare: Option<String>,
+    #[arg(long, value_names = ["LO", "HI"], num_args = 2, allow_negative_numbers = true)]
+    pub score_range: Option<Vec<f64>>,
+    #[arg(long, value_name = "REF")]
+    pub image: Option<String>,
+    #[arg(long, value_name = "REF")]
+    pub checker_image: Option<String>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub link_port: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub link_connections: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub link_bytes: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub repeats: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub cpus: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub memory_mib: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub checker_cpus: Option<i64>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub checker_memory_mib: Option<i64>,
+    /// Each run's time limit, such as 90s, 10m or 2h; default 15m
+    #[arg(long, value_name = "DURATION")]
+    pub timeout: Option<String>,
+    #[arg(long, value_name = "N", allow_negative_numbers = true)]
+    pub max_changes_bytes: Option<i64>,
 }
 #[derive(Debug, Subcommand)]
 pub enum RuntimeCommand {
@@ -2528,7 +2607,8 @@ impl Command {
                 PeerboxCommand::Show { json, .. }
                 | PeerboxCommand::List { json, .. }
                 | PeerboxCommand::Status { json, .. }
-                | PeerboxCommand::Review { json, .. },
+                | PeerboxCommand::Review { json, .. }
+                | PeerboxCommand::Gate(GateCommand::Show { json, .. }),
             )
             | Self::Fs(
                 FsCommand::Shares { json, .. }
