@@ -39,7 +39,7 @@ policy rules for `task.submit`.
 | `agent_id` | A registered agent of this host whose name is addressable (1 to 64 characters of lowercase ASCII letters, digits, `.`, `_` and `-`, starting with a letter or digit). | Required |
 | `harness` | `codex` or `claude`. | `codex` |
 | `harness_dir` | An absolute path to a directory readable by the runtime, which the owner installs. For `codex` it holds the Codex release's `codex` and `codex-code-mode-host` binaries. For `claude` it holds Claude Code's Linux x64 `claude` binary. | Required |
-| `image` | An OCI image reference to boot, such as `python:3.12-slim`: 1 to 1,024 bytes of printable ASCII without whitespace. Null boots the runtime's own image. Claude Code's binary needs glibc, so a `claude` profile needs a glibc image; Codex's is static and runs on any. | null |
+| `image` | An OCI image reference to boot, such as `python:3.12-slim`: 1 to 1,024 bytes of printable ASCII without whitespace. Null boots the runtime's own image. Claude Code's binary needs glibc, so a `claude` profile needs a glibc image; Codex's is static and runs on any. The image should hold the repository's tools ([below](#what-the-image-must-hold)). | null |
 | `from_branch` | A peerfs branch name of the runtime's space: 1 to 255 bytes of UTF-8, not `.` or `..`, without `/` or NUL. | `main` |
 | `network` | `none` or `internet`. | `internet` |
 | `cpus` | 1 to 64. | 2 |
@@ -62,6 +62,32 @@ policy, a task record, an event, activity, a log or any response.
 | `agent credential clear AGENT` | `DELETE /v1/agents/{agent_id}/credential` | Removes the key. Returns `{agent_id, credential: false}`. Activity `runtime.credential_cleared`. |
 
 Removing an agent removes its profile and its credential.
+
+### What the image must hold
+
+An agent's run has the image's tools and nothing else: the harness is mounted beside it, but
+the repository's formatter, linter, test runner and dependencies come only from the image.
+Nothing installed during a run is kept. The root is writable, so with `--network internet` an
+agent may install what is missing (`rustup component add`, `pip install`, `npm ci`), but it pays
+for that on every run and may not do it, and with `none` it cannot. Whether an agent's branch
+passes the repository's checks then depends on what the image happens to include, and nothing
+reports a missing tool to the owner.
+
+So name an image that holds the tools the repository's checks run, or build one that does. The
+runtime pulls from public registries only, so a built image must be pushed to one, such as a
+public `ghcr.io` package; private registries are not supported yet. Pin it by digest
+(`name@sha256:...`) so every run gets the same tools. A `claude` profile needs a glibc image
+(Debian or Ubuntu based, not Alpine).
+
+| Language | A starting image | What it lacks, commonly | Add in the image |
+| --- | --- | --- | --- |
+| Rust | `rust:1.97.1-bookworm` | `rustfmt` and `clippy` (the image installs Rust's minimal profile) | `RUN rustup component add rustfmt clippy` |
+| Python | `python:3.12-slim-bookworm` | The repository's linters and test runner, such as `ruff` and `pytest` | `RUN pip install ruff pytest`, or the repository's development requirements |
+| Node.js | `node:22-bookworm` | The repository's `devDependencies` (formatter, linter, test runner), which `npm ci` fetches | `RUN npm install -g` the tools, or run with `--network internet` so the agent can `npm ci` |
+| Go | `golang:1.25-bookworm` | Linters beyond `gofmt` and `go vet`, such as `golangci-lint`; modules not vendored | Install the linter; vendor modules or run with `--network internet` |
+
+Dependencies a build fetches (crates, wheels, packages, modules) need `--network internet`
+unless the repository vendors them or the image already holds them.
 
 ## Receiving a task
 
