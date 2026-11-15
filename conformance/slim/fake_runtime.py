@@ -9,6 +9,7 @@ socket, with no VM. A run's `argv` is read as steps separated by the argument `;
     bytes N           N bytes of `x` to stdout
     cat PATH          a workspace file, relative to /workspace, to stdout
     write PATH TEXT   writes TEXT (the remaining words joined by spaces) to a workspace file
+    fill PATH N       writes N bytes of `x` to a workspace file (changes larger than a command can hold)
     rm PATH           removes a workspace file
     sleep SECONDS     waits
     exit CODE         ends the run with that exit status
@@ -494,6 +495,17 @@ class Run:
                 os.unlink(path)
             with open(path, "wb") as f:
                 f.write(" ".join(args[1:]).encode())
+        elif name == "fill":
+            path = self.resolve(args[0])
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if os.path.islink(path):
+                os.unlink(path)
+            with open(path, "wb") as f:
+                total = int(args[1])
+                while total > 0:
+                    part = min(total, 1 << 20)
+                    f.write(b"x" * part)
+                    total -= part
         elif name == "rm":
             path = self.resolve(args[0])
             try:
