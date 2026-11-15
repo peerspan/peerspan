@@ -62,6 +62,16 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   and router isolation; then two networks, a lapsed member with and without
   `allow_disconnected`, expiry and renewal on the test clock. Full tier (420 +
   90 lines plus 481 shared; 98 and 82 seconds measured).
+- `peerfs_pull`, `peerfs_pull_agents`: PF-3 cross-host pull (PeerFS pull contract
+  section 7) between two genuine hosts, with `peerfs_pull_common.py`: S's fake
+  provider from `peerfs_read_common.py` and a fake destination provider that pulls
+  from the host's proxy as PeerFS does (identity, kind, signature and HostKeys
+  checks, blobs kept, reference last); pull, proxy paths and privacy, refusals,
+  verification failures, byte bound and resumption, a 17 MiB object, withdrawal,
+  reset, S stopping, concurrency and cancellation; then agents' grants, the grants
+  file, the adapter routes, `deny-pull` and `fs.pulled`. Full tier (444 + 234 lines
+  plus 392 shared; 66 to 109 and 31 seconds measured). The other-account proxy check needs
+  root and is skipped elsewhere.
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).
 - `project_onboarding`: exact local project reviews, atomic metadata attachment,

@@ -2,10 +2,13 @@
 //! for other hosts on the peer router (PF-2, in `read`).
 mod commit;
 mod directory;
+mod grants;
 mod provider;
+mod pull;
 mod read;
 mod reader;
 
+pub(crate) use grants::adapter_routes;
 pub(crate) use read::{MAX_OBJECTS_ANSWER, peer_routes};
 
 use crate::{api::blocking, decentralized, model::Error, peer_store::valid_id, store::Store};
@@ -177,6 +180,8 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .layer(DefaultBodyLimit::max(BODY))
         .layer(middleware::from_fn(bounded))
         .merge(reader::local_routes())
+        .merge(pull::local_routes())
+        .merge(grants::local_routes())
 }
 fn body(input: Result<Bytes, BytesRejection>) -> Result<Bytes, Error> {
     input.map_err(|error| {

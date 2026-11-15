@@ -1062,6 +1062,59 @@ pub enum FsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// On a reader: bring a branch another host shares with this host into one of this
+    /// host's registered spaces, as the tracking reference HOST:SPACE/BRANCH
+    Pull {
+        /// The sharing host's ID (host_...)
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        /// The shared space's ID on that host (space_...)
+        #[arg(long, value_name = "SPACE")]
+        space: String,
+        /// The shared branch
+        #[arg(long, value_name = "BRANCH")]
+        branch: String,
+        /// The space on this host to pull into (space_...), registered in the share's network
+        #[arg(long, value_name = "LOCAL_SPACE")]
+        into: String,
+        /// The share's network; by default the destination's
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Stop once the sharing host's answers exceed this many bytes (default 1 GiB)
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        max_bytes: Option<u64>,
+        /// Print the JSON answer (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Let one of this host's agents pull shared branches into a space, through its
+    /// fs_pull tool; replaces the agent's grant for the space
+    AllowPull {
+        /// The agent's ID (agent_...) or name, registered on this host
+        #[arg(value_name = "AGENT")]
+        agent: String,
+        /// The space on this host it may pull into (space_...)
+        #[arg(long, value_name = "LOCAL_SPACE")]
+        space: String,
+        /// Each pull's byte bound (default 1 GiB)
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        max_bytes: Option<u64>,
+    },
+    /// Withdraw an agent's pull grant; a pull already running finishes
+    DenyPull {
+        /// The agent's ID (agent_...) or name
+        #[arg(value_name = "AGENT")]
+        agent: String,
+        /// The space (space_...)
+        #[arg(long, value_name = "LOCAL_SPACE")]
+        space: String,
+    },
+    /// The agents' pull grants on this host
+    PullGrants {
+        /// Print the JSON answer (the default output)
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2477,7 +2530,12 @@ impl Command {
                 | PeerboxCommand::Status { json, .. }
                 | PeerboxCommand::Review { json, .. },
             )
-            | Self::Fs(FsCommand::Shares { json, .. } | FsCommand::Branches { json, .. })
+            | Self::Fs(
+                FsCommand::Shares { json, .. }
+                | FsCommand::Branches { json, .. }
+                | FsCommand::Pull { json, .. }
+                | FsCommand::PullGrants { json },
+            )
             | Self::Capability(CapabilityCommand::List { json })
             | Self::Session(SessionCommand::Pending { json, .. }) => json,
             _ => return global,
