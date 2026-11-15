@@ -221,6 +221,7 @@ as text, with exactly these keys in this order:
 | `results_same` | An object mapping each result artifact name left out because its content equals an earlier attached one's to that earlier name; usually `{}`. |
 | `snapshot` | For a peerfs workspace, the peerfs snapshot the runtime took after the command, its peerfs object ID of 66 lowercase hex digits, or null when the command changed no source path or never started (RUN-7). Null for every other run. |
 | `error` | A short text when the run failed outside the command, such as `the runtime restarted`; otherwise null. |
+| `oom_kills` | How many processes in the run the guest's kernel killed for lack of memory, 0 when none: the runtime's `exited` result's `oom_kills`, or 0 when the runtime's result does not have it or the run was lost. The command may still have exited with a status, such as a build that exits 1 after its compiler was killed. |
 
 The `cancelled` event of a task that was running has the run result as `output` too, with
 `signal` 9.
@@ -457,7 +458,9 @@ by the argument `;`:
   ended, and `connect PORT COUNT PATH` (the `connect` side) opens `COUNT` connections to it,
   sends `PATH`'s content on each and writes what came back; `fake_runtime.py` describes both
   exactly;
-- `sleep SECONDS` waits, and `exit CODE` and `kill SIGNAL` end the run.
+- `sleep SECONDS` waits, and `exit CODE` and `kill SIGNAL` end the run;
+- `oom N` makes the result's `oom_kills` `N` (otherwise 0), as if the guest's kernel had
+  killed `N` processes for memory; the run goes on.
 
 It unpacks the archive into a private directory, refusing the entries this contract
 refuses, computes results as specified, and reports `max_concurrent_runs` 1 and fixed
@@ -485,6 +488,8 @@ The suite covers:
   code, signal and timeout; expiry before start; start order with one slot;
 - output: chunks in order per stream, the 16,384-byte bound, `max_output_bytes` and
   `output_truncated`, and `max_output_bytes` 0;
+- memory: `oom_kills` 0 for an ordinary run, and the runtime's count for a run that reports
+  kills and still exits 0, and one that exits non-zero;
 - cancellation while running ending `cancelled` with a run result, while queued ending
   `cancelled` at once without one, and after dispatch but before `started` (the fake
   runtime told to delay its start) ending `cancelled` with no command run;

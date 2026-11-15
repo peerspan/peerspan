@@ -14,6 +14,8 @@ socket, with no VM. A run's `argv` is read as steps separated by the argument `;
     sleep SECONDS     waits
     exit CODE         ends the run with that exit status
     kill SIGNAL       ends the run as killed by that signal
+    oom N             makes the result's `oom_kills` N (otherwise 0), as if the guest's kernel had killed N
+                      processes for memory; the run goes on
 
 An unknown step writes a line to stderr and ends the run with exit status 127. A run that reaches the end of its
 steps exits 0.
@@ -200,6 +202,7 @@ class Run:
         self.stdout = open(os.path.join(self.dir, "stdout.log"), "wb")
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
+        self.oom_kills = 0  # set by the `oom` step
         self.started_at = None
         self.thread = threading.Thread(target=self.main, daemon=True)
 
@@ -293,7 +296,7 @@ class Run:
                     self.runtime.log(event="discarded", run_id=self.run_id, workspace=self.peerfs)
         result = {"exit_code": exit_code if started else None, "signal": sig, "timed_out": timed_out,
                   "duration_ms": duration, "stdout_bytes": self.stdout_bytes, "stderr_bytes": self.stderr_bytes,
-                  "snapshot": snapshot, "error": error, "commit": commit}
+                  "snapshot": snapshot, "error": error, "oom_kills": self.oom_kills, "commit": commit}
         if not started and sig is None and error is None:
             result["error"] = "the run did not start"
         self.stdout.close()
@@ -530,6 +533,8 @@ class Run:
             raise Stop(exit_code=int(args[0]))
         elif name == "kill":
             raise Stop(sig=int(args[0]))
+        elif name == "oom":
+            self.oom_kills = int(args[0])
         else:
             self.write("stderr", f"{name}: unknown step\n".encode())
             raise Stop(exit_code=127)

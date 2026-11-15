@@ -89,6 +89,21 @@ public `ghcr.io` package; private registries are not supported yet. Pin it by di
 Dependencies a build fetches (crates, wheels, packages, modules) need `--network internet`
 unless the repository vendors them or the image already holds them.
 
+### Memory for builds
+
+The default 2,048 MiB fits an agent editing and checking a small project, not a cold build of a
+large one. A compiler's memory grows with each job it runs at once: a large Rust crate can take
+4 to 5 GiB per `rustc`, and Cargo builds a library and its test build together, so a cold
+build of this repository is killed at 6 GiB and at 8 GiB with 4 vCPUs. When a run runs out of
+memory, the guest's kernel kills a process, the build usually exits 1 or 101, and the output
+says so on its `Memory:` line ([The output](#the-output)).
+
+Size `--memory-mib` for the build's peak, within the runtime's `max_memory_mib`, or run fewer
+jobs at once: set the limit in the image (`ENV CARGO_BUILD_JOBS=2`, `ENV MAKEFLAGS=-j2`), since
+the image's environment applies to the run, or in the repository's own configuration (Cargo's
+`[build] jobs`). Fewer jobs take longer but fit; more vCPUs without more memory make a kill more
+likely, not less.
+
 ## Receiving a task
 
 A task whose `target_agent_id` is an agent with a profile is received, authorized, persisted
@@ -213,7 +228,8 @@ version.
 ### The output
 
 The final event's `output` is plain text: the agent's message, a blank line, then one last line
-naming the branch (RUN-11).
+naming the branch (RUN-11), preceded by a `Memory:` line when the guest killed processes for
+memory.
 - **The message** is the run's stdout, decoded as lossy UTF-8, with trailing whitespace
   removed. It is cut at a UTF-8 character boundary so that the whole output fits in 65,536
   bytes, and a cut message ends with `…`.
@@ -230,6 +246,11 @@ naming the branch (RUN-11).
 
   The trailer is chosen in that order of precedence: a result with `error` never reports a
   commit or `unchanged`, so an error stays visible even when the message is not empty.
+- **The memory line**, only when the run result's `oom_kills` (runtime task contract) is not 0,
+  comes just before the last line: `Memory: 1 process killed for lack of memory (M MiB)`, or
+  `Memory: N processes killed for lack of memory (M MiB)`, with M the run's `memory_mib`. It is
+  there however the run ended, since a build whose compiler was killed often exits with an
+  ordinary failure, or even 0. A lost run has none.
 
 A run the runtime lost (runtime task contract, restarts) has the empty-message rule's `error`,
 so its output is `the runtime restarted`, a blank line, and `Branch: NAME, not committed: the
@@ -356,6 +377,9 @@ The suite covers:
   branch finds the agent's write (RUN-16). A run that changed nothing leaves no workspace either.
 - **Failure and empty output:** a failing exit with its message and branch line. An empty message
   replaced by `exit N`. A run that changed nothing, giving `unchanged from FROM`.
+- **Memory:** a run whose result reports 1 kill and one reporting 3, each with its `Memory:` line
+  just before the branch line and the profile's `memory_mib`, for a failing exit and for exit 0;
+  no `Memory:` line for a run that reports none.
 - **Before the start:** a missing secret file failing the task before `started` with `Branch:
   none`. A clash with an existing fork name failing the same way, leaving that fork untouched.
   A message over the output bound, cut with `…`.
