@@ -18,6 +18,7 @@ Contents:
   - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
   - [PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries](#pbx-34-to-pbx-37-what-gate-set-does-with-an-absent-runtime-pending-contributions-and-odd-snapshot-entries-2026-11-15) (2026-11-15)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
+  - [RUN-17 to RUN-20: a build cache shared between tasks](#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15) (2026-11-15)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
   - [PF-03 to PF-05: reading a shared PeerFS branch](#pf-03-to-pf-05-reading-a-shared-peerfs-branch-2026-11-14) (2026-11-14)
@@ -210,6 +211,61 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Options:** (a) "Add two paired modes, both on per-episode samples paired by the shared secret, with the margin subtracted per episode: `paired_normal`, an approximate 95% bound that is cheap in episodes and documented as approximate, and `paired_bounded`, an empirical Bernstein bound over a declared score range that holds for any distribution in that range, given independent gains, but needs many more episodes. Both state that the independence of gains is an assumption the gate cannot check, since one candidate process plays every episode of a measurement. The owner chooses per gate, trading episodes against a guarantee; the public summary shows which. Keep `worst_best` as the default for timing." (b) "`paired_normal` only: cheap, but its 95% fails for scores with rare extreme outcomes, and nothing tells contributors so." (c) "`paired_bounded` only: a real guarantee, but a real-time environment of a few dozen episodes per measurement could never promote." (d) "Raise the repeat limit and keep worst against best: needs a VM pair per sample and still states no confidence." (e) "A fresh linked pair for every episode, so that the gains are independent by construction and the guarantee unconditional: one VM pair, and for a game a server start, per sample, which multiplies an evaluation's cost by the episode count." (f) "Replace `worst_best` with the bound everywhere: a time measurement gives one number per run, too few samples for a bound, and today's coding gates would change behavior."
 - **Chosen:** a.
 - **Reason given:** reasons not recorded beyond the options' own text.
+
+### RUN-17 to RUN-20: a build cache shared between tasks (2026-11-15)
+
+- **Date:** 2026-11-15.
+- **Area:** runtime agents: sharing dependencies and build output between tasks of the same repository.
+- **Source:** issue [peerspan/runtime#15](https://github.com/peerspan/runtime/issues/15) and the owner's answers to four questions on 2026-11-15, after measuring this repository's build with a copied cache ([build-cache-contract.md, Why the dates matter](build-cache-contract.md#why-the-dates-matter)). The options below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [build-cache-contract.md](build-cache-contract.md).
+- **Implementing PRs:** none yet.
+
+#### RUN-17. How a run gets the cache
+
+- **Question:** "#15 build cache: how should a run get the cache? Measured on the box: a copied cache plus peerfs keeping old mtimes for unchanged files makes cargo's own time 0.32 s (vs 428–473 s cold); without mtimes it's 225 s."
+- **Options:**
+  - (a) peerfs lower layer: "peerfs serves a read-only cache under the workspace's derived paths; a write copies the file up. Unchanged source files report the cache's mtime (by content id). No per-task copy of 11 GB; touches peerfs, runtime and host."
+  - (b) Copy at fork: "Copy the cache's derived files into each new workspace (plus the mtime rule). Simplest, but 11 GB of disk and copy time per task until peerfs_discard removes it."
+  - (c) Guest overlay (runtime only): "Runtime attaches the cache as a second read-only share and the guest overlays it with an upper on the run's disk. No peerfs change, but build output lands outside the workspace and mtimes still need peerfs."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** "without mtimes it's 225 s" in the question is the wall time of that build; cargo's own time was 135 s, as the contract's table gives.
+- **Note:** a version records a date for each file of its commit, not one date, so a refresh that builds on the previous version keeps unchanged sources older than the output carried over. A contract choice within RUN-17.
+
+#### RUN-18. Who may write the cache
+
+- **Question:** "#15 build cache: who may write the cache? A cache is code the next task's build trusts, so a poisoned one backdoors later tasks."
+- **Options:**
+  - (a) Host refresh run: "Only a run the host starts on the base branch's committed head, in the owner's image, with no secrets and no agent, builds the cache. Agent task output never becomes cache."
+  - (b) Promote merged task output: "When a task's commit lands on the base branch, its workspace's derived files become the cache. Free (no extra build), but trusts what the agent's run left in target/."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-19. What a cache is keyed by
+
+- **Question:** "#15 build cache: what is a cache keyed by, and who can read it?"
+- **Options:**
+  - (a) Space + branch + image: "One cache per (peerfs space, base branch, image digest), never shared across spaces or owners; a refresh replaces it atomically. Counts against the space's disk."
+  - (b) Space + branch: "Ignore the image; a task in a different image gets a cache built for another toolchain, which cargo mostly rebuilds anyway."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the host does not learn an image's digest before the runtime pulls it, so the key uses the profile's image reference as written; the contract tells owners to pin by digest. A contract choice within RUN-19.
+
+#### RUN-20. When the cache is refreshed
+
+- **Question:** "#15 build cache: when is it refreshed? Measured: a cache 291 commits stale saved only ~40% (268 s vs 428 s) and was killed for memory at 12 GiB twice, while a cold build fit."
+- **Options:**
+  - (a) On base move, debounced: "The host refreshes after the base branch moves, at most once per configurable interval and only when a run slot is free; the owner can also refresh by command."
+  - (b) Owner command only: "Nothing automatic; the owner runs a refresh command when they want one. Caches drift stale between refreshes."
+  - (c) On a schedule: "Refresh nightly (or at a set interval) regardless of base moves."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a refresh also waits while any runtime agent's task is queued, so tasks keep priority over refreshes. A contract choice within RUN-20.
 
 ### PF-07 to PF-11: pulling a shared PeerFS branch across hosts (2026-11-14)
 
