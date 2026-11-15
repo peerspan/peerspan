@@ -35,9 +35,11 @@ def samples(n, f_cycle, e_cycle, direction, min_gain):
     return f, c
 
 
-def scenario(compare, direction, min_gain, f, c, score_range=None, repeats=1, expect="promoted", code=None):
+def scenario(compare, direction, min_gain, f, c, score_range=None, repeats=1, expect="promoted", code=None,
+             reason=""):
+    """REASON: the public result's checker_reason, None where the deciding line is malformed and so not read."""
     return {"compare": compare, "direction": direction, "min_gain": min_gain, "f": f, "c": c, "range": score_range,
-            "repeats": repeats, "expect": expect, "code": code}
+            "repeats": repeats, "expect": expect, "code": code, "reason": reason}
 
 
 F3, F2 = (90, 100, 110), (50, 150)
@@ -67,7 +69,7 @@ CASES = {
     "rare_bounded": scenario("paired_bounded", "lower", 5, *samples(60, F3, LOSS, "lower", 5), score_range=(50, 150),
                              expect="rejected", code="below_margin"),
     "few": scenario("paired_normal", "lower", 5, samples(30, F3, (6, -2), "lower", 5)[0],
-                    samples(29, F3, (6, -2), "lower", 5)[1], expect="rejected", code="check_failed"),
+                    samples(29, F3, (6, -2), "lower", 5)[1], expect="rejected", code="check_failed", reason=None),
     "count": scenario("paired_normal", "lower", 5, samples(30, F3, (6, -2), "lower", 5)[0],
                       samples(31, F3, (6, -2), "lower", 5)[1], expect="rejected", code="check_failed"),
     "outside": scenario("paired_bounded", "lower", 5, samples(30, F3, (6, -2), "lower", 5)[0],
@@ -100,7 +102,7 @@ def run(name):
     set_gate(file, **gate_options(s))
     since, frontier = mark(), state["main"]
     rec = decided(contribute(name, {f"f/{file}.txt": result_line(s["c"])})["contribution_id"])
-    g = gate_decision(rec, s["expect"], s["code"], frontier=frontier)
+    g = gate_decision(rec, s["expect"], s["code"], checker_reason=s["reason"], frontier=frontier)
     check(g["compare"] == s["compare"] and g["direction"] == s["direction"] and g["min_gain"] == s["min_gain"],
           f"the public result's settings {g}")
     check(len(pairs(since)) == 2 * s["repeats"], f"{len(pairs(since))} measurements, want {2 * s['repeats']}")
@@ -199,11 +201,19 @@ def _():
     run("rare_normal")
 
 
-@suite.case("sample_failures", "peerbox Result line: fewer than 30 samples, a count other than the first frontier "
-                         "measurement's, and a sample outside score_range with paired_bounded are check_failed")
+@suite.case("sample_failures", "peerbox Result line: a count other than the first frontier measurement's, and a sample "
+                         "outside score_range with paired_bounded are check_failed, the line read")
 def _():
-    for name in ("few", "count", "outside"):
+    for name in ("count", "outside"):
         run(name)
+
+
+@case("too_few_samples", "peerbox Result line: fewer than 30 samples is a malformed line, check_failed, and not read: "
+                         "checker_reason null and the decision's reason the code alone",
+      known="the host reads a line with fewer than 30 samples, giving checker_reason \"\" (peerbox Result line, as "
+            "settled by #279: a malformed line is not read)")
+def _():
+    run("few")
 
 
 suite.finish()

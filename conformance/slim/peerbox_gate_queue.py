@@ -24,7 +24,8 @@ from peerbox_common import git, op_ok, owner_cli, rev, settle, share
 from peerbox_fixtures import commit_on
 from peerbox_gate_common import (CHECK, CHECKER_MARK, DECISION_KEYS, OUT, OUTPUTS_CHECKER, contribute_link, decided,
                                  gate_decision, gate_peerbox, gate_setup, listed, logged, mark, measurements,
-                                 outputs_args, outputs_command, paused_with, pbx, posts, queue_order, record,
+                                 none_left_running, outputs_args, outputs_command, paused_with, pbx, posts,
+                                 queue_order, record,
                                  refused_set, run_ids, set_outputs, show, started, status_of, submit_tip, tidy,
                                  workspace, written)
 
@@ -50,9 +51,11 @@ def gate_path():
 
 
 def gate_state(want, reason=None):
+    """The gate's state; `paused_reason` is null while it is active (The gate record)."""
     rec = record(show())
-    check(rec["state"] == want and (reason is None or rec.get("paused_reason") == reason),
-          f"the gate {rec['state']} {rec.get('paused_reason')}, want {want} {reason or ''}")
+    check(rec["state"] == want and (rec.get("paused_reason", "missing") is None if want == "active"
+                                    else reason is None or rec.get("paused_reason") == reason),
+          f"the gate {rec['state']} {rec.get('paused_reason', 'missing')}, want {want} {reason or ''}")
 
 
 def nothing_ran(since, cid):
@@ -155,11 +158,12 @@ def _():
 
 
 @case("clear", "peerbox Gate CLI (clear): removes the gate, cancelling a running evaluation; queued contributions "
-               "stay pending for review by hand; gate show 404 not_found and list's gate null")
+               "stay pending for review by hand; gate show 404 not_found and list's gate null; the next gate set "
+               "continues from the cleared gate's version")
 def _():
     a = need("a")[0]
     argv = command("clr")
-    set_outputs(argv, checker=SLOW)
+    version = record(set_outputs(argv, checker=SLOW))["version"]
     since = mark()
     cid = contribute_link("clr", "clr")["contribution_id"]
     running = started(SLOW, since)
@@ -174,6 +178,8 @@ def _():
     owner_cli("review", cid, "--reject", "--reason", "reviewed by hand")
     drop(cid)
     owner_decision(status_of(cid), "rejected")
+    again = record(set_outputs(argv))["version"]
+    check(again == version + 1, f"gate set after gate clear: version {again}, want {version + 1}, never reused")
 
 
 @case("runtime_disabled", "peerbox Evaluation (PBX-36), Gate CLI: with the switch off the gate shows paused with "
@@ -227,8 +233,8 @@ def _():
 
 
 @case("accepted_by_hand_meanwhile", "peerbox Verdict, Evaluation: the owner accepting another contribution during an "
-                                    "evaluation swaps nothing; the candidate returns to the front of the queue and is "
-                                    "evaluated again against the new head")
+                                    "evaluation swaps nothing and that evaluation ends undecided; the candidate returns "
+                                    "to the front of the queue and is evaluated again against the new head")
 def _():
     argv = command("mv")
     set_outputs(argv, checker=SLOW)
@@ -255,9 +261,13 @@ def _():
     owner_decision(status_of(ancestor), "accepted")
     check(rev(state["repo"], "main") == rec["head"], "main is not the candidate")
     tries = [e for e in show()["evaluations"] if e["contribution_id"] == candidate]
-    check(len(tries) >= 2 and tries[0]["frontier"] == base and tries[0]["result"] == rec["decision"]["gate"]
-          and tries[-1]["frontier"] == main, f"the candidate's evaluations' frontiers "
-                                             f"{[e['frontier'] for e in tries]}, want {base} last and {main} first")
+    # What `gate show` returns: the evaluation whose promotion found the head moved ends undecided, and the next is a
+    # new entry with a new secret.
+    check(len(tries) == 2 and tries[0]["frontier"] == base and tries[0]["result"] == rec["decision"]["gate"]
+          and tries[1]["frontier"] == main and tries[1]["decided_at"] is None and tries[1]["result"] is None
+          and tries[0]["secret"] != tries[1]["secret"],
+          f"the candidate's evaluations {[(e['frontier'], e['decided_at'], e['result']) for e in tries]}, want "
+          f"{main} undecided, then {base} decided")
 
 
 @case("rejected_by_hand_meanwhile", "peerbox Evaluation: the owner rejecting the candidate during its evaluation "
@@ -282,6 +292,10 @@ def _():
     entry = [e for e in shown["evaluations"] if e["contribution_id"] == cid]
     check(len(entry) == 1 and entry[0]["decided_at"] is None and entry[0]["result"] is None and shown["queue"] == [],
           f"the cancelled evaluation {entry}, queue {shown['queue']}")
+    # The run still running was cancelled with the cancel route, so its task state is `cancelled`.
+    outcomes = [r["outcome"] for r in entry[0]["runs"]]
+    check(run_ids(entry[0])[-1] == running["run_id"] and outcomes[-1] == "cancelled",
+          f"the cancelled evaluation's runs' outcomes {outcomes}, want the running check run's cancelled")
     gate_state("active")
 
 
@@ -304,8 +318,8 @@ def _():
 
 
 @case("restart_during_evaluation", "peerbox Evaluation: after a restart an undecided evaluation starts again from "
-                                   "its first measurement with a new secret; the run it had running is cancelled "
-                                   "before the first new run")
+                                   "its first measurement with a new secret; each run it had started that is still "
+                                   "running is cancelled before the first new run")
 def _():
     a = need("a")[0]
     argv = command("rs")
@@ -318,10 +332,8 @@ def _():
     rec = decided(cid, timeout=150)
     gate_decision(rec, "promoted")
     after = posts(cut)
-    entries = state["rt"].entries()
-    cancels = [i for i, e in enumerate(entries) if e.get("event") == "cancel" and e.get("run_id") == running["run_id"]]
-    check(after and cancels and cancels[0] < after[0]["at_index"], "the check run running at the restart was not "
-                                                                   "cancelled before the first new run")
+    check(after, "no run after the restart")
+    none_left_running([e["run_id"] for e in posts(since, cut)], after[0]["at_index"])
     _, pairs = measurements(after, argv, SLOWER)
     check(len(pairs) == 2 and workspace(pairs[0][0]["run_id"]).get("rs") is None
           and workspace(pairs[1][0]["run_id"]).get("rs") == "link:.peerbox-gate",
