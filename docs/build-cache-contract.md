@@ -54,7 +54,7 @@ they are never pushed, pulled or replicated, and they are not in any commit or s
 
 | CLI | API | Behavior |
 | --- | --- | --- |
-| `cache save NAME --from WORKSPACE` | `POST /v1/caches/{name}` with `{workspace}` | Moves the workspace's derived files into a new version of the cache, which becomes current, then discards the workspace. `commit` is the workspace's base commit, and `dates` are the dates the workspace shows its base files. The version holds the derived files as the workspace shows them, its overlay's and those of a version it holds. Secret-class paths are never taken; a secret file inside a derived directory goes with it, which a [refresh run](#the-host-refresh) never has. Refused with 409 when the workspace has uncommitted source changes (a refresh never commits, so source it wrote is dropped first by the runtime, below) or is borrowed. Atomic: a crash leaves the earlier version current. |
+| `cache save NAME --from WORKSPACE` | `POST /v1/caches/{name}` with `{workspace}` | Moves the workspace's derived files into a new version of the cache, which becomes current, then discards the workspace. `commit` is the workspace's base commit, and `dates` are the dates the workspace shows its base files. The version holds the derived files as the workspace shows them, its overlay's and those of a version it holds. Secret-class paths are never taken; a secret file inside a derived directory goes with it, which a [refresh run](#the-host-refresh) never has. Refused with 409 when the workspace has uncommitted source changes, since its output may then come from sources other than `commit`'s, or when it is borrowed. Atomic: a crash leaves the earlier version current. |
 | `cache ls [--json]` | `GET /v1/caches` | Each cache: `name`, and its current version's `commit`, `saved_at`, `bytes`, and the number of versions held. |
 | `cache rm NAME` | `DELETE /v1/caches/{name}` | Removes the cache. Versions that workspaces hold stay until those workspaces end, and new workspaces can no longer name it. |
 | `ws create NAME --from BRANCH --cache CACHE` | `POST /v1/workspaces` with `cache` | Creates the workspace holding the cache's current version. A cache that does not exist is no error: the workspace has none, and `ws status` says so. |
@@ -84,8 +84,8 @@ The rule is only correct if the version's output is newer than the sources it wa
 which holds for a refresh: the refresh workspace dates each base file either when it was
 created, before its build writes anything, or, for a file unchanged since the version it
 holds, as that version did, which is older than that version's output. Its saved `dates` are
-those dates, so the chain holds from version to version. A source file the build itself
-rewrote has its own date and is dropped before saving.
+those dates, so the chain holds from version to version. A build that rewrites a source file
+is never saved (below), so a version's output is always built from its `commit`'s sources.
 
 ## Runtime: two run fields
 
@@ -94,7 +94,7 @@ rewrote has its own date and is dropped before saving.
 | Field | Rules |
 | --- | --- |
 | `peerfs_cache` | A cache name, with `peerfs_fork_from` set: the fork's workspace is created holding the cache's current version, as `ws create --cache` does. A cache that does not exist is no error. |
-| `peerfs_cache_save` | A cache name, with `peerfs_fork_from` set and `peerfs_commit` false. This run is a refresh: once the command has ended, if it exited 0 and the result has no `error`, the runtime removes the source changes the command made, saves the workspace's derived files as a new version of this cache, and discards the workspace; then it removes the fork's branch. A run that failed saves nothing and leaves the cache as it was, but still discards the workspace and removes the branch. |
+| `peerfs_cache_save` | A cache name, with `peerfs_fork_from` set and `peerfs_commit` false. This run is a refresh: once the command has ended, if it exited 0, the result has no `error` and the command changed no source path, the runtime saves the workspace's derived files as a new version of this cache, and discards the workspace; then it removes the fork's branch. A run that changed source saves nothing, and its result's `error` is `the build changed source files: PATH`, naming the first such path in byte order, since its output may have been built from them. A run that failed or changed source leaves the cache as it was, but still discards the workspace and removes the branch. |
 
 `peerfs_cache` and `peerfs_cache_save` may be set together, so a refresh builds on the current
 version (incrementally) and saves the result as the next. Both are 400 when the runtime's
@@ -201,13 +201,13 @@ reports `bytes`, and `cache clear` removes it.
   held by a workspace, and no cache files at source or secret paths. A `cargo build` in a mount
   with a cache of the same commit rebuilds nothing.
 - **Runtime:** `scripts/check-serve.py` cases for both fields, `cache_saved`, a failed refresh
-  that leaves the cache, the branch removed after a refresh, and the package-cache variables.
+  and one that changed a source file, each leaving the cache, the branch removed after a refresh, and the package-cache variables.
 - **Host:** the `runtime_agents` suite, written from this contract by an author who does not read
   `src/`, `tests/` or `integrations/` (DEC-OWN6, DEC-OWN9), gains cases for the profile field,
   the cache's name, `peerfs_cache` on tasks, when a refresh starts and what it sends, `cache
   show`, `refresh` and `clear`, and a lost refresh. The fake runtime gains both fields, checking
   them as above, `peerfs_caches` in `GET /v1/runtime`, and `cache_saved`; it records the cache a
-  fork was given, and `cache_saved` is true for a refresh whose command exited 0.
+  fork was given, and `cache_saved` is true for a refresh whose command exited 0 and wrote no source path.
 - **Measured:** on the box, a task of this repository with a current cache against one without,
   repeating the table above through the runtime and peerfs, recorded in docs-internal
   `runtime.md`.
