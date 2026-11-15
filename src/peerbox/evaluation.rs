@@ -1287,6 +1287,9 @@ async fn measure(
         })
         .await?;
     }
+    // A pair that ended because the evaluation was stopped (a cleared gate,
+    // a decision by hand) is not a measurement: the evaluation stops.
+    going_on(ctx).await?;
     let env = &runs[0];
     let line = result_line(&env.tail, env.cut, g);
     // A line is read only from a run that exited 0 (Result line).
