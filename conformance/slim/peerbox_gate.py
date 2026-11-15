@@ -42,7 +42,10 @@ CHECKER_IMAGE = "registry.example/checker@sha256:" + "4" * 64
 STDOUT_MARK = "printed-by-the-candidate"
 GEN_MARK = "the-owners-generator"
 BIG = "x" * (16 << 20)  # what a slow candidate run cats (score time)
-CHANGES = "x" * 3000  # main's f/changes.txt: the candidate failures' command writes it back unchanged
+# max_changes_bytes fixtures hold whether a host counts the changed bytes or the size of changes.tar: the bound is
+# 1 MiB, small outputs stay a few KiB even as a tar, and an oversized run changes 2 MiB (fake `fill`).
+BOUND, OVER = 1 << 20, 2 << 20
+CHANGES = "x" * OVER  # main's f/changes.txt: the candidate failures' command fills it back unchanged
 FRONTIER = {"run_ok": "present\n", "changes": CHANGES, "time": ""}  # main's f/NAME.txt
 TIME_CMD = ["cat", "f/time.txt", ";", "write", OUT, "timed"]
 TIME_CHECK = ["stderr", CHECKER_MARK, ";", "echo", written(None)]
@@ -235,10 +238,10 @@ def _():
                             "fails is run_failed; one whose changes, outside its outputs too, exceed "
                             "max_changes_bytes is outputs_too_large")
 def _():
-    tail = [";", "cat", "f/run_ok.txt", ";", "write", "f/changes.txt", CHANGES]
+    tail = [";", "cat", "f/run_ok.txt", ";", "fill", "f/changes.txt", str(OVER)]
     command = outputs_command(written(100), [("cand", written(80))], tail)
-    set_outputs(command, extra=("--max-changes-bytes", 2000))
-    check(record(show())["max_changes_bytes"] == 2000, "max_changes_bytes in the record")
+    set_outputs(command, extra=("--max-changes-bytes", BOUND))
+    check(record(show())["max_changes_bytes"] == BOUND, "max_changes_bytes in the record")
     for branch, files, code in (("run-failed", {"f/run_ok.txt": None}, "run_failed"),
                                 ("too-large", {"f/changes.txt": "y\n"}, "outputs_too_large")):
         since = mark()
@@ -335,7 +338,7 @@ def _():
                           "queued")
 def _():
     for i, (generator, extra) in enumerate(((["exit", "2"], ()),
-                                            (["write", "big.txt", CHANGES], ("--max-changes-bytes", 2000)))):
+                                            (["fill", "big.txt", str(OVER)], ("--max-changes-bytes", BOUND)))):
         command = outputs_command(written(100), [("genf", written(80))])
         set_outputs(command, extra=("--generator", json.dumps(generator), *extra))
         since = mark()
