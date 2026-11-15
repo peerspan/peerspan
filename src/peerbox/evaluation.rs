@@ -168,6 +168,9 @@ async fn run_blocking<T: Send + 'static>(
 /// an evaluation a restart interrupted ends undecided, and each run it had
 /// started is cancelled before any new run starts.
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    if let Err(e) = run_blocking(&store, interrupted).await {
+        eprintln!("peerbox gates: {e:?}");
+    }
     loop {
         match clean_up(&store).await {
             Ok(true) => match run_blocking(&store, next).await {
@@ -190,6 +193,27 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
             _ = tokio::time::sleep(Duration::from_millis(500)) => {}
         }
     }
+}
+
+fn interrupted(store: &Store) -> Result<(), Error> {
+    let mut conn = store.connection()?;
+    let tx = conn.transaction()?;
+    for mut e in all(
+        &tx,
+        "SELECT record FROM peerbox_gate_evaluations WHERE json_extract(record, '$.state') = 'running'",
+        [],
+    )? {
+        e.state = "ended".into();
+        e.cleanup = true;
+        for r in &mut e.runs {
+            if r.outcome == "running" || r.outcome == "starting" {
+                r.outcome = "cancelled".into();
+            }
+        }
+        save(&tx, &e)?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 /// Cancels and deletes the runs of evaluations marked for clean-up;
