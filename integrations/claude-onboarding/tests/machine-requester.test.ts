@@ -899,3 +899,56 @@ test('ordinary machine-pane leave preserves authorized message task and lease ru
   expect(w.tools.map(t => t.name)).toEqual(tools); expect(w.prompts).toHaveLength(prompts); expect(readyCalls(w)).toHaveLength(readiness)
   expect(mutations(w)).toHaveLength(0); safe(w, await visible(ui), { runtime: true })
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section 52. Missing owner finalization waits on the existing computer's person owner.
+const opKinds = (w: World, from: number) => { const all = w.calls.slice(from).map(e => e.kind)
+  // Host operations in order, plus distinct recheck kinds; section52 does not pin recheck counts.
+  return [...all.filter(k => k.startsWith('join.machine-commit.')), ...[...new Set(all.filter(k => !k.startsWith('join.machine-commit.')))].sort()] }
+test('automatic progress checks a waiting machine requester review every 5 seconds with exactly the Check machine requester consent reads', async ($, on) => {
+  const w = fixture(on), ui = await published($, w, { requestState: 'needs_owner_finalization' })
+  await review(ui); await inactive(ui); await w.clock.settle()
+  const at = w.calls.length
+  await pass(w, ui, 4900); expect(countMachine(w).length).toBe(1)
+  await pass(w, ui, 100); const first = opKinds(w, at)
+  expect(first.filter(k => k.startsWith('join.machine-commit.'))).toEqual([LOOKUP])
+  let shown = await visible(ui); expect(shown).toContain('Checking automatically.')
+  expect(shown).toMatch(/wait|missing/i); expect(await button(ui, 'Check machine requester consent')).toBeDefined()
+  const second = w.calls.length
+  await pass(w, ui, 4900); expect(w.calls.slice(second).filter(e => e.kind.startsWith('join.'))).toHaveLength(0)
+  await pass(w, ui, 100); expect(opKinds(w, second)).toEqual(first)
+  const explicit = w.calls.length; await check(ui, w); await finished(w, ui)
+  expect(opKinds(w, explicit)).toEqual(first)
+  expect(mutations(w)).toHaveLength(0); expect(w.consentValue).toBe(null)
+  shown = await visible(ui); expect(shown).toContain('Checking automatically.')
+  expect(await button(ui, 'Check machine requester consent')).toBeDefined(); safe(w, shown)
+})
+
+test('automatic progress offers Review machine requester consent when it becomes due here then stops without preparing', async ($, on) => {
+  const w = fixture(on), ui = await published($, w, { requestState: 'needs_owner_finalization' })
+  await review(ui); await w.clock.settle(); await pass(w, ui, 5000)
+  expect(countMachine(w).map(e => e.kind)).toEqual([LOOKUP, LOOKUP])
+  w.requestState = 'needs_commit'; await pass(w, ui, 5000)
+  expect(countMachine(w).slice(2).map(e => e.kind)).toEqual([LOOKUP, INSPECT])
+  expect(await button(ui, 'Review machine requester consent')).toBeDefined()
+  const at = w.calls.length; await pass(w, ui, 60_000)
+  expect(w.calls.slice(at).filter(e => e.kind.startsWith('join.'))).toHaveLength(0)
+  expect(mutations(w)).toHaveLength(0); expect(w.consentValue).toBe(null)
+  expect(await button(ui, 'Approve machine requester commit')).toBeUndefined()
+  expect(await button(ui, 'Check machine requester consent')).toBeDefined(); safe(w, await visible(ui))
+})

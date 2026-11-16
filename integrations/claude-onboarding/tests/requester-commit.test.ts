@@ -1129,3 +1129,41 @@ test('requester navigation preserves established message task lease and invitati
   expect(w.invitation).toEqual(issued); expect(commitCalls(w, 'approve')).toHaveLength(1); expect(commitCalls(w, 'complete')).toHaveLength(1)
   privacy(w, await visible(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+test('automatic progress never checks requester consent while approval or completion is due here or after local application', async ($, on) => {
+  // Section52: checking stops when the view shows an action due for this
+  // participant or a terminal state, and never approves or completes by itself.
+  const w = fixture(on), ui = await commitEligible($, w); await reviewCommit(ui, w)
+  const quiet = async (label: string) => {
+    const owner = ownerCalls(w).length, commit = commitCalls(w).length
+    await pass(w, ui, 30_000)
+    expect(ownerCalls(w).length, label).toBe(owner); expect(commitCalls(w).length, label).toBe(commit)
+  }
+  expect(await button(ui, 'Approve requester commit')).toBeDefined()
+  await quiet('approval due'); expect(await button(ui, 'Approve requester commit')).toBeDefined()
+  expect(commitCalls(w, 'approve')).toHaveLength(0)
+  await press(ui, 'Approve requester commit'); await consentRecorded(ui)
+  expect(await button(ui, 'Complete requester commit')).toBeDefined()
+  await quiet('completion due'); expect(await button(ui, 'Complete requester commit')).toBeDefined()
+  expect(commitCalls(w, 'complete')).toHaveLength(0)
+  await press(ui, 'Complete requester commit'); await applicationRecorded(ui, w)
+  await quiet('locally applied')
+  expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(commitCalls(w, 'approve')).toHaveLength(1)
+  expect(commitCalls(w, 'complete')).toHaveLength(1); privacy(w, await visible(ui))
+})

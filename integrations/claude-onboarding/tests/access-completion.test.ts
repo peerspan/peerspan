@@ -773,3 +773,36 @@ test('Finish pure Check and leaving preserve the established authorized lease wi
   expect(calls(w, SIGN)).toHaveLength(1); expect(calls(w, APPLY)).toHaveLength(1)
   privacy(w, '', true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+test('automatic progress never checks agent access while Finish is due here or after local application', async ($, on) => {
+  // Section52: checking stops when the view shows an action due for this
+  // participant or a terminal state, and never signs or applies by itself.
+  const w = fixture(on), ui = await approved($, w)
+  const quiet = async (label: string) => {
+    const at = calls(w).length; await pass(w, ui, 30_000)
+    expect(calls(w).slice(at).map(e => e.kind), label).toEqual([])
+  }
+  expect(await button(ui, 'Finish agent access')).toBeDefined()
+  await quiet('finish due'); expect(await button(ui, 'Finish agent access')).toBeDefined()
+  expect(await button(ui, 'Check application')).toBeDefined(); expect(mutations(w)).toEqual([])
+  await press(ui, 'Finish agent access'); await appliedRecorded(ui, w)
+  await quiet('locally applied'); expect(await button(ui, 'Check application')).toBeDefined()
+  expect(mutations(w).map(e => e.kind)).toEqual([SIGN, APPLY]); expect(calls(w, PREPARE)).toEqual([])
+  expect(calls(w, APPROVE)).toEqual([]); privacy(w, await shown(ui))
+})
