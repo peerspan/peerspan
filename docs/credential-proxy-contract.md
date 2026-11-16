@@ -196,8 +196,10 @@ path, status, duration and bytes each way. Never a header, a body, the key or th
 responses: for `claude`, the `usage` of the `message_start` and `message_delta` events or of a
 non-streamed message; for `codex`, the `usage` of `response.completed` over SSE or WebSocket, or
 the top-level `usage` of a non-streamed response. When the profile sets `max_output_tokens`, a
-successful response whose usage the proxy cannot read ends model access for the run as if the
-bound were reached, so no request mode passes the cap uncounted.
+successful inference response (`POST /v1/messages`, or `POST /v1/responses` and a WebSocket
+`response.create`) whose usage the proxy cannot read ends model access for the run as if the
+bound were reached, so no request mode passes the cap uncounted. `POST
+/v1/messages/count_tokens` generates nothing and is exempt: its `input_tokens` are not usage.
 It sums them per run as `{requests, input_tokens, output_tokens, cache_read_tokens,
 cache_write_tokens}`, and the daemon stores the sums with the received task. Usage is the
 owner's: it is never sent to the sender, in an event, a status record or the output.
