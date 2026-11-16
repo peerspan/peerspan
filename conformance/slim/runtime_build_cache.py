@@ -37,7 +37,7 @@ def _():
     check(rt.api("GET", "/v1/runtime")[1].get("peerfs_caches") is True, "the fake reports peerfs_caches false")
     name = "bc-fixture"
     save = {"peerfs_cache": name, "peerfs_cache_save": name}
-    base = {"run_id": "cache_" + "0" * 32, "argv": sh("echo x"), "cwd": "/workspace", "env": {},
+    base = {"run_id": "run_" + "0" * 64, "argv": sh("echo x"), "cwd": "/workspace", "env": {},
             "resources": {"cpus": 1, "memory_mib": 128, "timeout_seconds": 60}, "workspace_archive": None,
             "results": "none", "peerfs_workspace": "fixture.bad", "peerfs_fork_from": "main"}
     for field, fields in (("peerfs_cache", {"peerfs_cache": "Bad"}), ("peerfs_cache", {"peerfs_cache": "-x"}),
@@ -48,6 +48,9 @@ def _():
                                                  "peerfs_commit_message": "m"})):
         status, body = rt.api("POST", "/v1/runs", {**base, **fields})
         refused(status, body, 400, "invalid", field)
+    for rid in ("cache_" + "0" * 32, "run_" + "0" * 63, "run_" + "A" * 64):  # the runtime's form only (RUN-22)
+        status, body = rt.api("POST", "/v1/runs", {**base, **save, "run_id": rid})
+        refused(status, body, 400, "invalid", "run_id")
     check(rt.api("GET", "/v1/caches") == (200, {"caches": []}), "GET /v1/caches before any cache")
     check(rt.api("GET", "/v1/branches/main") == (200, {"name": "main", "head": head()}), "GET /v1/branches/main")
     done = direct(sh(BUILD), **save)
