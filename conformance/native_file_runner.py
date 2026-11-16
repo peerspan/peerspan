@@ -6,6 +6,8 @@ and hashed. Every original test executes once, unchanged, through Claude's
 public plugin-directory argument. No unsupported runner knobs or case timeout
 changes. Raw CLI output/configuration remains private; only closed receipts
 leave the fixture. The independent author performs source/static checks only.
+A failed case is named only when its name is one the test file declares
+(a closed allowlist); otherwise, and for its failure output, only digests leave.
 """
 import argparse
 import hashlib
@@ -30,6 +32,14 @@ EXPECTED_FILES = frozenset('tests/' + name + '.test.ts' for name in (
 EXPECTED_CASES = 440
 GATE_SECONDS = 600
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+# A case result line of the public CLI: `(fail) NAME [12.34ms]`.
+CASE = re.compile(r'^\((pass|fail|skip|todo)\) (.+?)(?: \[\d+(?:\.\d+)?m?s\])?\s*$')
+# Test names a test file declares: `test('...'` or `test(\`...\``.
+DECLARED = re.compile(r"""^\s*(?:test|it)(?:\.\w+)?\(\s*(?:'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\\n]|\\.)*)`)""",
+                      re.MULTILINE)
+# A template name's `${...}` hole matches only a short lowercase word.
+HOLE = r'[a-z][a-z0-9_-]{0,31}'
+MAX_FAILURES = 32
 
 
 class Refused(Exception):
@@ -120,6 +130,51 @@ def summary(log):
                 failed=counts['fail'], skipped=counts['skip'], todo=counts['todo'])
 
 
+def unescape(literal):
+    return re.sub(r'\\(.)', r'\1', literal)
+
+
+def declared_names(path):
+    """The closed allowlist of one test file: its literal case names, and its
+    template names with each hole as a short word."""
+    exact, patterns = set(), []
+    for quoted, template in DECLARED.findall(path.read_text(errors='replace')):
+        if template:
+            parts = re.split(r'\$\{[^}`]*\}', template)
+            if len(parts) == 1:
+                exact.add(unescape(template))
+            else:
+                patterns.append(re.compile(HOLE.join(re.escape(unescape(part)) for part in parts)))
+        elif quoted:
+            exact.add(unescape(quoted))
+    return exact, patterns
+
+
+def failures(log, allowed):
+    """Each failed case: its name when the test file declares it, else the
+    name's digest; whether the CLI says it timed out; and a digest of its
+    output. The output itself is never published."""
+    exact, patterns = allowed
+    lines = ANSI.sub('', log.read_text(errors='replace')).splitlines()
+    marks = [index for index, line in enumerate(lines) if CASE.match(line)]
+    found = []
+    for position, index in enumerate(marks):
+        kind, name = CASE.match(lines[index]).groups()
+        if kind != 'fail':
+            continue
+        # The CLI prints a case's error after its result line.
+        end = marks[position + 1] if position + 1 < len(marks) else len(lines)
+        block = '\n'.join(lines[index:end])
+        item = {'timed_out': re.search(r'timed out after \d+ ?ms', block) is not None,
+                'detail_sha256': hashlib.sha256(block.encode()).hexdigest()}
+        if name in exact or any(pattern.fullmatch(name) for pattern in patterns):
+            item['name'] = name
+        else:
+            item['name_sha256'] = hashlib.sha256(name.encode()).hexdigest()
+        found.append(item)
+    return found[:MAX_FAILURES], len(found) > MAX_FAILURES
+
+
 def candidate_files(repo, plugin, deadline):
     relative = plugin.relative_to(repo).as_posix()
     result = subprocess.run(['git', 'ls-files', '-z', '--', relative], cwd=repo,
@@ -204,6 +259,9 @@ def run(cli, plugin, work, receipt_path):
                 counts = summary(log)
                 result.update(counts)
                 result['outcome'] = 'passed' if code == 0 and counts['failed'] == 0 and counts['skipped'] == 0 and counts['todo'] == 0 else 'failed'
+                if counts['failed']:
+                    result['failures'], result['failures_truncated'] = failures(
+                        log, declared_names(mirror / selected))
             except Refused as error:
                 result['outcome'] = str(error)
                 # Source changes cannot be frozen back or ignored for later files.
@@ -229,6 +287,10 @@ def run(cli, plugin, work, receipt_path):
             output.write('\n')
     except OSError:
         receipt['outcome'] = 'receipt_write_unavailable'
+    for item in receipt['files']:
+        for failure in item.get('failures', []):
+            name = failure.get('name') or 'undeclared name sha256:' + failure['name_sha256']
+            print(f"FAIL {item['file']}: {name}" + (' (timed out)' if failure['timed_out'] else ''), flush=True)
     print(json.dumps(receipt, sort_keys=True))
     return 0 if receipt['outcome'] == 'passed' else 1
 
