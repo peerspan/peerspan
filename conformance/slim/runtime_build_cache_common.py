@@ -19,8 +19,9 @@ import base64
 import hashlib
 import json
 import os
+import re
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fake_runtime import branch_head
 from harness import check, rfc3339, wait_for
@@ -47,6 +48,19 @@ def bind(the_suite):
 def cache_name(from_branch="main", image=None):
     """cache The cache's name: `bc-` and the first 32 hex digits of SHA-256(from_branch, NUL, image or empty)."""
     return "bc-" + hashlib.sha256(from_branch.encode() + b"\0" + (image or "").encode()).hexdigest()[:32]
+
+
+RFC3339_UTC = re.compile(r"^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:[Zz]|\+00:00|-00:00)$")
+
+
+def utc_time(text):
+    """An RFC 3339 UTC time, with or without fractional seconds (the contract fixes no precision); fractions beyond
+    microseconds are cut. Fails the case for anything else."""
+    found = RFC3339_UTC.match(text) if isinstance(text, str) else None
+    check(found is not None, f"not an RFC 3339 UTC time: {text!r}")
+    *parts, fraction = found.groups()
+    micro = int((fraction or "0")[:6].ljust(6, "0"))
+    return datetime(*map(int, parts), micro, tzinfo=timezone.utc)
 
 
 def tail(text):

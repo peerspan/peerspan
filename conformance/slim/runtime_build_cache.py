@@ -11,10 +11,10 @@ calls.
 """
 import hashlib
 
-from harness import Suite, check, parse_time
-from runtime_build_cache_common import (BUILD, IMAGE, agent_id, bind, cache_name, cli_json, direct, events, fake,
-                                        head, profile, seed, send, set_profile, sh, show, shown, stored, task_body,
-                                        workspace)
+from harness import Suite, check
+from runtime_build_cache_common import (BUILD, IMAGE, agent_id, bind, cache_name, cli_json, direct, events, fake, head,
+                                        profile, seed, send, set_profile, sh, show, shown, stored, task_body, workspace,
+                                        utc_time)
 from runtime_common import need, refused, state
 
 suite = Suite("runtime_build_cache", __doc__)
@@ -59,7 +59,7 @@ def _():
     status, listed = rt.api("GET", "/v1/caches")
     check(status == 200 and listed == {"caches": [{"name": name, "commit": current["commit"], "versions": 1,
                                                    "saved_at": current["saved_at"], "bytes": current["bytes"]}]}
-          and parse_time(current["saved_at"]).tzinfo is not None, f"GET /v1/caches: {listed}")
+          and utc_time(current["saved_at"]).tzinfo is not None, f"GET /v1/caches: {listed}")
     check(not workspace(done["workspace"]).exists() and rt.api("GET", f"/v1/branches/{done['workspace']}")[0] == 404
           and direct(["echo", "x"], peerfs_fork_from=done["workspace"])["started"] is False,
           "a workspace or branch of the refresh's name was left")
@@ -222,7 +222,7 @@ def _():
     one = shown("codex")
     check(one == {"agent_id": agent_id("codex"), "name": main, "commit": entry["commit"],
                   "saved_at": one["saved_at"], "bytes": entry["bytes"], "last_refresh": None}
-          and parse_time(one["saved_at"]) == parse_time(entry["saved_at"]) and entry["commit"] == current["commit"],
+          and utc_time(one["saved_at"]) == utc_time(entry["saved_at"]) and entry["commit"] == current["commit"],
           f"cache show codex: {one}, the runtime's {entry}")
     check(cli_json("agent", "runtime", "cache", "show", "codex") == one, "agent runtime cache show differs")
     profile("imaged", "--image", IMAGE, "--build-cache", BUILD, "--build-cache-interval", "86400s")

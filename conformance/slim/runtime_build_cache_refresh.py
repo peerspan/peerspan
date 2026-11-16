@@ -11,11 +11,11 @@ runtime_build_cache_common.py describes the fixtures. Written from docs/build-ca
 """
 import re
 
-from harness import Suite, check, parse_time, wait_for
+from harness import Suite, check, wait_for
 from runtime_build_cache_common import (BUILD, IMAGE, agent_id, bind, cache_name, cli_json, count, ended,
                                         expect_refresh, exited, fake, finished, head, held, move_head, no_refresh,
-                                        profile, refresh_body, refresh_by_hand, refresh_ids, sh, shown, stored,
-                                        tick, waiting)
+                                        profile, refresh_body, refresh_by_hand, refresh_ids, sh, shown, stored, tick,
+                                        waiting, utc_time)
 from runtime_common import need, refused, state
 
 suite = Suite("runtime_build_cache_refresh", __doc__)
@@ -65,7 +65,7 @@ def _():
     last = ended("imaged", rid)
     current = stored(NAME)
     check(current["commit"] == at_main and last["saved"] is True and last["reason"] is None
-          and parse_time(last["ended_at"]) >= parse_time(last["started_at"]), f"the stored last refresh {last}")
+          and utc_time(last["ended_at"]) >= utc_time(last["started_at"]), f"the stored last refresh {last}")
     one = shown("imaged")
     check(one["commit"] == current["commit"] and one["bytes"] == current["bytes"], f"cache show {one}")
     no_refresh(NAME, "with the branch's head at the cache's commit")
