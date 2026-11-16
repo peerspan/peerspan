@@ -793,9 +793,10 @@ async fn check(
         let current = rows.get(&agent).cloned().unwrap_or_default();
         let last = current.last.as_ref();
         // The profile's own refresh is still dispatched or running, perhaps
-        // of the cache its branch or image named before: it is followed to
-        // its end, and its record is never replaced until then.
-        if last.is_some_and(Refresh::active) {
+        // of the cache its branch or image named before, or its run is still
+        // to delete: it is followed to its end and its run deleted, and its
+        // record is never replaced until then.
+        if last.is_some_and(|l| l.active() || l.cleanup) {
             continue;
         }
         // At least `interval_seconds` since the last refresh started, unless
