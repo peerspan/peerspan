@@ -376,7 +376,8 @@ rewrite code, cases, assertions, mocked time, test configuration or5000ms case
 deadlines. No product implementation inspection is needed to copy/hash it.
 Keep HOME unchanged and isolate CLI configuration outside the mirrors. A failed
 file runs no second time; continue other files while recording its original
-exit/counts. Require all22 files and440 runtime cases, zero failures/skips and
+exit/counts. Require all22 files and the runtime case count the runner pins (440 at
+acceptance; 463 since guided session contract section52's cases), zero failures/skips and
 successful public CLI exits. Bound the complete gate to600seconds, record its
 actual elapsed time, and stop if exhausted. Sanitize the receipt to source
 hashes, original repo-relative file names, counts, fixed outcomes and elapsed

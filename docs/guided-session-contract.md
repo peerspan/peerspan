@@ -10435,19 +10435,33 @@ a review a participant is reading with another review.
   reload, a native project or conversation change, or a new generation stops
   them, as it ends any running flow today.
 - They stop when the view shows an action due for this participant, when the
-  flow reaches a terminal, expired or blocked state, or after 120 checks (10
-  minutes, the stage inactivity limit). They also stop at the first failed
-  check, whose existing failure text stays shown; the participant's next
-  press starts them again.
+  flow reaches a terminal, expired or blocked state (local application recorded
+  counts as terminal), or after 120 checks (10 minutes, the stage inactivity
+  limit). They also stop at the first failed check, whose existing failure text
+  stays shown; the participant's next press starts them again. After Refresh,
+  a press of that view's Check starts them again too.
+- **An action due here.** For the published join request and machine request
+  views, join progress's next participant decides: this participant acts next
+  when it is `person_owner` or `requesting_machine` on a join request, and
+  `requesting_machine` on a machine request. A review control the view always
+  offers is not by itself an action due. In the inviter's view, once both the
+  owner offer and the selection proof are retained, the administrator review is
+  due and checking stops.
 - An automatic incoming-proof fetch keeps every section22 bound: at most one
   GET per saved carrier, the 3-second transport budget, the 4-second retention
-  deadline, and retention only of verified owner and selection proofs. An
-  unavailable result is not a failure for this purpose; checking continues.
+  deadline, and retention only of verified owner and selection proofs. A
+  fetch whose command ends without a reply (a nonzero exit, including section
+  22's `incoming_progress_unavailable`) is unavailable, not a failure: the view
+  keeps its last lookup, stays eligible to fetch, says the proofs are
+  unavailable for now, and checking continues. A failed lookup, or a fetch
+  reply that does not validate, is a failure.
 
 ### What the participant sees
 
 A waiting view says who acts next and what they do, in the existing next-action
 words, followed by `Checking automatically.` and the time of the last check.
+While an automatic check is in flight, the view shows its busy text,
+`Checking automatically.` and its Check controls, so a press stays possible.
 Every Check control stays available. When the check finds an action due for this
 participant, the view offers that action's existing review control. It never
 opens or prepares the review.
