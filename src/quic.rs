@@ -386,11 +386,14 @@ impl Transport {
         }
         // A relayed connection whose relay is down would only wait out its
         // idle timeout: close it, so the request dials another path (#165).
-        let relay_down = self
-            .relays
-            .host_of(entry.address)
-            .and_then(|host| self.relays.route_of(&host))
-            .is_some_and(|relay| !self.relays.up(&relay));
+        // One that moved to a validated direct path no longer needs the relay.
+        let relay_down = self.relays.host_of(entry.address).is_some_and(|host| {
+            !matches!(self.discovery.path(&host), PathState::Direct(..))
+                && self
+                    .relays
+                    .route_of(&host)
+                    .is_some_and(|relay| !self.relays.up(&relay))
+        });
         if relay_down {
             entry.connection.close(VarInt::from_u32(0), b"relay down");
             cache.remove(id);
