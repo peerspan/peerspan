@@ -886,6 +886,14 @@ async fn request_on(
         ContactLearning::Allow => routes(&store, &transport, peer).await?,
         ContactLearning::Disabled => (None, paths(&store, &transport, peer).await?),
     };
+    // An explicit observation (no contact learning) stays free of side
+    // effects; ordinary traffic marks the peer reachable for retries (#165).
+    let observes = matches!(learning, ContactLearning::Disabled);
+    let reachable = |store: &Arc<Store>, peer: &Peer| {
+        if !observes {
+            crate::retry::peer_reachable(store, &peer.id);
+        }
+    };
     let peer = learned.as_ref().unwrap_or(peer);
     for address in extra.iter().map(|a| crate::disco::normalize(*a)) {
         if paths.direct.len() >= MAX_DIRECT_ADDRESSES {
@@ -908,7 +916,7 @@ async fn request_on(
         .await?;
     match exchange(&connection, method, path, body).await {
         Ok(response) => {
-            crate::retry::peer_reachable(&store, &peer.id);
+            reachable(&store, peer);
             Ok(response)
         }
         Err(failure) => {
@@ -933,7 +941,7 @@ async fn request_on(
                 transport.evict(&peer.id, &connection);
             }
             if retried.is_ok() {
-                crate::retry::peer_reachable(&store, &peer.id);
+                reachable(&store, peer);
             }
             retried.map_err(|f| {
                 if connection.close_reason().is_some_and(|r| crypto_close(&r)) {

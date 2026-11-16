@@ -175,15 +175,18 @@ fn hasten(store: &Arc<Store>, peer: Option<&str>) {
 fn hasten_table<T>(
     tx: &rusqlite::Transaction<'_>,
     table: &str,
+    state: &str,
     peer: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<usize, Error>
 where
     T: Attempted + serde::Serialize + serde::de::DeserializeOwned,
 {
+    // Only uncertain, attempted, scheduled records are loaded, so finished
+    // history is never read for this.
     let rows: Vec<(i64, String)> = {
         let mut statement = tx.prepare(&format!(
-            "SELECT rowid, record FROM {table} WHERE ?1 IS NULL OR peer = ?1"
+            "SELECT rowid, record FROM {table} WHERE (?1 IS NULL OR peer = ?1) AND json_extract(record, '$.{state}') = 'unknown' AND json_extract(record, '$.attempts') > 0 AND json_type(record, '$.next_attempt_at') = 'text'"
         ))?;
         statement
             .query_map([peer], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -225,9 +228,21 @@ impl Store {
     ) -> Result<usize, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        let moved = hasten_table::<OutboundMessage>(&tx, "outbound_messages", peer, now)?
-            + hasten_table::<crate::task_outbound::OutboundTask>(&tx, "outbound_tasks", peer, now)?
-            + hasten_table::<crate::call_outbound::OutboundCall>(&tx, "outbound_calls", peer, now)?;
+        let moved = hasten_table::<OutboundMessage>(&tx, "outbound_messages", "state", peer, now)?
+            + hasten_table::<crate::task_outbound::OutboundTask>(
+                &tx,
+                "outbound_tasks",
+                "submit_state",
+                peer,
+                now,
+            )?
+            + hasten_table::<crate::call_outbound::OutboundCall>(
+                &tx,
+                "outbound_calls",
+                "submit_state",
+                peer,
+                now,
+            )?;
         tx.commit()?;
         Ok(moved)
     }
