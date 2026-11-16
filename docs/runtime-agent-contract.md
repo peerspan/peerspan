@@ -25,7 +25,8 @@ Not in this contract:
 - input artifacts on a runtime agent's tasks (refused, below) and result artifacts;
 - talking to a running agent (messages, progress, delegation from inside the VM);
 - per-tool-call snapshots;
-- a credential proxy, which keeps the key out of the VM;
+- a credential proxy, which keeps the key out of the VM: the
+  [credential proxy contract](credential-proxy-contract.md) (RUN-23 to RUN-34);
 - subscription logins. Only API keys are supported.
 
 ## The launch profile
