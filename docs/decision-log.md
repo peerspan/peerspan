@@ -18,6 +18,7 @@ Contents:
   - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
   - [PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries](#pbx-34-to-pbx-37-what-gate-set-does-with-an-absent-runtime-pending-contributions-and-odd-snapshot-entries-2026-11-15) (2026-11-15)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
+  - [RUN-21: how the host reaches the runtime's caches](#run-21-how-the-host-reaches-the-runtimes-caches-2026-11-16) (2026-11-16)
   - [RUN-17 to RUN-20: a build cache shared between tasks](#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15) (2026-11-15)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
   - [PF-06: an object larger than an objects answer](#pf-06-an-object-larger-than-an-objects-answer-2026-11-14) (2026-11-14)
@@ -212,6 +213,35 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Chosen:** a.
 - **Reason given:** reasons not recorded beyond the options' own text.
 
+### RUN-21: how the host reaches the runtime's caches (2026-11-16)
+
+- **Date:** 2026-11-16.
+- **Area:** runtime agents' build caches (RUN-17 to RUN-20).
+- **Source:** implementing the host side of the build cache contract. The host needs the
+  branch's head and the cache's current version for the refresh check and `cache show`, and runs
+  `cache rm` for `cache clear`, all "from the runtime's peerfs", but the runtime's API had no
+  cache or branch route and the host is never told the space's path. The owner answered one
+  question on 2026-11-16; the options are quoted from it.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [build-cache-contract.md, Runtime: caches and branches of its space](build-cache-contract.md#runtime-caches-and-branches-of-its-space).
+- **Question:** "How should the host reach it?"
+- **Options:**
+  - (a) Runtime proxies: "Runtime contract gains GET /v1/caches, DELETE /v1/caches/{name} and a branch-head route over the space it already owns. One boundary stays; needs a runtime release (v0.1.6) and the fake runtime serves the same routes."
+  - (b) Runtime reports the path: "GET /v1/runtime adds the space's path; the host reads /v1/caches and branch heads with its existing pinned-socket peerfs client. Less runtime work, but the host depends on the runtime's local path and socket permissions."
+  - (c) Owner names the space: "`runtime enable` stores the runtime's space path on the host; same client as above. Adds owner-facing setup and can drift from the runtime's real flag."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the same amendment settles details the contract left open, from the questions of the
+  conformance author and the implementer: the routes' shapes; the check running at start and on
+  the host's clock; the runtime switch and `peerfs_caches` as conditions; "queued" meaning not
+  yet dispatched; a refresh's left-out fields; the stored refresh's nulls, reasons and their
+  order, with `cancelled` dropped since the host never cancels one and `the runtime refused the
+  run` added; the `cache show` shape; the 404s and 503s; a profile without `build_cache`
+  leaving the field out; and the activity's subject. It also records how peerspan/runtime#32
+  read "removes the fork's branch": a refresh never commits, so its workspace follows the
+  branch it would fork from and no branch is made. Contract choices within RUN-21.
+
 ### RUN-17 to RUN-20: a build cache shared between tasks (2026-11-15)
 
 - **Date:** 2026-11-15.
@@ -219,7 +249,7 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Source:** issue [peerspan/runtime#15](https://github.com/peerspan/runtime/issues/15) and the owner's answers to four questions on 2026-11-15, after measuring this repository's build with a copied cache ([build-cache-contract.md, Why the dates matter](build-cache-contract.md#why-the-dates-matter)). The options below are quoted from those questions.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [build-cache-contract.md](build-cache-contract.md).
-- **Implementing PRs:** none yet.
+- **Implementing PRs:** [peerspan/peerfs#7](https://github.com/peerspan/peerfs/pull/7) (caches), [peerspan/runtime#32](https://github.com/peerspan/runtime/pull/32) (the run fields); the host side is in progress.
 
 #### RUN-17. How a run gets the cache
 

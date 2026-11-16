@@ -6,7 +6,7 @@ the build output. A **build cache** is the derived files (dependencies and build
 build of the profile's branch, kept by peerfs and shown read-only under the derived paths of each
 new task's workspace, so a task's build only redoes what its own changes touch.
 
-The decisions are RUN-17 to RUN-20 in the
+The decisions are RUN-17 to RUN-21 in the
 [decision log](decision-log.md#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15),
 from issue [peerspan/runtime#15](https://github.com/peerspan/runtime/issues/15). This contract
 extends the [runtime agent contract](runtime-agent-contract.md) and the
@@ -94,7 +94,7 @@ is never saved (below), so a version's output is always built from its `commit`'
 | Field | Rules |
 | --- | --- |
 | `peerfs_cache` | A cache name, with `peerfs_fork_from` set: the fork's workspace is created holding the cache's current version, as `ws create --cache` does. A cache that does not exist is no error. |
-| `peerfs_cache_save` | A cache name, with `peerfs_fork_from` set and `peerfs_commit` false. This run is a refresh: once the command has ended, if it exited 0, the result has no `error` and the command changed no source path, the runtime saves the workspace's derived files as a new version of this cache, and discards the workspace; then it removes the fork's branch. A run that changed source saves nothing, and its result's `error` is `the build changed source files: PATH`, naming the first such path in byte order, since its output may have been built from them. A run that failed or changed source leaves the cache as it was, but still discards the workspace and removes the branch. |
+| `peerfs_cache_save` | A cache name, with `peerfs_fork_from` set and `peerfs_commit` false. This run is a refresh. Since it never commits, its workspace follows `peerfs_fork_from` itself and no branch is made for it; a workspace or branch of the `peerfs_workspace` name that already exists is still refused, as for any fork. Once the command has ended, if it exited 0 with no signal, no timeout and no `error`, the runtime looks for changed source paths: with none, it saves the workspace's derived files as a new version of this cache, which discards the workspace; with some, it saves nothing and the result's `error` is `the build changed source files: PATH`, naming the first such path in byte order, since its output may have been built from them. A run that failed keeps its exit status, signal or timeout as its outcome and is not checked for source changes. Whenever nothing was saved, the cache is as it was and the workspace is discarded. Afterwards no workspace or branch of the `peerfs_workspace` name is left. |
 
 `peerfs_cache` and `peerfs_cache_save` may be set together, so a refresh builds on the current
 version (incrementally) and saves the result as the next. Both are 400 when the runtime's
@@ -102,6 +102,19 @@ peerfs has no caches (`GET /v1/runtime` gains `peerfs_caches`, true when it has)
 
 The `exited` event's result gains `cache_saved`: true when a version was saved, false otherwise,
 including for runs without `peerfs_cache_save`. A save that fails sets `error`.
+
+### Runtime: caches and branches of its space
+
+The runtime's local API gains three routes over the peerfs space it serves (RUN-21), so its
+caller, the host, never reaches that space directly. Each answers 422 `unavailable` when the
+runtime reports `peerfs_caches` false, and a name that is not a cache's (above) or a branch's
+is 400 `invalid`.
+
+| Route | Response |
+| --- | --- |
+| `GET /v1/caches` | `{"caches": [...]}`, by name: for each cache, `name`, and its current version's `commit`, `saved_at` (RFC 3339, UTC), `bytes` and the number of `versions` held, as `cache ls` gives them. |
+| `DELETE /v1/caches/{name}` | `{}`, after `cache rm`. A cache that does not exist is no error, so a repeated delete answers the same. |
+| `GET /v1/branches/{name}` | `{"name", "head"}`, the branch's head commit; 404 `not_found` when the space has no such branch. |
 
 **Package caches.** Downloads live outside the repository by default (`~/.cargo/registry`,
 `~/.npm`, pip's and Go's caches), in the VM's throwaway root. For a run with either field, the
@@ -129,8 +142,10 @@ The launch profile gains one field:
 
 CLI: `agent runtime set AGENT ... [--build-cache COMMAND] [--build-cache-interval DURATION]`;
 `--build-cache-interval` takes a duration as `--timeout` does and needs `--build-cache`. A
-profile with `build_cache` needs a runtime that reports `peerfs_caches` true (otherwise 409
-`runtime_unavailable`).
+`build_cache` outside these rules is 400 `invalid` naming it. A profile with `build_cache` needs
+a runtime that reports `peerfs_caches` true (otherwise 409 `runtime_unavailable`). A returned
+profile without `build_cache` leaves the field out, so profiles set before it read back as they
+did.
 
 **The cache's name** is `bc-` and the first 32 hex digits of the SHA-256 of the profile's
 `from_branch`, a NUL byte, and its `image` (empty when null). So it is keyed by space (the
@@ -149,13 +164,16 @@ are those of the runtime agent contract. A task does not wait for a refresh.
 ### The host refresh
 
 Only a **refresh run** writes a cache (RUN-18). The host starts one for a profile with
-`build_cache` when all of these hold, checking every 60 seconds:
-- the profile's `from_branch` head is not the cache's current `commit`, or the cache does not
-  exist;
+`build_cache` when all of these hold, checking when it starts and every 60 seconds after by its
+clock (the test clock, in a debug build):
+- the runtime switch is on and the runtime reports `peerfs_caches` true;
+- the profile's `from_branch` head (`GET /v1/branches/{name}` on the runtime) is not the
+  cache's current `commit` (`GET /v1/caches`), or the cache does not exist;
 - at least `interval_seconds` have passed since the profile's last refresh started;
-- no refresh of that cache is dispatched or running;
-- the runtime has a free slot, no task of any runtime agent is queued, and fewer than the
-  profile's `max_runs` of its tasks and refreshes are dispatched or running.
+- no refresh of that cache is dispatched or running, for this profile or another sharing it;
+- the runtime has a free slot, no task of any runtime agent is queued and not yet dispatched,
+  and fewer than the profile's `max_runs` of its tasks and refreshes are dispatched or
+  running.
 
 A refresh run has:
 - `run_id` `cache_` and 32 random lowercase hex digits;
@@ -165,27 +183,35 @@ A refresh run has:
   the profile's `from_branch`;
 - `peerfs_cache` and `peerfs_cache_save` both the cache's name;
 - `peerfs_commit` false, `results` `none`, `workspace_archive` null;
-- no `harness` and no `secrets`: no agent, and no key, is in the VM.
+- no `harness` and no `secrets`: no agent, and no key, is in the VM;
+- every other field left out, so it takes its default: `image` is left out when the
+  profile's is null, and `peerfs_agent` and `peerfs_discard` are never sent.
 
 So the cache is built only from the owner's branch, in the owner's image, by the owner's
 command, and a task's output never becomes cache. The refresh runs whatever the branch's build
 runs, such as Cargo build scripts, as every task's build does.
 
-The host stores each profile's last refresh: `started_at`, `run_id`, `commit` (the branch's head
-when it was dispatched), and once it ends, `ended_at`, `saved` and, when nothing was saved, a
-`reason` (`exit N`, `signal N`, `timed out`, `cancelled`, or the run result's `error`). A refresh
-lost to a runtime restart counts as ended with `the runtime restarted`. A host restart resumes
-the stored run as for a runtime task.
+The host stores each profile's last refresh, by agent, kept when the profile is replaced and
+removed with it: `started_at`, `run_id`, `commit` (the branch's head when it was dispatched),
+and once it ends, `ended_at`, `saved` and `reason`. `ended_at` and `saved` are null while it
+runs, and `reason` is null unless it ended without saving, when it is the first of these that
+applies: `timed out`, `signal N`, `exit N` for a non-zero status, the run result's `error`, or
+`exit 0`. A run the runtime refuses with 429 is not a refresh: the stored last refresh is as it
+was, and the next check tries again. Any other refusal ends it with `the runtime refused the
+run: ERROR`. A refresh lost to a runtime restart, a 404 while following it, ends with `the
+runtime restarted`. A host restart resumes the stored run as for a runtime task. The host never
+cancels a refresh: removing `build_cache` or the profile lets one already dispatched end.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `agent runtime cache show [AGENT] [--json]` | `GET /v1/agents/{agent_id}/runtime/cache`, `GET /v1/agents/runtime/cache` | The cache's `name`, its current `commit`, `saved_at` and `bytes` from the runtime's peerfs (null fields when it has none), and the last refresh. 404 for an agent without `build_cache`. |
-| `agent runtime cache refresh AGENT` | `POST /v1/agents/{agent_id}/runtime/cache/refresh` | Starts a refresh at the next check, ignoring `interval_seconds` and an unchanged head, but not the other conditions. 409 `busy` when one is dispatched or running. Returns `{}`. |
-| `agent runtime cache clear AGENT` | `DELETE /v1/agents/{agent_id}/runtime/cache` | Removes the cache from the runtime's peerfs (`cache rm`), so tasks build cold until the next refresh. Returns `{}`. |
+| `agent runtime cache show [AGENT] [--json]` | `GET /v1/agents/{agent_id}/runtime/cache`, `GET /v1/agents/runtime/cache` | `{agent_id, name, commit, saved_at, bytes, last_refresh}`: the cache's name, its current version's `commit`, `saved_at` and `bytes` from the runtime's `GET /v1/caches` (null when it has no such cache), and the last refresh as stored above, or null before the first. Without an agent, `{"caches": [...]}` holds one for each profile with `build_cache`, by agent ID. 404 `not_found` for an agent without `build_cache`; 503 when the runtime cannot be asked. |
+| `agent runtime cache refresh AGENT` | `POST /v1/agents/{agent_id}/runtime/cache/refresh` | Starts a refresh at the next check, ignoring `interval_seconds` and an unchanged head, but not the other conditions. 409 `busy` when a refresh of that cache is dispatched or running. 404 `not_found` for an agent without `build_cache`. Returns `{}`. |
+| `agent runtime cache clear AGENT` | `DELETE /v1/agents/{agent_id}/runtime/cache` | Removes the cache with the runtime's `DELETE /v1/caches/{name}`, so tasks build cold until the next refresh; clearing a cache that does not exist answers the same. 404 `not_found` for an agent without `build_cache`; 503 when the runtime cannot be asked. Returns `{}`. |
 
-Removing `build_cache` from a profile, or the profile, stops refreshes; the cache stays until
-`cache clear` or `cache rm`, since another profile may share it. Activity:
-`runtime.cache_refreshed` with the agent, the commit and `saved`, when a refresh ends.
+Removing `build_cache` from a profile, or the profile, stops refreshes, and forgets a refresh
+asked for by hand; the cache stays until `cache clear` or `cache rm`, since another profile may
+share it. Activity: `runtime.cache_refreshed` when a refresh ends, with the subject
+`AGENT_ID/COMMIT/SAVED`, where `SAVED` is `true` or `false`.
 
 ### Disk
 
@@ -201,13 +227,15 @@ reports `bytes`, and `cache clear` removes it.
   held by a workspace, and no cache files at source or secret paths. A `cargo build` in a mount
   with a cache of the same commit rebuilds nothing.
 - **Runtime:** `scripts/check-serve.py` cases for both fields, `cache_saved`, a failed refresh
-  and one that changed a source file, each leaving the cache, the branch removed after a refresh, and the package-cache variables.
+  and one that changed a source file, each leaving the cache, no workspace or branch left after a refresh, the package-cache variables, and the three cache and branch routes.
 - **Host:** the `runtime_agents` suite, written from this contract by an author who does not read
   `src/`, `tests/` or `integrations/` (DEC-OWN6, DEC-OWN9), gains cases for the profile field,
   the cache's name, `peerfs_cache` on tasks, when a refresh starts and what it sends, `cache
   show`, `refresh` and `clear`, and a lost refresh. The fake runtime gains both fields, checking
-  them as above, `peerfs_caches` in `GET /v1/runtime`, and `cache_saved`; it records the cache a
-  fork was given, and `cache_saved` is true for a refresh whose command exited 0 and wrote no source path.
+  them as above, `peerfs_caches` in `GET /v1/runtime`, `cache_saved`, and the three cache and
+  branch routes; it records the cache a fork was given, and `cache_saved` is true for a refresh
+  whose command exited 0 and wrote no source path. The cases may go in a suite of their own when
+  `runtime_agents` would pass its size or time.
 - **Measured:** on the box, a task of this repository with a current cache against one without,
   repeating the table above through the runtime and peerfs, recorded in docs-internal
   `runtime.md`.
