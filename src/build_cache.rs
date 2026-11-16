@@ -62,8 +62,15 @@ pub(crate) struct BuildCacheRequest {
 }
 
 impl BuildCacheRequest {
-    /// The field with its default, checked against the contract's ranges.
-    pub(crate) fn build_cache(self) -> Result<BuildCache, Error> {
+    /// The request's `build_cache`, taken as JSON so that a field of the
+    /// wrong shape is 400 `invalid` naming `build_cache`, then checked
+    /// against the contract's ranges with its default.
+    pub(crate) fn parse(value: Value) -> Result<BuildCache, Error> {
+        serde_json::from_value::<Self>(value)
+            .map_err(|_| Error::Invalid("build_cache".into()))?
+            .build_cache()
+    }
+    fn build_cache(self) -> Result<BuildCache, Error> {
         let interval_seconds = self.interval_seconds.unwrap_or(DEFAULT_INTERVAL);
         if self.command.is_empty() || self.command.len() > 4096 {
             return Err(Error::Invalid("build_cache.command".into()));
