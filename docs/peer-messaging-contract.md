@@ -11,7 +11,7 @@ Owners configure peers through the private socket, providing an independently ve
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
 | `peer add --id HOST --public-key BASE64 --address IP:PORT` | `POST /v1/peers` | Persist or update a peer's address; verify that its ID matches the key. Returns 200. |
-| `peer list` | `GET /v1/peers` | Return peers sorted by ID. |
+| `peer list` | `GET /v1/peers` | Return peers sorted by ID. These are legacy manual peer hints; when the list is empty and the host is in a coordinator-free network, the CLI also prints to stderr `note: peer list shows manual peer hints for legacy networks only. On a coordinator-free network, see peerspan network members ID, and peerspan peer path HOST_ID for how traffic reaches a host.` |
 | `grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected]` | `POST /v1/grants` | Create an inbound grant to the configured host for the local agent. Returns 201. |
 | `grant list` | `GET /v1/grants` | Return grants sorted by ID. |
 | `grant revoke ID` | `POST /v1/grants/{id}/revoke` | Persist immediate local revocation, idempotently. |

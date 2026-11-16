@@ -1513,6 +1513,7 @@ pub enum SessionCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum PeerCommand {
+    /// Add a manual peer hint (legacy networks only)
     Add {
         #[arg(long)]
         id: String,
@@ -1521,11 +1522,11 @@ pub enum PeerCommand {
         #[arg(long)]
         address: std::net::SocketAddr,
     },
+    /// List manual peer hints (legacy networks only; on a coordinator-free
+    /// network see network members and peer path)
     List,
     /// Show whether traffic to a peer goes direct or through the relay
-    Path {
-        id: String,
-    },
+    Path { id: String },
 }
 #[derive(Debug, Subcommand)]
 pub enum PersonCommand {
@@ -1967,8 +1968,9 @@ pub enum AccessCommand {
         #[arg(long)]
         person: Option<String>,
     },
-    /// Sync your policy with your other hosts now and retry its deliveries,
-    /// or show its delivery status
+    /// Legacy networks: sync your policy with your other hosts now and retry
+    /// its deliveries, or show its delivery status (on a coordinator-free
+    /// network, use network sync)
     Sync {
         #[arg(long, value_name = "ID")]
         network: Option<String>,

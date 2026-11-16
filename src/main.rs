@@ -342,9 +342,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 cli::MessageCommand::Send { .. } | cli::MessageCommand::Retry { .. }
             )
     );
+    let legacy = LegacyOnly::of(&command);
     let summary = output::Summary::of(&command);
-    let value = dispatch(command, &directory).await?;
+    let value = dispatch(command, &directory)
+        .await
+        .map_err(|error| legacy.refusal(error))?;
     output::emit_for(&summary, &value)?;
+    if legacy == Some(LegacyOnly::PeerList) && value.as_array().is_some_and(Vec::is_empty) {
+        peer_list_note(&directory).await;
+    }
     if sends && value["state"] == "rejected" {
         bail!(
             "rejected: {}",
@@ -359,6 +365,62 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Commands that act only on legacy networks, and what to use instead on a
+/// coordinator-free network (#163).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LegacyOnly {
+    AccessSync,
+    PeerList,
+}
+impl LegacyOnly {
+    fn of(command: &cli::Command) -> Option<Self> {
+        match command {
+            cli::Command::Access(cli::AccessCommand::Sync { .. }) => Some(Self::AccessSync),
+            cli::Command::Peer(cli::PeerCommand::List) => Some(Self::PeerList),
+            _ => None,
+        }
+    }
+}
+trait LegacyRefusal {
+    fn refusal(self, error: anyhow::Error) -> anyhow::Error;
+}
+impl LegacyRefusal for Option<LegacyOnly> {
+    /// `access sync` refused because this host's networks are
+    /// coordinator-free names the command that syncs them.
+    fn refusal(self, error: anyhow::Error) -> anyhow::Error {
+        let legacy = error
+            .downcast_ref::<integration::DaemonError>()
+            .is_some_and(|e| e.code == "upgrade_required");
+        if self == Some(LegacyOnly::AccessSync) && legacy {
+            anyhow::anyhow!(
+                "access sync works only on legacy networks; on a coordinator-free network, run peerspan network sync [ID]"
+            )
+        } else {
+            error
+        }
+    }
+}
+/// After an empty `peer list` on a host in a coordinator-free network: a
+/// note on stderr that it lists legacy manual peer hints only.
+async fn peer_list_note(directory: &Path) {
+    let networks = tokio::time::timeout(
+        LOCAL_TIMEOUT,
+        call(
+            directory.join("admin.sock"),
+            Method::GET,
+            "/v2/networks".into(),
+            None,
+        ),
+    )
+    .await;
+    if let Ok(Ok(Value::Array(list))) = networks
+        && !list.is_empty()
+    {
+        eprintln!(
+            "note: peer list shows manual peer hints for legacy networks only. On a coordinator-free network, see peerspan network members ID, and peerspan peer path HOST_ID for how traffic reaches a host."
+        );
+    }
+}
 /// Runs a command through the local daemon and returns what it prints.
 async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Value> {
     let socket = directory.join("admin.sock");
