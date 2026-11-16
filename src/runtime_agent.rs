@@ -590,7 +590,7 @@ async fn clear(
     blocking(store, move |s| {
         let agent = s.agent(&id)?;
         if s.store_profile(&agent.id, None)? {
-            crate::build_cache::forget_request(s, &agent.id)?;
+            crate::build_cache::remove_with_profile(s, &agent.id)?;
             s.activity("runtime.agent_cleared", &agent.id)?;
         }
         Ok(Json(json!({})))
