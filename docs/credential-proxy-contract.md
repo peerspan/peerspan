@@ -194,7 +194,10 @@ path, status, duration and bytes each way. Never a header, a body, the key or th
 
 **Usage** (RUN-27). The proxy reads, without changing them, the usage fields of the provider's
 responses: for `claude`, the `usage` of the `message_start` and `message_delta` events or of a
-non-streamed message; for `codex`, the `usage` of `response.completed`, over SSE or WebSocket.
+non-streamed message; for `codex`, the `usage` of `response.completed` over SSE or WebSocket, or
+the top-level `usage` of a non-streamed response. When the profile sets `max_output_tokens`, a
+successful response whose usage the proxy cannot read ends model access for the run as if the
+bound were reached, so no request mode passes the cap uncounted.
 It sums them per run as `{requests, input_tokens, output_tokens, cache_read_tokens,
 cache_write_tokens}`, and the daemon stores the sums with the received task. Usage is the
 owner's: it is never sent to the sender, in an event, a status record or the output.
@@ -303,7 +306,9 @@ new activity kind: `runtime.agent_set` covers the new fields.
     or after the credential was cleared, is not forwarded, and the guest gets close code 1008
     with the refusal's message;
   - each bound, with its status;
-  - usage as the fake provider reported it, for the owner and never in the sender's events;
+  - usage as the fake provider reported it, streamed and not, for the owner and never in the
+    sender's events; with `max_output_tokens` set, a successful response without readable usage
+    ends model access;
   - after the task ends, its socket is gone and a held connection is closed;
   - the key and the token in no event, output, activity or log line.
 - **Live, on KVM with real harnesses and real keys.** A Claude agent and a Codex agent with
