@@ -195,7 +195,12 @@ where
         if !out.uncertain() {
             continue;
         }
-        let (_, next, _) = out.counters();
+        let (attempts, next, _) = out.counters();
+        // A record never attempted is still inside its preparation guard,
+        // while the inline send may be running; leave it to that send.
+        if *attempts == 0 {
+            continue;
+        }
         if due_at(next).is_some_and(|at| at > now) {
             *next = Some(rfc3339(now));
             tx.execute(
@@ -211,7 +216,8 @@ where
 impl Store {
     /// Uncertain messages, task submissions and calls to `peer` (or to any
     /// peer) that wait out a backoff become due at `now` (#165). A record
-    /// with no next attempt (stopped) is left alone.
+    /// with no next attempt (stopped), or never attempted (still inside its
+    /// preparation guard), is left alone.
     pub(crate) fn hasten_retries(
         &self,
         peer: Option<&str>,
