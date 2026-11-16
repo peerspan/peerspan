@@ -1,6 +1,6 @@
 # Onboarding simplification: the pane takes the CLI's steps
 
-Status: draft for the owner's decision (2026-11-16). Nothing here is implemented.
+Status: decisions settled with the owner on 2026-11-16 (all six as recommended; see [Decisions](#decisions)). Nothing here is implemented yet.
 
 ## Problem
 
@@ -98,14 +98,16 @@ The second-machine flow gets the same treatment: one approval on the existing co
 - **Re-review on change.** Changed identity, powers, signer or expiry needs a new review, as the requirements say.
 - **The detailed path.** Every existing backend route and CLI command keeps working. A "Show each step" setting can keep today's per-stage reviews for anyone who wants them.
 
-## Decisions for the owner
+## Decisions
 
-1. **Merged approvals (P1, P2):** may one approval in the pane authorize several protocol consents, with all their terms on one screen? This is the central change. Recommended: yes. It is what "Peerspan completes the intermediate steps" asked for, and what the CLI already does.
-2. **Automatic progress (P3):** may the open pane refresh a read-only progress view on its own? Recommended: yes.
-3. **One connect consent (P4)**, with messages and tasks on by default. Recommended: yes, with both visible as checkboxes.
-4. **Access with the invite (P5)**, on by default. Recommended: yes for the inviter's project agents only; wider grants keep their own review.
-5. **A model tool that opens reviews (P6).** Recommended: yes, limited as described above. It changes the "no model setup tool" rule.
-6. **Keep the per-stage pane** behind "Show each step"? Recommended: yes for one release, then decide from use.
+The owner chose the recommendation on all six on 2026-11-16.
+
+1. **Merged approvals (P1, P2):** may one approval in the pane authorize several protocol consents, with all their terms on one screen? This is the central change. **Chosen: yes.** It is what "Peerspan completes the intermediate steps" asked for, and what the CLI already does.
+2. **Automatic progress (P3):** may the open pane refresh a read-only progress view on its own? **Chosen: yes.**
+3. **One connect consent (P4)**, with messages and tasks on by default. **Chosen: yes**, with both visible as checkboxes.
+4. **Access with the invite (P5)**, on by default. **Chosen: yes** for the inviter's project agents only; wider grants keep their own review.
+5. **A model tool that opens reviews (P6).** **Chosen: yes**, limited as described above. It changes the "no model setup tool" rule.
+6. **Keep the per-stage pane** behind "Show each step"? **Chosen: yes** for one release, then decide from use.
 
 ## Cost and order
 
