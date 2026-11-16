@@ -14,7 +14,7 @@ use crate::{
     model::Error,
     runtime::call,
     runtime_agent::Profile,
-    store::{Store, append_event, new_id, now},
+    store::{Store, append_event, now},
 };
 use axum::{
     Json, Router,
@@ -336,9 +336,19 @@ async fn remove_cache(socket: &std::path::Path, cache: &str) -> Result<(), Error
 // ---------------------------------------------------------------------
 // The refresh run.
 
+/// A refresh's run ID (RUN-22): `run_` and 64 random lowercase hex digits,
+/// the form the runtime takes for every run. A refresh is told apart by its
+/// stored record, never by its ID.
+fn refresh_run_id() -> Result<String, Error> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
+    Ok(format!("run_{}", hex::encode(bytes)))
+}
+
 /// The `POST /v1/runs` body of a refresh (The host refresh).
 fn refresh_body(profile: &Profile, build: &BuildCache, run_id: &str, cache: &str) -> Value {
-    let hex = run_id.strip_prefix("cache_").unwrap_or(run_id);
+    let hex = run_id.strip_prefix("run_").unwrap_or(run_id);
     let mut body = json!({
         "run_id": run_id,
         "argv": ["/bin/sh", "-c", build.command],
@@ -838,7 +848,7 @@ async fn check(
         if !current.requested && version.is_some_and(|v| v.commit == head) {
             continue;
         }
-        let run_id = new_id("cache")?;
+        let run_id = refresh_run_id()?;
         let refresh = Refresh {
             started_at: crate::store::now(),
             run_id: run_id.clone(),
