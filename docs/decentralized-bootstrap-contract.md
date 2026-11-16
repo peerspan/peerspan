@@ -1183,6 +1183,9 @@ subnet route, arbitrary TCP proxy or network authority credential.
 
 Hosts may retain multiple independently configured relay endpoints and switch
 on transport failure without changing network identity/history or ciphertext.
+Within one request bound, relays whose connection is up are tried before those
+that are down, and a cached peer connection routed through a relay that is down
+is closed and dialed again rather than reused until its idle timeout (#165).
 For two mutually unreachable NATed devices, both need at least one mutually
 reachable relay (or an actually reachable bridging participant); arbitrary
 unconnected relay lists alone do not create a path. The bootstrap mailbox gives
