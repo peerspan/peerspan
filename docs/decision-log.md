@@ -18,6 +18,7 @@ Contents:
   - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
   - [PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries](#pbx-34-to-pbx-37-what-gate-set-does-with-an-absent-runtime-pending-contributions-and-odd-snapshot-entries-2026-11-15) (2026-11-15)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
+  - [RUN-22: a refresh run's ID](#run-22-a-refresh-runs-id-2026-11-16) (2026-11-16)
   - [RUN-21: how the host reaches the runtime's caches](#run-21-how-the-host-reaches-the-runtimes-caches-2026-11-16) (2026-11-16)
   - [RUN-17 to RUN-20: a build cache shared between tasks](#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15) (2026-11-15)
   - [PF-07 to PF-11: pulling a shared PeerFS branch across hosts](#pf-07-to-pf-11-pulling-a-shared-peerfs-branch-across-hosts-2026-11-14) (2026-11-14)
@@ -213,6 +214,27 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Chosen:** a.
 - **Reason given:** reasons not recorded beyond the options' own text.
 
+### RUN-22: a refresh run's ID (2026-11-16)
+
+- **Date:** 2026-11-16.
+- **Area:** runtime agents' build caches (RUN-17 to RUN-21).
+- **Source:** the build cache measurement on the box. The build cache contract gave a refresh run
+  the `run_id` `cache_` and 32 hex digits, but the runtime task contract, and the runtime, take
+  only `run_` and 64 lowercase hex digits. The host merged in #292 sent `cache_` IDs and the
+  fake runtime accepted them, so the suites passed while the real runtime refused every refresh
+  with 400. The owner answered one question on 2026-11-16; the options are quoted from it.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [build-cache-contract.md, The host refresh](build-cache-contract.md#the-host-refresh).
+- **Question:** "How should it be fixed?"
+- **Options:**
+  - (a) Refreshes use run_ IDs: "Amend the build cache contract: a refresh's run_id is `run_` + 64 random lowercase hex, as every run's is. Host and fake runtime change; no runtime release. The host already tells refreshes apart by its own table."
+  - (b) Runtime accepts cache_ IDs: "Amend the runtime task contract so the runtime also accepts `cache_` + 32 hex. Keeps refreshes visibly distinct in runtime logs, but needs a runtime change and a v0.1.7 release before any refresh works."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the fake runtime now takes only the runtime's run ID form, so a request the runtime
+  would refuse fails the suites too. A contract choice within RUN-22.
+
 ### RUN-21: how the host reaches the runtime's caches (2026-11-16)
 
 - **Date:** 2026-11-16.
@@ -249,7 +271,7 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Source:** issue [peerspan/runtime#15](https://github.com/peerspan/runtime/issues/15) and the owner's answers to four questions on 2026-11-15, after measuring this repository's build with a copied cache ([build-cache-contract.md, Why the dates matter](build-cache-contract.md#why-the-dates-matter)). The options below are quoted from those questions.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [build-cache-contract.md](build-cache-contract.md).
-- **Implementing PRs:** [peerspan/peerfs#7](https://github.com/peerspan/peerfs/pull/7) (caches), [peerspan/runtime#32](https://github.com/peerspan/runtime/pull/32) (the run fields); the host side is in progress.
+- **Implementing PRs:** [peerspan/peerfs#7](https://github.com/peerspan/peerfs/pull/7) (caches), [peerspan/runtime#32](https://github.com/peerspan/runtime/pull/32) and [#33](https://github.com/peerspan/runtime/pull/33) (the run fields and routes, v0.1.6), [#292](https://github.com/peerspan/peerspan/pull/292) (the host).
 
 #### RUN-17. How a run gets the cache
 

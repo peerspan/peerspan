@@ -6,7 +6,7 @@ the build output. A **build cache** is the derived files (dependencies and build
 build of the profile's branch, kept by peerfs and shown read-only under the derived paths of each
 new task's workspace, so a task's build only redoes what its own changes touch.
 
-The decisions are RUN-17 to RUN-21 in the
+The decisions are RUN-17 to RUN-22 in the
 [decision log](decision-log.md#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15),
 from issue [peerspan/runtime#15](https://github.com/peerspan/runtime/issues/15). This contract
 extends the [runtime agent contract](runtime-agent-contract.md) and the
@@ -176,7 +176,8 @@ clock (the test clock, in a debug build):
   running.
 
 A refresh run has:
-- `run_id` `cache_` and 32 random lowercase hex digits;
+- `run_id` `run_` and 64 random lowercase hex digits, the form the runtime takes for every run
+  ([runtime task contract](runtime-task-contract.md#the-runtimes-local-api)) (RUN-22);
 - `argv` `["/bin/sh", "-c", command]`, `cwd` `/workspace`, `env` `{}`, and `stdin` null;
 - the profile's `resources`, `network` and `image`;
 - `peerfs_workspace` the cache's name, `.refresh.`, and the run ID's hex; `peerfs_fork_from`
@@ -234,7 +235,9 @@ reports `bytes`, and `cache clear` removes it.
   show`, `refresh` and `clear`, and a lost refresh. The fake runtime gains both fields, checking
   them as above, `peerfs_caches` in `GET /v1/runtime`, `cache_saved`, and the three cache and
   branch routes; it records the cache a fork was given, and `cache_saved` is true for a refresh
-  whose command exited 0 and wrote no source path. The cases may go in a suite of their own when
+  whose command exited 0 and wrote no source path. It takes only the run IDs the runtime takes
+  (`run_` and 64 lowercase hex digits), so a refresh's request is checked as the runtime
+  checks it. The cases may go in a suite of their own when
   `runtime_agents` would pass its size or time.
 - **Measured:** on the box, a task of this repository with a current cache against one without,
   repeating the table above through the runtime and peerfs, recorded in docs-internal
