@@ -523,7 +523,7 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 | `access block --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks` | Host-local, immediate, persisted. Returns 201. |
 | `access unblock --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks/remove` | Host-local. |
 | `access blocks` | `GET /v1/access-blocks` | Sorted list of `{kind, subject, created_at}`. |
-| `access sync --network ID [--status]` | `/v1/networks/{id}/policy/sync` | Policy propagation among the owner's hosts; see [Direct propagation](#direct-propagation). |
+| `access sync --network ID [--status]` | `/v1/networks/{id}/policy/sync` | Policy propagation among the owner's hosts on a legacy network; see [Direct propagation](#direct-propagation). On a host whose daemon refuses it with `upgrade_required` (a coordinator-free network), the CLI exits 1 with `access sync works only on legacy networks; on a coordinator-free network, run peerspan network sync [ID]`. |
 
 **Further rules:**
 - **Block requests:** a block takes `{person}` or `{host}`, exactly one. A person ID that no network knows may still be blocked. Blocking returns 201, and blocking again returns the existing entry. Unblocking returns the removed entry, or 404 if nothing was blocked.
