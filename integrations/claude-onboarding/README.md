@@ -228,6 +228,27 @@ identity discovery. After stopping any active creation command, the owner can
 remove those temporary names; preserve `person_ed25519`. Never copy an original
 private key to another computer to link that computer.
 
+## Automatic progress
+
+While you wait on someone else, the open view checks by itself every 5 seconds,
+and says `Checking automatically.` with the time of the last check. You do not
+need to press a Check control to learn that the other side acted. This applies
+to join and machine request progress, owner consent, original finalization,
+requester consent, incoming connections, machine consent and agent access.
+
+An automatic check runs exactly what its Check control runs. It never prepares,
+approves, declines, signs, commits, publishes or reveals anything, and it never
+opens a review: when an action is yours, the view offers its review control and
+waits for you. On an incoming connection, while the joining person's owner offer
+or selection is still missing, it first fetches incoming proofs, with the same
+bounds as **Fetch incoming proofs**.
+
+Checking stops when you close or leave the view, when an action is yours, when
+the request ends, after 10 minutes, or when a check fails. The failure text
+stays; pressing Check again starts automatic checking again. Every Check control
+stays available. The contract is
+[section 52](../../docs/guided-session-contract.md#52-automatic-progress-in-the-native-pane-p3).
+
 ## Review owner powers
 
 From a published join request, press **Review owner powers**. Peerspan reads the
