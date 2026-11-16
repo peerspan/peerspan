@@ -10414,7 +10414,7 @@ with the same rechecks, parsing, bindings and failure handling, and no more:
 | Owner consent recorded (sections17/19) | **Check owner consent** |
 | Original finalization (section26) | **Check original finalization** |
 | Requester consent (section29) | **Check requester consent** |
-| Incoming connections, a selected request with no retained owner/selection proofs (section23) | **Fetch incoming proofs** (section22's bounded fetch), then **Check administrator consent** |
+| Incoming connections, a selected request missing its retained owner offer or selection proof and eligible under section22 (section23) | **Fetch incoming proofs** (section22's bounded fetch), then **Check administrator consent** |
 | Incoming connections, any other pending selected request | **Check administrator consent** |
 | Agent access (sections34/35) | **Check agent access**, or **Check application** once approved |
 | Machine consent and machine requester consent (sections44/48) | **Check machine consent**, **Check machine requester consent** |
@@ -10471,8 +10471,10 @@ A separate contract-only author adds native cases for this section:
   press after a failure starts it again;
 - an automatic check calls exactly its control's operations, never a prepare,
   approve, decline, sign, finalize, commit or reveal operation;
-- the inviter's view fetches incoming proofs only while no owner/selection
-  proofs are retained, and an unavailable fetch keeps checking;
+- the inviter's view fetches incoming proofs while either the owner offer or
+  the selection proof is missing: from none to owner only
+  (`wait_for_requester_selection`), then to both, after which it only looks up;
+  an unavailable fetch keeps checking;
 - the waiting text and `Checking automatically.` are shown, and every Check
   control stays.
 
