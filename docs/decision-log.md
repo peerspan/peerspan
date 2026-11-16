@@ -18,6 +18,7 @@ Contents:
   - [COORD-11 and COORD-12: the refusal of a blocked sender](#coord-11-and-coord-12-the-refusal-of-a-blocked-sender-2026-11-14) (2026-11-14)
   - [PBX-34 to PBX-37: what `gate set` does with an absent runtime, pending contributions and odd snapshot entries](#pbx-34-to-pbx-37-what-gate-set-does-with-an-absent-runtime-pending-contributions-and-odd-snapshot-entries-2026-11-15) (2026-11-15)
   - [PBX-25 to PBX-33: peerbox gates for collaborative reinforcement learning](#pbx-25-to-pbx-33-peerbox-gates-for-collaborative-reinforcement-learning-2026-11-14) (2026-11-14)
+  - [RUN-23 to RUN-34: a credential proxy for runtime agents' model keys](#run-23-to-run-34-a-credential-proxy-for-runtime-agents-model-keys-2026-11-16) (2026-11-16)
   - [RUN-22: a refresh run's ID](#run-22-a-refresh-runs-id-2026-11-16) (2026-11-16)
   - [RUN-21: how the host reaches the runtime's caches](#run-21-how-the-host-reaches-the-runtimes-caches-2026-11-16) (2026-11-16)
   - [RUN-17 to RUN-20: a build cache shared between tasks](#run-17-to-run-20-a-build-cache-shared-between-tasks-2026-11-15) (2026-11-15)
@@ -213,6 +214,154 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Options:** (a) "Add two paired modes, both on per-episode samples paired by the shared secret, with the margin subtracted per episode: `paired_normal`, an approximate 95% bound that is cheap in episodes and documented as approximate, and `paired_bounded`, an empirical Bernstein bound over a declared score range that holds for any distribution in that range, given independent gains, but needs many more episodes. Both state that the independence of gains is an assumption the gate cannot check, since one candidate process plays every episode of a measurement. The owner chooses per gate, trading episodes against a guarantee; the public summary shows which. Keep `worst_best` as the default for timing." (b) "`paired_normal` only: cheap, but its 95% fails for scores with rare extreme outcomes, and nothing tells contributors so." (c) "`paired_bounded` only: a real guarantee, but a real-time environment of a few dozen episodes per measurement could never promote." (d) "Raise the repeat limit and keep worst against best: needs a VM pair per sample and still states no confidence." (e) "A fresh linked pair for every episode, so that the gains are independent by construction and the guarantee unconditional: one VM pair, and for a game a server start, per sample, which multiplies an evaluation's cost by the episode count." (f) "Replace `worst_best` with the bound everywhere: a time measurement gives one number per run, too few samples for a bound, and today's coding gates would change behavior."
 - **Chosen:** a.
 - **Reason given:** reasons not recorded beyond the options' own text.
+
+### RUN-23 to RUN-34: a credential proxy for runtime agents' model keys (2026-11-16)
+
+- **Date:** 2026-11-16.
+- **Area:** runtime agents: keeping the harness's model API key out of the microVM.
+- **Source:** the internal design draft `docs/credential-proxy.md` (docs-internal #47), section
+  11, "Open decisions for the owner", Q1 to Q12, which the owner answered on 2026-11-16 in three
+  rounds of questions. The options below are quoted from those questions. RUN-23 is Q1, and so on
+  in order to RUN-34, Q12.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [credential-proxy-contract.md](credential-proxy-contract.md).
+
+#### RUN-23. Where the proxy runs
+
+- **Question:** "Credential proxy Q1: where should the proxy that injects the model API key run, so the key never enters an agent's microVM?"
+- **Options:**
+  - (a) Separate process now: "A confined `peerspan credential-proxy` process the host daemon starts, with its own user and seccomp, getting keys from the daemon over a pipe. A parser bug exposes only model keys, not the host's signing key, OAuth tokens or database. The runtime gains only a key-blind host_ports forward (guest port to host socket)."
+  - (b) Host daemon: "The same design, but inside the daemon, which already stores the key and has hyper/rustls. Less work for the first slice, but the network-facing daemon then parses guest HTTP next to every secret it holds. Split it out later."
+  - (c) Runtime supervisor: "In peerspan-runtime serve, per run. The runtime then handles keys without the host daemon, but a root process parses guest HTTP outside the nftables filter, keeps reading key files, and the public runtime takes on per-vendor knowledge."
+  - (d) Vendor proxies: "OpenAI's Apache-2.0 codex-responses-api-proxy per run for Codex. Nothing comparable exists for Claude, and run binding, bounds and metering would still be ours."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** the hosted-first plan (customers' keys on machines Peerspan operates) makes the daemon's other secrets the larger exposure.
+- **Note:** the draft recommended (b) with the separate process later. The owner asked why the daemon was recommended; the answer's weak point was that a parser bug in the daemon reaches every secret it holds, and the hosted-first plan brings forward the point where that matters, so the question was asked again with the separate process recommended. In the contract the daemon passes the key over a Unix socket pair rather than a pipe, so that it can also pass each run's listening socket; a contract choice within RUN-23.
+
+#### RUN-24. How the guest reaches it
+
+- **Question:** "Credential proxy Q2: how should the agent inside the VM reach the proxy?"
+- **Options:**
+  - (a) vsock to loopback: "Guest init listens on 127.0.0.1:PORT and carries each connection over a vsock port to a per-run host socket, like the existing link relay. Works with network `none`, keeps decision 5's rule that no network level reaches the host, and the run's socket is its identity."
+  - (b) passt + nftables hole: "The guest reaches one host port over its network device. Breaks decision 5's 'no level reaches the host' rule, does not work with `none`, and identifies the run only by a bearer token."
+  - (c) TLS interception: "Keep harnesses pointed at the real vendor hosts and intercept with a Peerspan CA trusted in the guest. No harness configuration, but per-image CA handling, HTTP/2 and WebSocket, and a guest CA that can impersonate any host."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-25. What the guest holds
+
+- **Question:** "Credential proxy Q3: what key-shaped value should the harness inside the VM hold in place of the real key?"
+- **Options:**
+  - (a) Per-run random token: "`psp_run_` plus 32 hex digits, made at dispatch and checked by the proxy. Adds no isolation inside the guest, but misrouted requests fail, leak scans can search for it, and a later shared or remote proxy needs it."
+  - (b) Fixed placeholder: "A constant such as `peerspan`. The per-run socket already identifies the run, so this is simplest, but leaks can't be told apart and nothing carries over to a shared proxy."
+  - (c) Signed token: "A token naming run, agent and expiry, as Fly.io's tokenizer does. Only useful once the proxy is reachable other than by a per-run socket."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-26. Whether the proxy is the only mode
+
+- **Question:** "Credential proxy Q4: once the proxy exists, is it the only way a model key reaches an agent, and when?"
+- **Options:**
+  - (a) Field, then rule: "A profile field `secret` or `proxy`: `secret` by default until the live check passes, then `proxy` by default. And `proxy` is required by rule whenever the key's owner differs from the work's (hosted, peerbox agents, another owner's runtime); `secret` stays allowed only for one owner on their own machine."
+  - (b) Proxy only: "Remove /run/secrets for model keys once both harnesses work through the proxy. Simplest to reason about; no fallback if a harness update breaks proxying."
+  - (c) Field only: "A profile field the owner chooses freely, with no rule forcing `proxy` for hosted or cross-owner work."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the rule is not enforced in the first contract: the runtime agent suites and story 2 send tasks from another person to agents whose key is given to the VM, so enforcing it while `secret` is the default would refuse them. The contract makes the rule part of the amendment that makes `proxy` the default, after the live check; a contract choice within RUN-26.
+
+#### RUN-27. Bounds and metering
+
+- **Question:** "Credential proxy Q5: what bounds and metering should the proxy apply per run?"
+- **Options:**
+  - (a) Bounds + usage to owner: "Connection and body limits, plus request, byte and optional output-token caps per profile. Token usage is parsed read-only from responses and stored per task for the owner (sizing, cost per wake). Not sent to senders."
+  - (b) Also to the sender: "As above, and usage is also included in the task result the sender receives. This discloses the owner's spend to senders."
+  - (c) Limits only: "Connection count and body size limits only; no token parsing or usage records."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-28. Which harnesses first
+
+- **Question:** "Credential proxy Q6: which agent harnesses should the first slice cover?"
+- **Options:**
+  - (a) Both: "Claude Code through ANTHROPIC_BASE_URL and Anthropic's documented gateway protocol; Codex through a custom provider speaking HTTP+SSE to POST /v1/responses with no key."
+  - (b) Claude only: "The smaller slice: two environment variables and a gateway contract Anthropic documents. Codex keeps /run/secrets for now."
+  - (c) Codex only: "Story 2's first agent, with OpenAI's own proxy as precedent. OpenAI documents only that proxy's behavior, not a gateway contract."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-29. Codex's WebSocket
+
+- **Question:** "Credential proxy Q7: Codex's built-in OpenAI provider prefers a WebSocket transport. How should Codex talk to the proxy?"
+- **Options:**
+  - (a) HTTP + SSE only: "A Codex custom provider with supports_websockets false (the default for custom providers), so it uses POST /v1/responses with SSE. This is what OpenAI's own responses-api-proxy and GitHub Action do, and the proxy stays one HTTP path."
+  - (b) Proxy WebSockets too: "Also proxy the WebSocket upgrade to keep the built-in provider's transport. More proxy code (upgrade, framing) for a transport Codex does not need."
+- **Recommended:** (a).
+- **Chosen:** (b).
+- **Reason given:** options not compared beyond the question.
+- **Note:** the contract sets `supports_websockets = true` on the custom provider, allows the upgrade only for `GET /v1/responses`, and removes `sec-websocket-extensions` so that frames are uncompressed and usage can be read from them; contract choices within RUN-29.
+
+#### RUN-30. Credentials beyond model keys
+
+- **Question:** "Credential proxy Q8: what about credentials beyond model keys (GitHub, package registries) that agents in the VM need?"
+- **Options:**
+  - (a) Tools first, then registries: "First, Peerspan's MCP tools reach the VM over host_ports and the daemon does the operation (the capability model: scoped actions, not raw tokens). Later, header injection only for package registries and git over HTTPS. Not in the first slice."
+  - (b) Header injection for all: "The same proxy injects GitHub and registry tokens. Simpler, but gives the agent a token's whole reach, which the capability model was built to avoid."
+  - (c) Tools only: "Only the capabilities path; no token injection for registries or git."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-31. Custody on a hosted machine
+
+- **Question:** "Credential proxy Q9: on a hosted machine Peerspan operates, how is the customer's key held and set for the pilot?"
+- **Options:**
+  - (a) Encrypted disk + vendor scoping: "Key file on an encrypted disk, operator (Peerspan) access disclosed, plus vendor-side narrowing (a dedicated project/workspace key with spend limits). Set over SSH for the pilot. Decide customer-held keys when a customer asks."
+  - (b) TPM-sealed: "Seal keys to the machine's TPM. Stronger against disk theft, but Hetzner-style dedicated boxes vary in TPM support and root can still read them at runtime."
+  - (c) Customer-held: "Keys stay on the customer's own host; the hosted proxy forwards model requests back to it over the peer transport. Peerspan never holds the key, but needs a new peer route and the customer's host online."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-32. Whose key on another owner's runtime
+
+- **Question:** "Credential proxy Q10: when an agent's task runs on another owner's runtime (stories 3 and 4), whose key is used, and where is it held? Not needed for the first slice."
+- **Options:**
+  - (a) Where the key lives: "The sender's key stays on the sender's host: the receiving host's proxy forwards model requests to the sender's host over the peer transport, which injects it. For a review agent that is the host owner's own (story 4), the host owner's key, proxied locally."
+  - (b) Host owner pays: "Always the receiving host owner's key, proxied on that host."
+  - (c) Sender's key on host: "The sender's key is sent to and proxied on the receiving host, whose owner can then read it."
+  - (d) Decide later: "Leave it open until stories 3 and 4 are scheduled."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-33. The network level of a proxied profile
+
+- **Question:** "Credential proxy Q11: with the key behind a proxy, what network level should a proxied agent profile default to?"
+- **Options:**
+  - (a) internet now, allow later: "Keep `internet` as the default because agents install packages (the real repository run needed crates.io), letting owners pick `none`. When decision 5's `allow` level lands, default to package registries only."
+  - (b) Default to none: "Proxied profiles default to `none`: the model is reachable through the proxy but nothing else is. Builds that download dependencies fail unless the owner sets `internet`."
+  - (c) Wait for allow: "Leave the default unchanged now and only revisit when the `allow` level exists."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-34. Packaging
+
+- **Question:** "Credential proxy Q12: should the proxy be packaged as something usable outside Peerspan's runtime agents?"
+- **Options:**
+  - (a) Own binary in host repo: "A separate crate and binary in the host repository (fits Q1's separate process), plus later a one-command entry point that runs a harness in a microVM on the owner's machine with no key inside. Revisit a standalone repo if people ask for the broker without a VM."
+  - (b) Module only: "No separate packaging: used only through runtime agents."
+  - (c) Standalone repo now: "A credential broker for coding agents that needs no Peerspan host, in its own repository."
+  - (d) In the public runtime: "Make the runtime the standalone product by putting the proxy there (conflicts with Q1's choice)."
+- **Recommended:** (a).
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
 
 ### RUN-22: a refresh run's ID (2026-11-16)
 
