@@ -3,11 +3,13 @@
 
 alice sends to bob's agents, which are fixture adapters on bob's host that choose when to call
 `peerspan_ready` (POST /adapter/v1/ready) and what to report seen. A session is replaced the way an owner
-does it: detach it, then set up a fresh session for the same agent. Every host shares one debug test clock,
+does it: detach it, then set up a fresh session for the same agent. For replies (#166), alice's fixture agent
+ava sends to bob/bert by address and is replaced the same way on alice's host. Every host shares one debug test clock,
 moved forward once for the 120-second status item. Written from docs/live-delivery-contract.md (slices 1 and
 2), with docs/agent-adapter-contract.md and docs/adapter-recovery-contract.md.
 """
 import json
+import os
 
 from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for
 
@@ -40,9 +42,10 @@ def directory_entry(name):
 def replace(adapter, ready=True):
     """End ADAPTER's authorization (owner detach) and attach a fresh session of the same agent."""
     adapter.stop()
-    status, body = b.api("POST", f"/v1/sessions/{adapter.session_id}/detach", {})
+    host = adapter.host
+    status, body = host.api("POST", f"/v1/sessions/{adapter.session_id}/detach", {})
     check(status == 200, f"detach {adapter.session_id}: {status} {body}")
-    return b.attach(adapter.agent, ready=ready)
+    return host.attach(adapter.agent, ready=ready)
 
 
 def claim(adapter, route):
@@ -282,6 +285,56 @@ def _():
     check(events[-1]["kind"] == "failed" and "session never saw the task" in json.dumps(events[-1]),
           f"the failed event: {events[-1]}")
     check(final["submit_state"] == "accepted", f"submit state {final['submit_state']}")
+
+
+@suite.case("replies_stay_with_their_send", "live delivery slice 2: replies stay with their send (#166)")
+def _():
+    (bert,) = need("bert")
+    ava = a.agent("ava")  # alice's sending agent, with directory access
+
+    def agent_send(sender, text):
+        request_id = "request_" + os.urandom(16).hex()
+        status, body = sender.post("/adapter/v1/send", {"to": "bob/bert", "request_id": request_id, "content": text})
+        check(status == 200, f"{sender.name} send {text!r}: {status} {body}")
+        delivery = bert.next_message()
+        check(delivery["request"]["request_id"] == request_id, f"bert got another message: {delivery['request']}")
+        return request_id, delivery["delivery"]["id"]
+
+    def answer(delivery_id, text):
+        status, body = bert.post(f"/adapter/v1/deliveries/{delivery_id}/reply", {"content": text})
+        check(status == 200, f"bert reply {text!r}: {status} {body}")
+
+    def next_reply(session):
+        status, body = session.post("/adapter/v1/replies/next")
+        check(status == 200, f"{session.name} replies/next: {status} {body}")
+        return body
+
+    held, held_delivery = agent_send(ava, "held")
+    late, late_delivery = agent_send(ava, "late")
+    answer(held_delivery, "answer held")
+    first = wait_for(lambda: next_reply(ava), timeout=30, message="the reply to ava's send")
+    check(held in json.dumps(first) and first["redelivered"] is False, f"ava's reply handoff: {first}")
+    old = ava
+    ava = replace(old)  # ava held the reply but never saw it; the late send has no reply yet
+    answer(late_delivery, "answer late")
+    own, own_delivery = agent_send(ava, "own")
+    answer(own_delivery, "answer own")
+    got = wait_for(lambda: next_reply(ava), timeout=30, message="the reply to the new attachment's own send")
+    check(own in json.dumps(got) and got["redelivered"] is False,
+          f"the new attachment was offered a reply to the ended authorization's send: {got}")
+    for request_id, text in ((held, "answer held"), (late, "answer late")):
+        stored = wait_for(lambda: (r := a.ok("message", "reply", "--peer", b.id, request_id))["state"] == "replied"
+                          and r, timeout=30, message=f"the owner's reply to {request_id}")
+        check(text in json.dumps(stored), f"message reply {request_id}: {stored}")
+    check(next_reply(ava) is None, "the new attachment was offered a reply to the ended authorization's send")
+    status, pending = ava.call("GET", "/adapter/v1/pending")
+    check(status == 200 and not {held, late} & {x["request_id"] for x in pending["replies"]},
+          f"pending_work of the new attachment lists the ended authorization's replies: {pending['replies']}")
+    origin = a.ok("message", "origin", "--peer", b.id, late)
+    check(origin.get("reply_delivery") is None, f"message origin of a reply never handed off: {origin}")
+    origin = a.ok("message", "origin", "--peer", b.id, held)
+    check(old.session_id in json.dumps(origin.get("reply_delivery")) and ava.session_id not in json.dumps(origin),
+          f"message origin of the held reply: {origin}")
 
 
 suite.finish()
