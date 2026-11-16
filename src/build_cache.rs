@@ -783,6 +783,12 @@ async fn check(
         let agent = profile.agent_id.clone();
         let current = rows.get(&agent).cloned().unwrap_or_default();
         let last = current.last.as_ref();
+        // The profile's own refresh is still dispatched or running, perhaps
+        // of the cache its branch or image named before: it is followed to
+        // its end, and its record is never replaced until then.
+        if last.is_some_and(Refresh::active) {
+            continue;
+        }
         // At least `interval_seconds` since the last refresh started, unless
         // `cache refresh` asked for one.
         let due = current.requested
@@ -798,9 +804,9 @@ async fn check(
         if !due {
             continue;
         }
-        // Fewer than `max_runs` of its tasks and refreshes dispatched or running.
-        let refreshing = i64::from(last.is_some_and(Refresh::active));
-        if runs.get(&agent).copied().unwrap_or(0) + refreshing >= profile.max_runs {
+        // Fewer than `max_runs` of its tasks and refreshes dispatched or
+        // running; none of its refreshes is, above.
+        if runs.get(&agent).copied().unwrap_or(0) >= profile.max_runs {
             continue;
         }
         let space = async {
