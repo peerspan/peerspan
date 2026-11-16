@@ -1807,7 +1807,7 @@ function machineOwnerControls($, { Text, Button }, epoch) {
         ? [button('machine-owner-sign', 'Sign machine owner offer', () => decideMachineOwner($, previous, epoch, 'sign'))] : []),
     ] : []),
     ...autoCheck($, Text, `machine-owner:${previous.selected?.request_id}`, epoch,
-      !!previous.selected && !!v && !previous.message && !previous.expired &&
+      !!previous.selected && !!v && !previous.message && !previous.expired && !ENDED.includes(v.request?.state) &&
       !(previous.actionable && (c === null && v.inspection || c?.state === 'review' && machineOwnerOwn(v, previous.parent) ||
         v.signing?.can_sign && machineOwnerOwn(v, previous.parent))), () => readMachineOwner($, machineOwning, epoch)),
     ...(previous.selected ? [autoButton(Button, 'machine-owner-check', 'Check machine consent', `machine-owner:${previous.selected?.request_id}`, () => readMachineOwner($, previous, epoch), () => readMachineOwner($, machineOwning, epoch))] : []), leave,
@@ -2986,7 +2986,9 @@ function machineRequesterControls($, { Text, Button }, previous, epoch) {
     ...(previous.machineRequesterCanComplete ? [button('machine-requester-complete', 'Complete machine requester commit', () => decideMachineRequester($, previous, epoch, 'complete'))] : []),
     ...autoCheck($, Text, `machine-requester:${previous.flow?.flow_id}`, epoch,
       !previous.machineRequesterCanPrepare && !previous.machineRequesterCanApprove && !previous.machineRequesterCanComplete &&
-      !previous.machineRequesterError && !previous.machineRequesterExpired, () => readMachineRequester($, joining, epoch)),
+      !previous.machineRequesterError && !previous.machineRequesterExpired &&
+      !machineRequesterApplied(previous.machineRequester) && !ENDED.includes(previous.machineRequester?.request?.state),
+      () => readMachineRequester($, joining, epoch)),
     autoButton(Button, 'machine-requester-check', 'Check machine requester consent', `machine-requester:${previous.flow?.flow_id}`, () => readMachineRequester($, previous, epoch), () => readMachineRequester($, joining, epoch)),
     button('machine-requester-leave', 'Leave machine requester review', () => leaveMachineRequester($, previous, epoch)),
   ];
