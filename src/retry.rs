@@ -127,7 +127,104 @@ pub(crate) fn due_at(next_attempt_at: &Option<String>) -> Option<DateTime<Utc>> 
         .map(|t| t.with_timezone(&Utc))
 }
 
+/// Retries waiting out a backoff become due at once when their peer is seen
+/// reachable again, or when one of this host's relay connections comes back
+/// (#165). Each trigger runs at most once per this spacing.
+const HASTEN_SPACING: std::time::Duration = std::time::Duration::from_secs(2);
+static HASTENED: std::sync::LazyLock<Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A request to `peer` just succeeded, or `peer` just opened an
+/// authenticated connection to this host: its uncertain sends, submissions
+/// and calls waiting out a backoff become due now.
+pub(crate) fn peer_reachable(store: &Arc<Store>, peer: &str) {
+    hasten(store, Some(peer));
+}
+/// One of this host's relay connections came back after dropping: every
+/// uncertain record waiting out a backoff becomes due now.
+pub(crate) fn relay_reconnected(store: &Arc<Store>) {
+    hasten(store, None);
+}
+fn hasten(store: &Arc<Store>, peer: Option<&str>) {
+    let key = peer.unwrap_or("").to_owned();
+    {
+        let Ok(mut hastened) = HASTENED.lock() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        if hastened
+            .get(&key)
+            .is_some_and(|at| now.duration_since(*at) < HASTEN_SPACING)
+        {
+            return;
+        }
+        hastened.retain(|_, at| now.duration_since(*at) < HASTEN_SPACING);
+        hastened.insert(key, now);
+    }
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let store = store.clone();
+    let peer = peer.map(str::to_owned);
+    runtime.spawn_blocking(move || {
+        let _ = store.hasten_retries(peer.as_deref(), crate::clock::now());
+    });
+}
+/// One table's uncertain records (for `peer`, or all) whose next attempt is
+/// after `now` get `now` instead. Returns how many moved.
+fn hasten_table<T>(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+    peer: Option<&str>,
+    now: DateTime<Utc>,
+) -> Result<usize, Error>
+where
+    T: Attempted + serde::Serialize + serde::de::DeserializeOwned,
+{
+    let rows: Vec<(i64, String)> = {
+        let mut statement = tx.prepare(&format!(
+            "SELECT rowid, record FROM {table} WHERE ?1 IS NULL OR peer = ?1"
+        ))?;
+        statement
+            .query_map([peer], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut moved = 0;
+    for (rowid, record) in rows {
+        let mut out: T = serde_json::from_str(&record)?;
+        if !out.uncertain() {
+            continue;
+        }
+        let (_, next, _) = out.counters();
+        if due_at(next).is_some_and(|at| at > now) {
+            *next = Some(rfc3339(now));
+            tx.execute(
+                &format!("UPDATE {table} SET record = ?1 WHERE rowid = ?2"),
+                params![serde_json::to_string(&out)?, rowid],
+            )?;
+            moved += 1;
+        }
+    }
+    Ok(moved)
+}
+
 impl Store {
+    /// Uncertain messages, task submissions and calls to `peer` (or to any
+    /// peer) that wait out a backoff become due at `now` (#165). A record
+    /// with no next attempt (stopped) is left alone.
+    pub(crate) fn hasten_retries(
+        &self,
+        peer: Option<&str>,
+        now: DateTime<Utc>,
+    ) -> Result<usize, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let moved = hasten_table::<OutboundMessage>(&tx, "outbound_messages", peer, now)?
+            + hasten_table::<crate::task_outbound::OutboundTask>(&tx, "outbound_tasks", peer, now)?
+            + hasten_table::<crate::call_outbound::OutboundCall>(&tx, "outbound_calls", peer, now)?;
+        tx.commit()?;
+        Ok(moved)
+    }
     /// Unknown records due at `now`, earliest first. A record written before
     /// this milestone has no schedule fields and is due immediately.
     pub(crate) fn due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>, Error> {

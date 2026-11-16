@@ -430,6 +430,14 @@ impl Relays {
             .lock()
             .is_ok_and(|s| s.clients.contains_key(coordinator))
     }
+    /// Whether the relay connection to `coordinator` is up now.
+    pub(crate) fn up(&self, coordinator: &Coordinator) -> bool {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|s| s.clients.get(coordinator).map(|c| *c.connected.borrow()))
+            .unwrap_or(false)
+    }
     /// Waits up to `bound` for the relay connection to `coordinator`.
     pub(crate) async fn connected(&self, coordinator: &Coordinator, bound: Duration) -> bool {
         let Some(mut connected) = self
@@ -511,12 +519,17 @@ async fn run(
     negotiated: Arc<AtomicU8>,
 ) {
     let mut backoff = Duration::from_secs(1);
+    let mut connected_before = false;
     loop {
         match connect(&store, &coordinator).await {
             Ok((stream, version)) => {
                 backoff = Duration::from_secs(1);
                 negotiated.store(version, Ordering::Release);
                 let _ = status.send(true);
+                // Back after a drop: retries waiting out a backoff go now (#165).
+                if std::mem::replace(&mut connected_before, true) {
+                    crate::retry::relay_reconnected(&store);
+                }
                 if version >= 3 {
                     // Leases did not survive a restart and peers may hold an
                     // older view: announce every network on this coordinator.

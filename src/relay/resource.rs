@@ -184,10 +184,15 @@ pub(super) async fn run(
     version: Arc<AtomicU8>,
 ) {
     let mut backoff = Duration::from_secs(1);
+    let mut connected_before = false;
     loop {
         if let Ok((stream, initial_auth)) = connect(&store, &endpoint, &token).await {
             version.store(4, Ordering::Release);
             let _ = status.send(true);
+            // Back after a drop: retries waiting out a backoff go now (#165).
+            if std::mem::replace(&mut connected_before, true) {
+                crate::retry::relay_reconnected(&store);
+            }
             backoff = Duration::from_secs(1);
             let _ = session(
                 &relays,

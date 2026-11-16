@@ -376,12 +376,27 @@ impl Transport {
     /// A live cached connection to this peer and key on any of its current
     /// paths. A changed key or address never reuses the old connection.
     fn cached(&self, id: &str, key: &[u8], paths: &[SocketAddr]) -> Option<Connection> {
-        let cache = self.cache.lock().ok()?;
+        let mut cache = self.cache.lock().ok()?;
         let entry = cache.get(id)?;
-        (entry.key == key
+        if !(entry.key == key
             && paths.contains(&entry.address)
             && entry.connection.close_reason().is_none())
-        .then(|| entry.connection.clone())
+        {
+            return None;
+        }
+        // A relayed connection whose relay is down would only wait out its
+        // idle timeout: close it, so the request dials another path (#165).
+        let relay_down = self
+            .relays
+            .host_of(entry.address)
+            .and_then(|host| self.relays.route_of(&host))
+            .is_some_and(|relay| !self.relays.up(&relay));
+        if relay_down {
+            entry.connection.close(VarInt::from_u32(0), b"relay down");
+            cache.remove(id);
+            return None;
+        }
+        Some(entry.connection.clone())
     }
     /// Uses a cached connection, or dials the direct address (bounded by
     /// `DIRECT_HANDSHAKE` when a relay can take over) and then the relay.
@@ -418,7 +433,11 @@ impl Transport {
                 Err(error) => failure = Some(error),
             }
         }
-        for (coordinator, synthetic) in &paths.relays {
+        // Relays that are up now go first, so one that is down cannot spend
+        // the request bound before another is tried (#165).
+        let mut relays: Vec<_> = paths.relays.iter().collect();
+        relays.sort_by_key(|(coordinator, _)| !self.relays.up(coordinator));
+        for (coordinator, synthetic) in relays {
             if cfg!(test) {
                 self.relays.ensure(store, coordinator, false);
             }
@@ -885,7 +904,10 @@ async fn request_on(
         .connection(&store, peer, &key, &paths, deadline)
         .await?;
     match exchange(&connection, method, path, body).await {
-        Ok(response) => Ok(response),
+        Ok(response) => {
+            crate::retry::peer_reachable(&store, &peer.id);
+            Ok(response)
+        }
         Err(failure) => {
             transport.evict(&peer.id, &connection);
             // TLS 1.3 lets the client finish first; a peer that does not
@@ -906,6 +928,9 @@ async fn request_on(
             let retried = exchange(&connection, method, path, body).await;
             if retried.is_err() {
                 transport.evict(&peer.id, &connection);
+            }
+            if retried.is_ok() {
+                crate::retry::peer_reachable(&store, &peer.id);
             }
             retried.map_err(|f| {
                 if connection.close_reason().is_some_and(|r| crypto_close(&r)) {
@@ -1658,6 +1683,11 @@ async fn connection(
         }
         connection.close(VarInt::from_u32(0), b"completion finished");
         return;
+    }
+    // A known peer that reached this host is reachable again: its retries
+    // waiting out a backoff go now (#165).
+    if !repair {
+        crate::retry::peer_reachable(&store, &key_id(&key));
     }
     // Known-pin qualification happens BEFORE accept_bi/HTTP for ordinary and
     // repair ALPNs. Completion possession never reaches either router/cache.
