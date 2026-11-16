@@ -119,7 +119,7 @@ struct ProfileRequest {
     #[serde(default)]
     max_runs: Option<i64>,
     #[serde(default)]
-    build_cache: Option<crate::build_cache::BuildCacheRequest>,
+    build_cache: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,7 +157,7 @@ impl ProfileRequest {
             max_runs: self.max_runs.unwrap_or(3),
             build_cache: self
                 .build_cache
-                .map(crate::build_cache::BuildCacheRequest::build_cache)
+                .map(crate::build_cache::BuildCacheRequest::parse)
                 .transpose()?,
         };
         if !matches!(profile.harness.as_str(), "codex" | "claude") {
