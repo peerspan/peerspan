@@ -859,13 +859,36 @@ async fn check(
             requested: false,
             last: Some(refresh.clone()),
         };
-        {
-            let (agent, stored) = (agent.clone(), stored.clone());
+        // The branch and cache requests may have taken a while: the dispatch
+        // is recorded only if the profile, its cache, the switch and the
+        // profile's last refresh are as this check found them.
+        let dispatched = {
+            let (agent, stored, profile) = (agent.clone(), stored.clone(), profile.clone());
+            let (socket, before) = (switch.socket.clone(), current.clone());
             blocking(store.clone(), move |s| {
-                save(&*s.connection()?, &agent, &stored)?;
-                Ok(())
+                let mut conn = s.connection()?;
+                let tx = conn.transaction()?;
+                let same_profile = s.runtime_profile(&agent)?.is_some_and(|now| {
+                    now.build_cache == profile.build_cache
+                        && cache_name(&now) == cache_name(&profile)
+                });
+                let same_switch = s.runtime_switch()?.is_some_and(|w| w.socket == socket);
+                let r = row(&tx, &agent)?;
+                // A `cache refresh` asked for meanwhile is met by this one.
+                let same_row = r.last.as_ref().map(|l| &l.run_id)
+                    == before.last.as_ref().map(|l| &l.run_id)
+                    && r.last.as_ref().is_none_or(|l| !l.active() && !l.cleanup);
+                if !(same_profile && same_switch && same_row) {
+                    return Ok(false);
+                }
+                save(&tx, &agent, &stored)?;
+                tx.commit()?;
+                Ok(true)
             })
-            .await?;
+            .await?
+        };
+        if !dispatched {
+            continue;
         }
         rows.insert(agent.clone(), stored);
         free -= 1;
