@@ -76,6 +76,81 @@ let runtimeNotice = null;
 let registeredMessageTools = new Set();
 let registeredTaskTools = new Map();
 
+// Automatic progress (guided session contract section52). A waiting view keeps
+// its check scheduled each time it renders; a view that is not rendered, or no
+// longer waits, loses it. One check, automatic or pressed, is in flight in the
+// pane at a time, and each runs against the flow's current state.
+const AUTO_DELAY = 5000, AUTO_LIMIT = 120, ENDED = ['linked', 'cancelled', 'expired', 'blocked'];
+const autos = new Map();
+let autoSeen = new Set(), autoFlight = null;
+function autoBegin() { autoSeen = new Set(); }
+function autoEnd() {
+  for (const [key, slot] of autos) {
+    if (!autoSeen.has(key) && !slot.running) { slot.timer?.cancel(); autos.delete(key); }
+  }
+}
+function autoClear() {
+  for (const slot of autos.values()) slot.timer?.cancel();
+  autos.clear();
+}
+let autoKey = null, autoQueued = false;
+const pressing = new Set();
+async function autoRun(key, run) {
+  const flight = Promise.resolve().then(run);
+  autoFlight = flight;
+  autoKey = key;
+  try { await flight; } finally { if (autoFlight === flight) autoFlight = null; }
+}
+function pressed(run) {
+  const flight = Promise.resolve().then(run);
+  pressing.add(flight);
+  return flight.finally(() => pressing.delete(flight)).catch(() => {});
+}
+// A press runs as it always did, against the state its control was rendered
+// with, and the flow's own busy guard decides. Only a press during an
+// automatic check waits for it and then runs once, against the current state
+// of the same view.
+function autoPress(key, rendered, current) {
+  return () => {
+    if (!autoFlight) return pressed(rendered);
+    if (autoQueued) return;
+    autoQueued = true;
+    const same = autoKey === key;
+    return autoFlight.catch(() => {}).then(() => {
+      autoQueued = false;
+      return pressed(same ? current : rendered);
+    });
+  };
+}
+function autoCheck($, Text, key, epoch, waiting, run) {
+  if (!waiting) return [];
+  autoSeen.add(key);
+  let slot = autos.get(key);
+  if (!slot || slot.epoch !== epoch) {
+    slot?.timer?.cancel();
+    slot = { epoch, count: 0, timer: null, running: false, last: null };
+    autos.set(key, slot);
+  }
+  if (!slot.timer && !slot.running && slot.count < AUTO_LIMIT) {
+    slot.timer = $.clock.after(AUTO_DELAY, async () => {
+      if (autos.get(key) !== slot || slot.epoch !== generation) return;
+      slot.timer = null;
+      slot.running = true;
+      slot.count++;
+      try {
+        while (autoFlight || pressing.size) await Promise.race([autoFlight, ...pressing].filter(Boolean)).catch(() => {});
+        if (autos.get(key) === slot && slot.epoch === generation) await autoRun(key, run);
+      } catch { /* the check's own failure handling applies */ }
+      try { slot.last = await $.clock.now(); } catch { /* keep the previous time */ }
+      slot.running = false;
+      if (autos.get(key) === slot && slot.epoch === generation) $.ui.invalidate('ui.render');
+    });
+  }
+  if (slot.count >= AUTO_LIMIT) return [];
+  const at = Number.isFinite(slot.last) ? ` Last checked ${new Date(slot.last).toISOString().slice(11, 19)} UTC.` : '';
+  return [Text({ children: ['Checking automatically.' + at] })];
+}
+
 function clearCheck() {
   expiration?.cancel();
   expiration = null;
@@ -214,6 +289,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  autoClear();
   clearMachineOwner();
   clearAccess();
   clearAdmission();
@@ -1485,7 +1561,9 @@ function accessControls($, { Text, Button }, epoch) {
     ...(previous.value?.application ? [Text({ children: [accessCompletionLines(previous.value, previous.parent)] })] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
     ...(previous.canFinish ? [button('access-finish', 'Finish agent access', () => finishAccess($, previous, epoch))] : []),
-    button('access-application-check', 'Check application', () => checkAccessApplication($, previous, epoch)), leave,
+    ...autoCheck($, Text, 'access-completion', epoch, !previous.canFinish && !previous.message,
+      () => checkAccessApplication($, accessing, epoch)),
+    button('access-application-check', 'Check application', autoPress('access-completion', () => checkAccessApplication($, previous, epoch), () => checkAccessApplication($, accessing, epoch))), leave,
     ...(previous.value?.application ? [status()] : []),
   ];
   return [
@@ -1495,7 +1573,10 @@ function accessControls($, { Text, Button }, epoch) {
     ...(previous.canApprove ? [button('access-approve', 'Approve agent access', () => approveAccess($, previous, epoch))] : []),
     ...(previous.canFinish ? [Text({ children: ['Finish signs and locally applies this exact approved policy with its selected provider. Delivery and readiness remain separate.'] }),
       button('access-finish', 'Finish agent access', () => finishAccess($, previous, epoch))] : []),
-    ...(previous.value?.access?.state === 'approved' ? [button('access-application-check', 'Check application', () => checkAccessApplication($, previous, epoch))] : []),
+    ...autoCheck($, Text, `access:${previous.value?.access?.review_id}`, epoch,
+      previous.value?.access?.state === 'approved' && !previous.canFinish && !previous.message,
+      () => checkAccessApplication($, accessing, epoch)),
+    ...(previous.value?.access?.state === 'approved' ? [button('access-application-check', 'Check application', autoPress(`access:${previous.value?.access?.review_id}`, () => checkAccessApplication($, previous, epoch), () => checkAccessApplication($, accessing, epoch)))] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
     ...(previous.value?.access && ['expired', 'invalidated'].includes(previous.value.access.state)
       ? [Text({ children: ['Existing terms require separate advanced review. No replacement or signing is automatic.'] })] : []),
@@ -1695,7 +1776,11 @@ function machineOwnerControls($, { Text, Button }, epoch) {
       ...(v.signing?.can_sign && machineOwnerOwn(v, previous.parent)
         ? [button('machine-owner-sign', 'Sign machine owner offer', () => decideMachineOwner($, previous, epoch, 'sign'))] : []),
     ] : []),
-    ...(previous.selected ? [button('machine-owner-check', 'Check machine consent', () => readMachineOwner($, previous, epoch))] : []), leave,
+    ...autoCheck($, Text, `machine-owner:${previous.selected?.request_id}`, epoch,
+      !!previous.selected && !!v && !previous.message && !previous.expired &&
+      !(previous.actionable && (c === null && v.inspection || c?.state === 'review' && machineOwnerOwn(v, previous.parent) ||
+        v.signing?.can_sign && machineOwnerOwn(v, previous.parent))), () => readMachineOwner($, machineOwning, epoch)),
+    ...(previous.selected ? [button('machine-owner-check', 'Check machine consent', autoPress(`machine-owner:${previous.selected?.request_id}`, () => readMachineOwner($, previous, epoch), () => readMachineOwner($, machineOwning, epoch)))] : []), leave,
   ];
 }
 
@@ -1916,11 +2001,15 @@ function admissionControls($, { Text, Button }, epoch) {
       : previous.prefix.next_action === 'wait_for_requester_selection' ? 'Waiting for requester selection.'
         : 'Original owner and requester selection verified. Review administrator consent separately.'] })] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
-    ...(previous.knownNull && earlyAdmission(r) ? [button('admission-fetch', 'Fetch incoming proofs', () => fetchAdmission($, previous, epoch)),
+    ...(previous.knownNull && earlyAdmission(r) ? [button('admission-fetch', 'Fetch incoming proofs', autoPress(`admission:${r?.request_id}`, () => fetchAdmission($, previous, epoch), () => fetchAdmission($, admitting, epoch))),
       ...(r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'
         ? [button('admission-review', 'Review administrator consent', () => readAdmission($, previous, epoch, true))] : [])] : []),
     ...(a?.state === 'review' && !previous.expired ? [button('admission-approve', 'Approve administrator consent', () => approveAdmission($, previous, epoch))] : []),
-    ...(r ? [button('admission-check', 'Check administrator consent', () => readAdmission($, previous, epoch))] : []), leave,
+    ...autoCheck($, Text, `admission:${r?.request_id}`, epoch,
+      !!r && !previous.message && !previous.expired && !ENDED.includes(r.state) && !(a?.state === 'review') &&
+      !(previous.knownNull && earlyAdmission(r) && r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'),
+      () => admitting.knownNull && earlyAdmission(admitting.selected) ? fetchAdmission($, admitting, epoch) : readAdmission($, admitting, epoch)),
+    ...(r ? [button('admission-check', 'Check administrator consent', autoPress(`admission:${r?.request_id}`, () => readAdmission($, previous, epoch), () => readAdmission($, admitting, epoch)))] : []), leave,
   ];
 }
 
@@ -2649,7 +2738,10 @@ function requesterControls($, { Text, Button }, previous, epoch) {
     ...(previous.commitCanApprove ? [button('commit-approve', 'Approve requester commit', () => decideRequester($, previous, epoch))] : []),
     ...(previous.commitCanComplete ? [button('commit-complete', 'Complete requester commit', () => decideRequester($, previous, epoch, true))] : []),
     ...(previous.commitExpired ? [Text({ children: ['Requester decision deadline elapsed. Check retained public consent; no automatic retry.'] })] : []),
-    button('commit-check', 'Check requester consent', () => readRequester($, previous, epoch)),
+    ...autoCheck($, Text, `requester:${previous.flow?.flow_id}`, epoch,
+      !previous.commitCanPrepare && !previous.commitCanApprove && !previous.commitCanComplete && !previous.commitError &&
+      !previous.commitExpired && !ENDED.includes(previous.owner?.request?.state), () => readRequester($, joining, epoch)),
+    button('commit-check', 'Check requester consent', autoPress(`requester:${previous.flow?.flow_id}`, () => readRequester($, previous, epoch), () => readRequester($, joining, epoch))),
     button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch)),
   ];
 }
@@ -2678,7 +2770,10 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     ...(previous.finalizationCanSign ? [button('finalization-sign', 'Sign original finalization', () => signFinalization($, previous, epoch))] : []),
     ...(previous.finalizationExpired ? [Text({ children: ['Original finalization deadline elapsed. Check public evidence; no automatic retry.'] })] : []),
     ...(!finalizationRecorded(previous.owner) ? [Text({ children: ['Missing finalization evidence does not prove binding/device signatures are absent. Partial work may already be retained.'] })] : []),
-    button('finalization-check', 'Check original finalization', () => readFinalization($, previous, epoch)),
+    ...autoCheck($, Text, `finalization:${previous.flow?.flow_id}`, epoch,
+      !previous.finalizationCanSign && !previous.finalizationError && !previous.finalizationExpired &&
+      !finalizationRecorded(previous.owner), () => readFinalization($, joining, epoch)),
+    button('finalization-check', 'Check original finalization', autoPress(`finalization:${previous.flow?.flow_id}`, () => readFinalization($, previous, epoch), () => readFinalization($, joining, epoch))),
     button('finalization-leave', 'Leave finalization review', () => leaveOwner($, previous, epoch)),
   ];
   if (!previous.owner && !previous.ownerError) return [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))];
@@ -2698,7 +2793,12 @@ function ownerControls($, { Text, Button }, previous, epoch) {
       '\nGlobal public evidence, without signing-interface or historical inspection attribution. Requester commit and access/readiness remain separate.'] })] : []),
     ...(finalizationRecorded(previous.owner) ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
     ...(previous.owner?.owner === null ? [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))] : []),
-    button('owner-check', 'Check owner consent', () => readOwner($, previous, epoch, false)),
+    ...autoCheck($, Text, `owner:${previous.flow?.flow_id}`, epoch,
+      !!previous.owner && !previous.ownerError && previous.owner.owner !== null &&
+      !(previous.owner.owner?.state === 'review' && !previous.ownerExpired) && !(previous.ownerCanSign && !previous.originalSignature) &&
+      !previous.ownerSignExpired && !previous.finalizationCanReview && !finalizationRecorded(previous.owner) &&
+      !ENDED.includes(previous.owner.request?.state), () => readOwner($, joining, epoch, false)),
+    button('owner-check', 'Check owner consent', autoPress(`owner:${previous.flow?.flow_id}`, () => readOwner($, previous, epoch, false), () => readOwner($, joining, epoch, false))),
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),
   ];
 }
@@ -2844,7 +2944,10 @@ function machineRequesterControls($, { Text, Button }, previous, epoch) {
     ...(previous.machineRequesterCanPrepare ? [button('machine-requester-prepare', 'Review machine requester consent', () => decideMachineRequester($, previous, epoch, 'prepare'))] : []),
     ...(previous.machineRequesterCanApprove ? [button('machine-requester-approve', 'Approve machine requester commit', () => decideMachineRequester($, previous, epoch, 'approve'))] : []),
     ...(previous.machineRequesterCanComplete ? [button('machine-requester-complete', 'Complete machine requester commit', () => decideMachineRequester($, previous, epoch, 'complete'))] : []),
-    button('machine-requester-check', 'Check machine requester consent', () => readMachineRequester($, previous, epoch)),
+    ...autoCheck($, Text, `machine-requester:${previous.flow?.flow_id}`, epoch,
+      !previous.machineRequesterCanPrepare && !previous.machineRequesterCanApprove && !previous.machineRequesterCanComplete &&
+      !previous.machineRequesterError && !previous.machineRequesterExpired, () => readMachineRequester($, joining, epoch)),
+    button('machine-requester-check', 'Check machine requester consent', autoPress(`machine-requester:${previous.flow?.flow_id}`, () => readMachineRequester($, previous, epoch), () => readMachineRequester($, joining, epoch))),
     button('machine-requester-leave', 'Leave machine requester review', () => leaveMachineRequester($, previous, epoch)),
   ];
 }
@@ -2927,7 +3030,11 @@ function joiningControls($, { Text, Button, Input }, epoch) {
     ...(previous.stage === 'requested' ? [
       ...(previous.progress ? [Text({ children: [joinProgressLines(previous.progress)] })] : []),
       ...(previous.progressError ? [Text({ children: ['Join progress unavailable. Publication remains recorded. Check again explicitly; no automatic retry.'] })] : []),
-      button('join-progress', machine ? 'Check machine request progress' : 'Check join progress', () => checkJoinProgress($, previous, epoch)),
+      ...autoCheck($, Text, `join-progress:${flow?.flow_id}`, epoch,
+        machine && !previous.machineRequesterActive && !previous.progressError &&
+        !(previous.progress && (previous.progress.next_participant === 'requesting_machine' || ENDED.includes(previous.progress.request.state))),
+        () => checkJoinProgress($, joining, epoch)),
+      button('join-progress', machine ? 'Check machine request progress' : 'Check join progress', autoPress(`join-progress:${flow?.flow_id}`, () => checkJoinProgress($, previous, epoch), () => checkJoinProgress($, joining, epoch))),
       ...(machine ? machineRequesterControls($, { Text, Button }, previous, epoch) : ownerControls($, { Text, Button }, previous, epoch)),
     ] : []),
     ...(previous.stage === 'review' ? [
@@ -3417,7 +3524,8 @@ export function register(on, configured = {}) {
     const displayedReady = runtime?.messages;
     const displayedTasks = runtime?.tasks;
     const { Box, Text, Button, Input } = $.ui.resolve(e);
-    return Box({ flexDirection: 'column', children: [
+    autoBegin();
+    const children = [
       Text({ children: [summary()] }),
       Button({ key: 'refresh', label: 'Refresh', onPress: () => refresh($) }),
       check.state === 'waiting' ? Text({ children: ['Waiting for this model to acknowledge…'] })
@@ -3456,7 +3564,9 @@ export function register(on, configured = {}) {
         $.ui.invalidate('ui.render');
       } })] : []),
       Button({ key: 'close', label: 'Close', onPress: () => close($) }),
-    ] });
+    ];
+    autoEnd();
+    return Box({ flexDirection: 'column', children });
   });
   on('tool.call', { tool: 'mcp__peerspan__delivery_acknowledge' }, async ($, e, next) => {
     const pending = check;
