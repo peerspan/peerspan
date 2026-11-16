@@ -768,77 +768,50 @@ impl Store {
         tx.commit()?;
         Ok(out)
     }
-    /// Hands this session the oldest reply it is owed: one to its own send,
-    /// one returned to the agent's queue, or one that arrived after the
-    /// sending authorization of the agent ended.
+    /// Hands this session the oldest reply to a send of its own credential.
+    /// A reply to a send of an ended authorization of the agent is never
+    /// handed to another session (#166): it stays unseen, readable with
+    /// `message reply`.
     pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
         crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
-        type Row = (String, String, String, String, Option<String>, bool);
-        let candidates: Vec<Row> = {
-            let mut stmt = tx.prepare("SELECT o.peer,o.request_id,r.record,o.adapter_id,o.reply_delivery,o.reply_returned_at IS NOT NULL FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions s ON s.id = o.session_id WHERE s.agent_id = ?1 AND (o.reply_delivery IS NULL OR o.reply_returned_at IS NOT NULL) ORDER BY o.rowid")?;
-            stmt.query_map([&ss.agent_id], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        };
-        let mut ended = crate::live_delivery::Ended::default();
-        for (peer, id, data, sender, held, returned) in candidates {
-            let at = now();
-            let (d, redelivered) = if returned {
-                let mut d: ReplyDelivery = serde_json::from_str(held.as_deref().unwrap_or("null"))?;
-                d.adapter_id = a.id.clone();
-                d.session_id = ss.id.clone();
-                d.state = "unknown".into();
-                d.updated_at = at.clone();
-                tx.execute(
-                    "UPDATE adapter_outbound SET reply_delivery = ?1, session_id = ?2, reply_redeliveries = reply_redeliveries + 1, reply_returned_at = NULL WHERE peer = ?3 AND request_id = ?4",
-                    params![serde_json::to_string(&d)?, ss.id, peer, id],
-                )?;
-                (d, true)
-            } else {
-                let own = sender == a.id;
-                // A reply that arrived after its sending authorization ended.
-                if !own && !ended.check(&tx, &sender)? {
-                    continue;
-                }
-                let d = ReplyDelivery {
-                    id: new_id("notification")?,
-                    peer_host_id: peer,
-                    request_id: id,
-                    adapter_id: a.id.clone(),
-                    session_id: ss.id.clone(),
-                    state: "unknown".into(),
-                    created_at: at.clone(),
-                    updated_at: at,
-                };
-                // The first claim is a new handoff: it starts unseen.
-                tx.execute(
-                    "UPDATE adapter_outbound SET reply_delivery = ?1, session_id = ?2, reply_seen_at = NULL WHERE peer = ?3 AND request_id = ?4",
-                    params![serde_json::to_string(&d)?, ss.id, d.peer_host_id, d.request_id],
-                )?;
-                (d, false)
-            };
-            let reply: Reply = serde_json::from_str(&data)?;
-            append_event(&tx, "reply.handoff", &d.id, &d.updated_at)?;
+        let candidate: Option<(String, String, String)> = tx
+            .query_row(
+                "SELECT o.peer,o.request_id,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id WHERE o.adapter_id = ?1 AND o.reply_delivery IS NULL ORDER BY o.rowid LIMIT 1",
+                [&a.id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some((peer, id, data)) = candidate else {
             tx.commit()?;
-            return Ok(Some(ReplyHandoff {
-                delivery: d,
-                reply,
-                redelivered,
-            }));
-        }
+            return Ok(None);
+        };
+        let at = now();
+        let d = ReplyDelivery {
+            id: new_id("notification")?,
+            peer_host_id: peer,
+            request_id: id,
+            adapter_id: a.id.clone(),
+            session_id: ss.id.clone(),
+            state: "unknown".into(),
+            created_at: at.clone(),
+            updated_at: at,
+        };
+        // The first claim is a new handoff: it starts unseen.
+        tx.execute(
+            "UPDATE adapter_outbound SET reply_delivery = ?1, session_id = ?2, reply_seen_at = NULL WHERE peer = ?3 AND request_id = ?4",
+            params![serde_json::to_string(&d)?, ss.id, d.peer_host_id, d.request_id],
+        )?;
+        let reply: Reply = serde_json::from_str(&data)?;
+        append_event(&tx, "reply.handoff", &d.id, &d.updated_at)?;
         tx.commit()?;
-        Ok(None)
+        Ok(Some(ReplyHandoff {
+            delivery: d,
+            reply,
+            redelivered: false,
+        }))
     }
     pub fn reply_forwarded(&self, token: &AdapterAuth, id: &str) -> Result<ReplyDelivery, Error> {
         let mut conn = self.connection()?;

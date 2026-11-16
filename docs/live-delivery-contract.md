@@ -90,7 +90,9 @@ New tool `mark_seen` takes `{ids}`, 1 to 100 delivery, request, or task IDs that
 
 ### Redelivery
 
-When an authorization ends, whether replaced by a new attachment of the same agent, expired, or revoked, every item it was forwarded but never saw returns to the agent's queue, if its deadline has not passed. The next verified session of the same agent receives it again with `meta.redelivered` `true`.
+When an authorization ends, whether replaced by a new attachment of the same agent, expired, or revoked, every message, task, or task update it was forwarded but never saw returns to the agent's queue, if its deadline has not passed. The next verified session of the same agent receives it again with `meta.redelivered` `true`.
+
+**Replies stay with their send (#166).** A reply answers a send of one authorization, and a later session has no context for it. So a reply to a send of an ended authorization is never handed to another session: an unseen one it held does not return to the agent's queue, and one that arrives after it ended is not offered to the agent's next session. Such a reply stays stored and unseen; the owner reads it with `message reply --peer HOST REQUEST_ID`. A reply to a send of the current authorization is handed to it as before.
 - A sender's view of a returned message is unchanged: it stays accepted.
 - An item is redelivered at most 3 times, so at most four sessions hold it in all. When the fourth ends without seeing it, it is `blocked` for messages, and `failed` with `session never saw the task` for tasks.
 - Items that were seen are never redelivered.
@@ -100,13 +102,13 @@ These rules settle the details:
 - **When items return.** Returns happen when a verified session of the agent next claims work or lists `pending_work`: every unseen item held by the agent's ended authorizations (replaced, detached, revoked, or expired) returns then. Ending an authorization may also return them at once; the result is the same.
 - **Forwarded means claimed.** An item counts as forwarded once its session claimed it, including a delivery whose forwarding the adapter never confirmed, and a task or cancellation, which have no confirmation.
 - **Deadlines while returned.** A returned message or task whose deadline passes is handled as a queued one is today: it is not redelivered, and the sender's view follows the existing deadline rules.
-- **Replies and task updates** have no deadline of their own. Past the limit of 3 they are no longer offered and stay unseen; the sender's view is unchanged.
-- **Late arrivals.** A reply or task event that arrives after the authorization it belongs to has ended goes to the agent's next verified session, with `redelivered` `false`, since it was never forwarded. An adopted task's later updates and its children's updates go to the adopting session.
+- **Task updates** have no deadline of their own. Past the limit of 3 they are no longer offered and stay unseen; the sender's view is unchanged.
+- **Late arrivals.** A task event that arrives after the authorization it belongs to has ended goes to the agent's next verified session, with `redelivered` `false`, since it was never forwarded. A late reply is not offered (Replies stay with their send, above). An adopted task's later updates and its children's updates go to the adopting session.
 - **Adoption happens at the claim** through `/adapter/v1/tasks/next`, which only a verified session reaches.
 - **A task past the limit** is still `queued`, since it was never accepted; it moves from `queued` to `failed` with error `session never saw the task`, emitting the usual `failed` event to its sender. This is a new receiver-side transition.
 - **Upgrades.** Migration to version 15 marks every existing handed-off item seen, so nothing from before the upgrade is redelivered.
 - **Owner output** (`GET /v1/deliveries` and similar records) is unchanged.
-- **`message origin`** keeps the original authorization and session of the send, also after a later session claims its reply. Its `reply_delivery` names the session that holds the reply now.
+- **`message origin`** keeps the original authorization and session of the send. Its `reply_delivery` names the session that holds the reply, which is always the sending session, or is null when the reply was never handed off.
 
 ### Adoption
 
@@ -136,7 +138,7 @@ The command names the absolute path of the `peerspan` executable that launched t
 
 ### Events
 
-The daemon's handoff objects from `/adapter/v1/next`, `/adapter/v1/replies/next`, and `/adapter/v1/tasks/next` gain a top-level `redelivered` boolean, and task handoffs also gain `adopted` (boolean) and `progress` (the latest progress message, or null). The adapter copies them into `meta`. A redelivered `message`, `reply`, or `task` event carries `meta.redelivered` `true`; others carry `false`. An adopted task's `task` event carries `meta.adopted` `true`, `meta.state` (`running` or `cancel_requested`), and `meta.progress` (the latest progress message, omitted when there is none, since Claude Code channel meta values are strings); other `task` events carry `adopted` `false`. The adapter derives `meta.state` from the handoff's `status`.
+The daemon's handoff objects from `/adapter/v1/next`, `/adapter/v1/replies/next`, and `/adapter/v1/tasks/next` gain a top-level `redelivered` boolean, and task handoffs also gain `adopted` (boolean) and `progress` (the latest progress message, or null). The adapter copies them into `meta`. A redelivered `message` or `task` event carries `meta.redelivered` `true`; others carry `false`. A `reply` handoff is never redelivered, so its `redelivered` is always `false`. An adopted task's `task` event carries `meta.adopted` `true`, `meta.state` (`running` or `cancel_requested`), and `meta.progress` (the latest progress message, omitted when there is none, since Claude Code channel meta values are strings); other `task` events carry `adopted` `false`. The adapter derives `meta.state` from the handoff's `status`.
 
 ### Shared state
 
@@ -145,7 +147,7 @@ The shared schema moves to version 15. It adds `seen_at` and `redeliveries` to h
 The additions are columns, not record fields. Handoff objects, owner records, and the task delivery and notification records keep their current fields, and `received_tasks` records are unchanged, since they are also the peer status record. All columns are added with `ALTER TABLE ... ADD COLUMN`:
 - `deliveries`, `task_update_notifications`: `seen_at TEXT`, `redeliveries INTEGER NOT NULL DEFAULT 0`, `returned_at TEXT`.
 - `task_deliveries`: the same three, plus `cancel_seen_at TEXT` and `adopted_at TEXT`.
-- `adapter_outbound`, for the reply notification in `reply_delivery`: `reply_seen_at TEXT`, `reply_redeliveries INTEGER NOT NULL DEFAULT 0`, `reply_returned_at TEXT`.
+- `adapter_outbound`, for the reply notification in `reply_delivery`: `reply_seen_at TEXT`, `reply_redeliveries INTEGER NOT NULL DEFAULT 0`, `reply_returned_at TEXT`. Since replies are no longer returned (#166), `reply_returned_at` stays null and `reply_redeliveries` 0 for new handoffs; the columns are kept.
 
 Times are RFC3339 text, as in records, and null means not yet:
 - `seen_at` (`reply_seen_at`): when the holding session reported the item seen, as listed under Seen. For a task delivery it is the task itself; `cancel_seen_at` is its cancellation request.
@@ -161,7 +163,8 @@ Migration from 14 reads each table's columns through `pragma_table_info` and add
 
 `conformance/live_delivery.py` gains these cases, across the same pairings:
 - **Seen:** set by `reply`, `mark_seen`, `send_status`, and the `task_*` tools.
-- **Redelivery after replacement:** a message, a reply, and a task forwarded but unseen are redelivered to the next attachment with `redelivered`, and never to the sender twice. Seen items are not redelivered.
+- **Redelivery after replacement:** a message and a task forwarded but unseen are redelivered to the next attachment with `redelivered`, and never to the sender twice. Seen items are not redelivered.
+- **Replies stay with their send:** after replacement, the next attachment is not offered a reply to the ended authorization's send, neither one it held unseen nor one arriving later; `message reply` still returns it to the owner.
 - **Limits:** the redelivery limit of 3, deadlines passing while queued, and revocation blocking a returned message.
 - **Adoption:** a running and a cancel-requested task adopted by the new attachment, the old authorization unable to change them, and a two-link delegation chain completing after the middle agent's session is replaced.
 - **Pending work:** `pending_work` contents, `peerspan session pending --json`, and `--hook` output, including nothing when no work is pending.

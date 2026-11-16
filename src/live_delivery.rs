@@ -166,23 +166,9 @@ pub(crate) fn return_items(store: &Store, tx: &Transaction<'_>, agent: &str) -> 
             )?;
         }
     }
-    // Replies to the agent's sends, handed off but unseen.
-    let rows = {
-        let mut stmt = tx.prepare("SELECT o.reply_delivery, o.reply_redeliveries FROM adapter_outbound o JOIN sessions s ON s.id = o.session_id WHERE s.agent_id = ?1 AND o.reply_delivery IS NOT NULL AND o.reply_seen_at IS NULL AND o.reply_returned_at IS NULL ORDER BY o.rowid")?;
-        stmt.query_map([agent], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
-    for (record, count) in rows {
-        let d: ReplyDelivery = serde_json::from_str(&record)?;
-        if count < MAX_REDELIVERIES && ended.check(tx, &d.adapter_id)? {
-            tx.execute(
-                "UPDATE adapter_outbound SET reply_returned_at = ?1 WHERE peer = ?2 AND request_id = ?3",
-                params![at, d.peer_host_id, d.request_id],
-            )?;
-        }
-    }
+    // Replies to the agent's sends are not returned: a reply belongs to the
+    // session whose send it answers (#166), and stays readable with
+    // `message reply`.
     // Task updates handed off but unseen.
     let rows = {
         let mut stmt = tx.prepare("SELECT n.record, n.redeliveries FROM task_update_notifications n JOIN sessions s ON s.id = json_extract(n.record, '$.session_id') WHERE s.agent_id = ?1 AND n.seen_at IS NULL AND n.returned_at IS NULL ORDER BY n.rowid")?;
