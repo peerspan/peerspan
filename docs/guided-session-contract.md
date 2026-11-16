@@ -3740,7 +3740,8 @@ controls in this backend slice and consent as membership/access/readiness.
 
 This backend action closes the gap between an automatically returned request
 and sections20/21's retained owner/selection evidence. It is explicit transport
-work, not a read-only observation. No native control, manual code import,
+work, not a read-only observation. Section52 also runs it automatically in the
+open incoming-connections view. No native control, manual code import,
 administrator intent/provider choice, approval, local signature, publication,
 finalization, requester commit, authority adoption or new schema/journal.
 Ordinary pinned TLS authentication is transport work; it does not create a new
@@ -10392,6 +10393,88 @@ terminal/reload/recovery, distinct-person and same-person-device flows, actual
 model receipt and genuine full-state upgrade/restore. No slice receipt alone
 establishes #35 readiness; the final candidate needs its own checks and review.
 
+
+## 52. Automatic progress in the native pane (P3)
+
+Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
+decision 2; and, for the inviter's wait, the same day's answer to automatic
+incoming-proof fetching). While a participant waits on another, the open pane
+checks progress itself, so no one presses a Check control to learn that the
+other side acted. This adds no host route, schema, signer or consent, and no
+model tool.
+
+### Which views check by themselves
+
+An automatic check runs exactly what that view's existing Check control runs,
+with the same rechecks, parsing, bindings and failure handling, and no more:
+
+| View, while the flow is pending | Automatic check |
+| --- | --- |
+| Join request published (section15) | **Check join progress**, also as **Check machine request progress** |
+| Owner consent recorded (sections17/19) | **Check owner consent** |
+| Original finalization (section26) | **Check original finalization** |
+| Requester consent (section29) | **Check requester consent** |
+| Incoming connections, a selected request with no retained owner/selection proofs (section23) | **Fetch incoming proofs** (section22's bounded fetch), then **Check administrator consent** |
+| Incoming connections, any other pending selected request | **Check administrator consent** |
+| Agent access (sections34/35) | **Check agent access**, or **Check application** once approved |
+| Machine consent and machine requester consent (sections44/48) | **Check machine consent**, **Check machine requester consent** |
+
+No other control runs by itself. An automatic check never prepares a review,
+approves, declines, signs, finalizes, commits, publishes, resubmits, reveals or
+re-enters a code, chooses an identity, or opens another view. It never replaces
+a review a participant is reading with another review.
+
+### When it runs
+
+- The first automatic check runs 5 seconds after the view is shown, and each
+  later one 5 seconds after the previous finished. At most one check, automatic
+  or pressed, is in flight in a pane; a press during an automatic check waits
+  for it and runs once.
+- Checks run only while that view is displayed in an open pane for the same
+  native project and conversation. Close, Escape, Back, navigation, Refresh,
+  reload, a native project or conversation change, or a new generation stops
+  them, as it ends any running flow today.
+- They stop when the view shows an action due for this participant, when the
+  flow reaches a terminal, expired or blocked state, or after 120 checks (10
+  minutes, the stage inactivity limit). They also stop at the first failed
+  check, whose existing failure text stays shown; the participant's next
+  press starts them again.
+- An automatic incoming-proof fetch keeps every section22 bound: at most one
+  GET per saved carrier, the 3-second transport budget, the 4-second retention
+  deadline, and retention only of verified owner and selection proofs. An
+  unavailable result is not a failure for this purpose; checking continues.
+
+### What the participant sees
+
+A waiting view says who acts next and what they do, in the existing next-action
+words, followed by `Checking automatically.` and the time of the last check.
+Every Check control stays available. When the check finds an action due for this
+participant, the view offers that action's existing review control. It never
+opens or prepares the review.
+
+### Privacy and purity
+
+Automatic checks are owner-local reads, plus section22's bounded transport work
+for the inviter. Section15's read-only rules (no signing, resume, peer poll,
+code retrieval or key inventory) and sections20/22's purity and privacy rules
+apply to each one unchanged. Nothing new reaches model context, plugin files or
+logs. Section22 is no longer reachable only through an explicit press: in the
+one view above, its fetch runs on this schedule.
+
+### Verification
+
+A separate contract-only author adds native cases for this section:
+- each listed view checks by itself after 5 seconds, and again 5 seconds after;
+- one check in flight at a time, including with a press during an automatic check;
+- checking stops on Close, Back, navigation, Refresh, a project or conversation
+  change, an action due here, a terminal state, 120 checks, and a failure, and a
+  press after a failure starts it again;
+- an automatic check calls exactly its control's operations, never a prepare,
+  approve, decline, sign, finalize, commit or reveal operation;
+- the inviter's view fetches incoming proofs only while no owner/selection
+  proofs are retained, and an unavailable fetch keeps checking;
+- the waiting text and `Checking automatically.` are shown, and every Check
+  control stays.
 
 ## Implementation choices
 

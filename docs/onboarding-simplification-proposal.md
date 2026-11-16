@@ -108,6 +108,7 @@ The owner chose the recommendation on all six on 2026-11-16.
 4. **Access with the invite (P5)**, on by default. **Chosen: yes** for the inviter's project agents only; wider grants keep their own review.
 5. **A model tool that opens reviews (P6).** **Chosen: yes**, limited as described above. It changes the "no model setup tool" rule.
 6. **Keep the per-stage pane** behind "Show each step"? **Chosen: yes** for one release, then decide from use.
+7. **The inviter's wait (P3).** The inviter's pane learns that the joining person approved only through section 22's bounded incoming-proof fetch, which was explicit. **Chosen (2026-11-16): the open admission view runs that fetch automatically**, then the read-only lookup, every 5 seconds. It still never consents or signs ([guided session contract, section 52](guided-session-contract.md#52-automatic-progress-in-the-native-pane-p3)).
 
 ## Cost and order
 
