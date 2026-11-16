@@ -380,7 +380,15 @@ exit/counts. Require all22 files and440 runtime cases, zero failures/skips and
 successful public CLI exits. Bound the complete gate to600seconds, record its
 actual elapsed time, and stop if exhausted. Sanitize the receipt to source
 hashes, original repo-relative file names, counts, fixed outcomes and elapsed
-times; do not copy private config or arbitrary files. Full native CI uses this
+times; do not copy private config or arbitrary files. For a file with failed
+cases, the receipt also lists each failed case, at most 32, under `failures`:
+`name` when it is exactly a name that test file declares (a single-quoted
+literal, or a template literal whose `${...}` holes each match one short
+lowercase word), otherwise `name_sha256`; `timed_out` when the CLI reports
+`timed out after N ms` for it; and `detail_sha256` of its output, with
+`failures_truncated` past 32. The runner prints one `FAIL FILE: NAME` line per
+listed case before the receipt. Failure messages and other CLI output stay
+private (#167). Full native CI uses this
 same runner against the final candidate; validation, installed acceptance,
 all conformance, Rust and final review remain required.
 
