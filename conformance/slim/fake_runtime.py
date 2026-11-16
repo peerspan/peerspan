@@ -75,21 +75,29 @@ and `peerfs_cache_save`, each null or a cache name (1 to 128 characters of `a-z`
 a letter or digit) with `peerfs_fork_from` set, and `peerfs_cache_save` only with `peerfs_commit` false; either is 400
 `invalid` naming it otherwise, or when `peerfs_caches` is false. `run_id` may also be `cache_` and 32 lowercase hex
 digits (a host refresh run). The fake's paths are classed as peerfs classes them: a path under `target/`,
-`node_modules/` or `.peerspan/cache/` is derived, and every other path is source. A branch's head is `01` and the
-lowercase hex SHA-256 of its sorted source paths and contents (`branch_head`), so a suite moves `main`'s head by
-writing a source file into its directory. Caches live under `--dir`/peerfs/.caches/NAME across restarts: `current.json`
-(`{version, commit, saved_at, bytes}`) and the version's files under `vN/`.
+`node_modules/` or `.peerspan/cache/` is derived, and every other path is source. A branch's head is its last commit's
+ID, or, for a branch no run committed to (`main`, `dev`), `01` and the lowercase hex SHA-256 of its sorted source
+paths and contents (`branch_head`), so a suite moves `main`'s head by writing a source file into its directory.
+Caches live under `--dir`/peerfs/.caches/NAME across restarts: `current.json` (`{version, commit, saved_at, bytes}`)
+and the version's files under `vN/`.
 - `peerfs_cache` gives the fork the cache's current version: each of its files is copied into the new workspace at its
   path unless the base has that path, and the log records `fork_cache` with `run_id`, `workspace`, `cache` and the
   version's `commit` (null when the cache does not exist, which is no error).
-- `peerfs_cache_save` makes the run a refresh. Once the command has ended, a run that changed a source path (added,
-  changed or removed since the fork) gets `error` `the build changed source files: PATH`, the first in byte order,
-  unless it already had one. If it exited 0 and has no `error`, its derived files become a new current version, with
-  `commit` the fork's head and `bytes` their sizes summed, and `cache_saved` is true (log `cache_saved`). Every refresh
-  whose fork was made then has its workspace discarded and its branch removed, so no later fork can name it (log
-  `refresh_removed`); a failed one leaves the cache as it was.
+- `peerfs_cache_save` makes the run a refresh, whose workspace is no branch. Once the command has ended, a run that
+  exited 0 with no signal, timeout or `error` and changed a source path (added, changed or removed since the fork)
+  gets `error` `the build changed source files: PATH`, the first in byte order; with none changed it saves its derived
+  files as a new current version, with `commit` the fork's head and `bytes` their sizes summed, and `cache_saved` is
+  true (log `cache_saved`). A failed run is not checked. Every refresh whose workspace was made then has it removed
+  (log `refresh_removed`); one that saved nothing leaves the cache as it was. `--no-cache-saves 1` makes a refresh
+  that would save save nothing, with no `error` (log `cache_not_saved`), and `--busy-refreshes N` answers the first N
+  refresh starts with 429 `busy`.
 - The `exited` result gains `cache_saved`, false for every run that saved nothing.
-- `argv` `["/bin/sh", "-c", TEXT]`, as a refresh sends, runs TEXT split on whitespace as steps.
+- `argv` `["/bin/sh", "-c", TEXT]`, as a refresh sends, runs TEXT split on whitespace as steps, and the step
+  `fail TEXT...` sets the result's `error` to TEXT, as a failure outside the command would; the run goes on.
+- The space routes (RUN-21), each 422 `unavailable` when `peerfs_caches` is false: `GET /v1/caches` (`{"caches"}`, by
+  name, each `{name, commit, saved_at, bytes, versions}`, log `caches_listed`), `DELETE /v1/caches/{name}` (`{}`,
+  also for a cache that does not exist; log `cache_removed`) and `GET /v1/branches/{name}` (`{name, head}`, 404 for no
+  such branch; log `branch_read`). A name that is not a cache's or a branch's is 400 `invalid`.
 
 Linked pairs (docs/runtime-task-contract.md, "Linked runs"; PBX-26, PBX-27). `GET /v1/runtime` reports `links` true
 unless started with `--links 0`; such a fake answers a run with a `link` 422 `unavailable`. `link` is
@@ -145,6 +153,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
@@ -258,6 +267,7 @@ class Run:
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
         self.oom_kills = 0  # set by the `oom` step
+        self.step_error = None  # set by the `fail` step
         self.forked = False  # this run made its fork (a refresh's is removed when it ends)
         self.base_head = None  # the fork's head when it was made
         self.started_at = None
@@ -307,9 +317,10 @@ class Run:
             self.pull()
             self.read_secrets()
             if self.fork_from is not None:
-                self.workspace = self.runtime.fork(self.fork_from, self.peerfs)
+                refresh = self.request.get("peerfs_cache_save") is not None
+                self.base_head = self.runtime.head(self.fork_from)
+                self.workspace = self.runtime.fork(self.fork_from, self.peerfs, refresh=refresh)
                 self.forked = True
-                self.base_head = branch_head(self.workspace)
                 if self.request.get("peerfs_cache") is not None:
                     given = self.runtime.give_cache(self.request["peerfs_cache"], self.workspace)
                     self.runtime.log(event="fork_cache", run_id=self.run_id, workspace=self.peerfs,
@@ -340,6 +351,7 @@ class Run:
             error = str(refused)
         except Exception as failure:  # noqa: BLE001 - a run fails outside the command
             error = f"the run failed: {failure}"
+        error = error or self.step_error
         duration = int((time.monotonic() - self.started_at) * 1000) if started else 0
         if started and self.peerfs is not None:
             after = self.peerfs_digest()
@@ -350,6 +362,7 @@ class Run:
                 else:
                     message = self.request["peerfs_commit_message"]
                     commit = "01" + self.peerfs_digest(message)
+                    self.runtime.set_head(self.peerfs, commit)
             if (self.request.get("peerfs_discard") and error is None
                     and (commit is not None or after == self.before_digest)):
                 try:
@@ -361,15 +374,17 @@ class Run:
         cache_saved = False
         save = self.request.get("peerfs_cache_save")
         if save is not None and self.forked:
-            # build-cache-contract, Runtime: a refresh saves only after exit 0, with no error and no source changed;
-            # its workspace and branch go whatever happened.
-            if started:
+            # build-cache-contract, Runtime: only a run that exited 0 with no signal, timeout or error is checked for
+            # source changes, and saves when it has none; no workspace or branch of its name is left either way.
+            if started and exit_code == 0 and sig is None and not timed_out and error is None:
                 after = files_of(self.workspace, lambda p: not derived(p))
                 changed = sorted((p for p in set(self.source_before) | set(after)
                                   if self.source_before.get(p) != after.get(p)), key=lambda p: p.encode())
-                if changed and error is None:
+                if changed:
                     error = f"the build changed source files: {changed[0]}"
-                if exit_code == 0 and sig is None and not timed_out and error is None:
+                elif self.runtime.args.no_cache_saves:
+                    self.runtime.log(event="cache_not_saved", run_id=self.run_id, cache=save)
+                else:
                     try:
                         version = self.runtime.save_cache(save, self.workspace, self.base_head)
                     except Exception as failure:  # noqa: BLE001 - a save that fails sets error
@@ -623,6 +638,8 @@ class Run:
             raise Stop(sig=int(args[0]))
         elif name == "oom":
             self.oom_kills = int(args[0])
+        elif name == "fail":
+            self.step_error = " ".join(args)
         else:
             self.write("stderr", f"{name}: unknown step\n".encode())
             raise Stop(exit_code=127)
@@ -910,6 +927,14 @@ class Runtime:
         self.forks_file = os.path.join(self.peerfs_root, ".forks.json")
         self.branches_root = os.path.join(self.peerfs_root, ".branches")
         self.caches_root = os.path.join(self.peerfs_root, ".caches")  # build caches, kept across restarts
+        self.refreshes = set()  # refresh workspaces, which are no branches and are not kept across restarts
+        self.busy_refreshes = args.busy_refreshes  # refresh starts still to answer with 429
+        self.heads_file = os.path.join(self.peerfs_root, ".heads.json")  # commits made, by branch
+        try:
+            with open(self.heads_file) as f:
+                self.heads = json.load(f)
+        except (OSError, ValueError):
+            self.heads = {}
         if self.peerfs and os.path.exists(self.forks_file):
             with open(self.forks_file) as f:
                 for name in json.load(f):
@@ -939,9 +964,9 @@ class Runtime:
         with self.log_lock, open(self.args.requests, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
-    def fork(self, source, name):
+    def fork(self, source, name, refresh=False):
         """runtime-agent-contract: a new workspace NAME at SOURCE's head; an existing NAME or a missing SOURCE fails
-        the run before started, changing nothing."""
+        the run before started, changing nothing. A REFRESH's workspace makes no branch (build cache contract)."""
         with self.lock:
             path = os.path.join(self.peerfs_root, name)
             if name in self.peerfs or name in self.branches or os.path.lexists(path):
@@ -951,8 +976,26 @@ class Runtime:
                 raise RefusedEntry(f"no branch named {source!r} to fork from")
             shutil.copytree(origin, path, symlinks=True)
             self.peerfs[name] = path
+            if refresh:
+                self.refreshes.add(name)
             self.save_forks()
         return path
+
+    def head(self, name):
+        """A branch's head: its last commit's ID, else `branch_head` of its contents; None when there is no branch
+        NAME (a refresh's workspace is none)."""
+        with self.lock:
+            path = self.peerfs.get(name) or self.branches.get(name)
+            if path is None or name in self.refreshes:
+                return None
+            return self.heads.get(name) or branch_head(path)
+
+    def set_head(self, name, commit):
+        with self.lock:
+            self.heads[name] = commit
+            with open(self.heads_file + ".new", "w") as f:
+                json.dump(self.heads, f)
+            os.replace(self.heads_file + ".new", self.heads_file)
 
     def discard(self, name):
         """RUN-16: the workspace NAME goes; its contents stay as the branch's, for later forks."""
@@ -1015,6 +1058,18 @@ class Runtime:
                 shutil.rmtree(os.path.join(root, f"v{earlier['version']}"), ignore_errors=True)
             return current
 
+    def list_caches(self):
+        """build-cache-contract, GET /v1/caches: each cache's current version, by name."""
+        with self.lock:
+            names = sorted(os.listdir(self.caches_root)) if os.path.isdir(self.caches_root) else []
+            out = []
+            for name in names:
+                current = self.cache_current(name)
+                if current is not None:
+                    out.append({"name": name, "commit": current["commit"], "saved_at": current["saved_at"],
+                                "bytes": current["bytes"], "versions": 1})  # the fake holds no earlier version
+            return out
+
     def remove_cache(self, name):
         """build-cache-contract, `cache rm NAME`: the cache goes; True when it existed."""
         with self.lock:
@@ -1032,11 +1087,13 @@ class Runtime:
             kept = self.branches.pop(name, None)
             if kept is not None:
                 shutil.rmtree(kept, ignore_errors=True)
+            self.refreshes.discard(name)
             self.save_forks()
 
     def save_forks(self):
         """The forks and discarded branches, for restarts of the fake. Called with the lock held."""
-        forks = sorted(n for n in [*self.peerfs, *self.branches] if n not in self.args.peerfs_workspace)
+        forks = sorted(n for n in [*self.peerfs, *self.branches]
+                       if n not in self.args.peerfs_workspace and n not in self.refreshes)
         with open(self.forks_file + ".new", "w") as f:
             json.dump(forks, f)
         os.replace(self.forks_file + ".new", self.forks_file)
@@ -1205,6 +1262,9 @@ class Runtime:
                     raise ApiError(400, "invalid", "link: its partner has this role")
                 if partner.shape != {k: link[k] for k in partner.shape}:
                     raise ApiError(400, "invalid", "link: its fields differ from its partner's")
+            if run_id.startswith("cache_") and self.busy_refreshes > 0:
+                self.busy_refreshes -= 1
+                raise ApiError(429, "busy", "every run slot is busy (--busy-refreshes)")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
                 raise ApiError(429, "busy", "every run slot is busy")
             if body["peerfs_workspace"] is not None and any(
@@ -1345,6 +1405,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, "invalid", "unknown field")
                 status, value = 200, runtime.cancel(parts[2])
                 runtime.log(event="cancel", run_id=parts[2], state=value["state"])
+            elif parts[:2] in (["v1", "caches"], ["v1", "branches"]):
+                status, value = self.space_route(runtime, method, parts, body)
             elif len(parts) == 3 and parts[:2] == ["v1", "runs"] and method == "DELETE":
                 runtime.delete(parts[2])
                 runtime.log(event="delete", run_id=parts[2])
@@ -1356,6 +1418,35 @@ class Handler(BaseHTTPRequestHandler):
             if refused.status == 404 and len(parts) >= 3:
                 runtime.log(event="not_found", method=method, path=self.path)
         self.answer(status, value)
+
+    @staticmethod
+    def space_route(runtime, method, parts, body):
+        """build-cache-contract, Runtime: caches and branches of its space (RUN-21)."""
+        if len(parts) > 3 or (len(parts) == 2 and (parts[1] != "caches" or method != "GET")) or (
+                len(parts) == 3 and (parts[1], method) not in (("caches", "DELETE"), ("branches", "GET"))):
+            raise ApiError(404, "not_found", "no such route")
+        if not runtime.caches_served():
+            raise ApiError(422, "unavailable", "this runtime's peerfs has no caches")
+        if len(parts) == 2:
+            runtime.log(event="caches_listed")
+            return 200, {"caches": runtime.list_caches()}
+        name = urllib.parse.unquote(parts[2])
+        if parts[1] == "caches":
+            if not CACHE_NAME.match(name):
+                raise ApiError(400, "invalid", "a cache name")
+            if body not in (None, {}):
+                raise ApiError(400, "invalid", "unknown field")
+            existed = runtime.remove_cache(name)
+            runtime.log(event="cache_removed", cache=name, existed=existed)
+            return 200, {}
+        if (not 1 <= len(name.encode()) <= PEERFS_NAME_BYTES or name in (".", "..") or "/" in name
+                or "\0" in name):
+            raise ApiError(400, "invalid", "a branch name")
+        head = runtime.head(name)
+        runtime.log(event="branch_read", branch=name, head=head)
+        if head is None:
+            raise ApiError(404, "not_found", "no such branch")
+        return 200, {"name": name, "head": head}
 
     def do_GET(self):
         self.handle_one("GET")
@@ -1406,6 +1497,10 @@ def main():
                         help="0: GET /v1/runtime reports links false and runs may not have a link (Linked runs)")
     parser.add_argument("--peerfs-caches", type=int, choices=(0, 1), default=1,
                         help="0: GET /v1/runtime reports peerfs_caches false and runs may not name a cache")
+    parser.add_argument("--busy-refreshes", type=int, default=0,
+                        help="answer the first N refresh starts (run_id cache_) with 429 busy")
+    parser.add_argument("--no-cache-saves", type=int, choices=(0, 1), default=0,
+                        help="1: a refresh that would save saves nothing, with no error (cache_saved false)")
     parser.add_argument("--log-workspaces", type=int, choices=(0, 1), default=0,
                         help="1: log each run's unpacked workspace (paths and file digests)")
     args = parser.parse_args()

@@ -101,12 +101,13 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `runtime`, `runtime_policy`, `runtime_renewal`, `runtime_runs`, `runtime_results`, `runtime_peerfs`, `runtime_agents`:
   runtime tasks against `conformance/slim/fake_runtime.py` (runtime task contract, RUN-1 to RUN-7), and
   runtime agents' tasks on peerfs forks (runtime agent contract, RUN-8 to RUN-11); second tier only.
-- `runtime_build_cache`: a runtime agent profile's build cache against `conformance/slim/fake_runtime.py` (build cache
-  contract, RUN-17 to RUN-20), on the test clock: the fake's `peerfs_cache` and `peerfs_cache_save`, the profile's
-  `build_cache`, the cache's name and `peerfs_cache` on tasks. The refresh cases (when one starts, what it sends, the
-  stored last refresh, `cache show`, `refresh` and `clear`, restarts, activity, removing `build_cache`) are written
-  but skip until the contract says how the host reaches the runtime's peerfs; `SLIM_BUILD_CACHE_PEERFS=1` runs them.
-  Second tier only (671 lines; 14 seconds on main before the feature, with the refresh cases skipped).
+- `runtime_build_cache`, `runtime_build_cache_refresh`, `runtime_build_cache_outcomes`: a runtime agent profile's
+  build cache against `conformance/slim/fake_runtime.py` (build cache contract, RUN-17 to RUN-21), on the test clock,
+  with `runtime_build_cache_common.py`: the fake's two run fields and three cache and branch routes, `build_cache`, the
+  cache's name, `peerfs_cache` on tasks and `cache show`, `refresh` and `clear` without a refresh (404, 503); then
+  when a refresh starts and what it sends, `cache refresh` and `busy`, and a 429; then each `reason`, a refused run,
+  the activity, `cache clear`, restarts and removing `build_cache`. Second tier only (282, 201 and 188 lines plus 298
+  shared; about 45, 110 and 90 seconds estimated, not yet measured against the host).
 - `peerbox`, `peerbox_contributions`, `peerbox_rules`, `peerbox_invites`: peerboxes (peerbox contract, PBX-1 to
   PBX-8), split by area, with `peerbox_common.py` and `peerbox_fixtures.py`: create, the request checks, fetch,
   submissions refused before anything is stored and the previous schema; stored contributions, review, status,
