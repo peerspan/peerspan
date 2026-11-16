@@ -204,41 +204,126 @@ pub(crate) fn forget_request(store: &Store, agent: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------
-// The runtime's peerfs space.
-
-/// What the runtime's peerfs space holds for a profile: its `from_branch`'s
-/// head, and the cache's current version.
-struct Space {
-    /// The branch's head, or None when the branch does not exist.
-    head: Option<String>,
-    current: Option<Version>,
+/// Removes the agent's stored refresh with its profile. A refresh still
+/// dispatched or running, or whose run is still to delete, is kept until
+/// that is done (`clean_up`), without its pending request.
+pub(crate) fn remove_with_profile(store: &Store, agent: &str) -> Result<(), Error> {
+    let conn = store.connection()?;
+    let mut r = row(&conn, agent)?;
+    if r.last.as_ref().is_some_and(|l| l.active() || l.cleanup) {
+        r.requested = false;
+        save(&conn, agent, &r)?;
+    } else {
+        conn.execute(
+            "DELETE FROM runtime_cache_refreshes WHERE agent_id = ?1",
+            [agent],
+        )?;
+    }
+    Ok(())
 }
-/// A cache's current version, as `cache ls` reports it.
+
+// ---------------------------------------------------------------------
+// The runtime's peerfs space, through the runtime's local API (RUN-21).
+
+/// A cache's current version, as `GET /v1/caches` reports it.
 struct Version {
     commit: String,
     saved_at: String,
     bytes: u64,
 }
 
-/// Why the host cannot read or change the runtime's caches: the runtime's
-/// local API serves no cache or branch route, `GET /v1/runtime` does not
-/// name its peerfs space, and the host knows no other way to reach it.
-fn space_unreachable() -> Error {
-    Error::Unavailable(
-        "this host cannot reach the runtime's peerfs space to read its caches and branches".into(),
-    )
+/// The runtime's socket while the switch is on (503 otherwise).
+fn runtime_socket(store: &Store) -> Result<PathBuf, Error> {
+    store
+        .runtime_switch()?
+        .map(|w| w.socket)
+        .ok_or_else(|| Error::Unavailable("the runtime is disabled".into()))
 }
 
-/// Reads the profile's branch head and its cache's current version from
-/// the runtime's peerfs space.
-async fn read_space(_profile: &Profile, _cache: &str) -> Result<Space, Error> {
-    Err(space_unreachable())
+/// A path segment, percent-encoded except for unreserved bytes.
+fn segment(text: &str) -> String {
+    text.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
-/// Removes the cache from the runtime's peerfs space (`cache rm`).
-async fn remove_cache(_cache: &str) -> Result<(), Error> {
-    Err(space_unreachable())
+/// One call to the runtime about its space; 503 when it cannot be asked
+/// or does not answer as the contract says.
+async fn ask(
+    socket: &std::path::Path,
+    method: Method,
+    path: &str,
+    accept: &[u16],
+) -> Result<crate::runtime::Answer, Error> {
+    let answer = call(socket, method, path, None).await.map_err(|e| {
+        Error::Unavailable(format!(
+            "cannot reach the runtime at {}: {e}",
+            socket.display()
+        ))
+    })?;
+    if !accept.contains(&answer.status) {
+        let error = answer.body["error"].as_str().unwrap_or_default();
+        return Err(Error::Unavailable(format!(
+            "the runtime answered {} to {path}: {error}",
+            answer.status
+        )));
+    }
+    Ok(answer)
+}
+fn malformed(path: &str) -> Error {
+    Error::Unavailable(format!("the runtime's answer to {path} is malformed"))
+}
+
+/// The cache's current version (`GET /v1/caches`), or None when the space
+/// has no such cache.
+async fn current_version(socket: &std::path::Path, cache: &str) -> Result<Option<Version>, Error> {
+    let path = "/v1/caches";
+    let answer = ask(socket, Method::GET, path, &[200]).await?;
+    let caches = answer.body["caches"]
+        .as_array()
+        .ok_or_else(|| malformed(path))?;
+    let Some(entry) = caches.iter().find(|c| c["name"].as_str() == Some(cache)) else {
+        return Ok(None);
+    };
+    match (
+        entry["commit"].as_str(),
+        entry["saved_at"].as_str(),
+        entry["bytes"].as_u64(),
+    ) {
+        (Some(commit), Some(saved_at), Some(bytes)) => Ok(Some(Version {
+            commit: commit.into(),
+            saved_at: saved_at.into(),
+            bytes,
+        })),
+        _ => Err(malformed(path)),
+    }
+}
+
+/// The branch's head (`GET /v1/branches/{name}`), or None when the space
+/// has no such branch.
+async fn branch_head(socket: &std::path::Path, branch: &str) -> Result<Option<String>, Error> {
+    let path = format!("/v1/branches/{}", segment(branch));
+    let answer = ask(socket, Method::GET, &path, &[200, 404]).await?;
+    if answer.status == 404 {
+        return Ok(None);
+    }
+    answer.body["head"]
+        .as_str()
+        .map(|h| Some(h.to_owned()))
+        .ok_or_else(|| malformed(&path))
+}
+
+/// Removes the cache from the runtime's space (`DELETE /v1/caches/{name}`).
+async fn remove_cache(socket: &std::path::Path, cache: &str) -> Result<(), Error> {
+    let path = format!("/v1/caches/{}", segment(cache));
+    ask(socket, Method::DELETE, &path, &[200]).await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------
@@ -273,8 +358,9 @@ fn refresh_body(profile: &Profile, build: &BuildCache, run_id: &str, cache: &str
     body
 }
 
-/// Why nothing was saved, from the runtime's `exited` result: `timed out`,
-/// `signal N`, `exit N` for a failing exit, or the result's `error`.
+/// Why nothing was saved, from the runtime's `exited` result: the first of
+/// `timed out`, `signal N`, `exit N` for a non-zero status, the result's
+/// `error`, or `exit 0`.
 fn reason(result: &Value) -> Option<String> {
     if result["cache_saved"] == Value::Bool(true) {
         return None;
@@ -291,10 +377,8 @@ fn reason(result: &Value) -> Option<String> {
         format!("exit {code}")
     } else if let Some(error) = error {
         error
-    } else if let Some(code) = result["exit_code"].as_i64() {
-        format!("exit {code}")
     } else {
-        "the run did not start".into()
+        "exit 0".into()
     })
 }
 
@@ -552,6 +636,12 @@ async fn clean_up(store: &Arc<Store>) -> Result<(), Error> {
                 last.cleanup = false;
                 save(&conn, &agent, &r)?;
             }
+            drop(conn);
+            // The profile was removed while the refresh ran: its stored
+            // refresh goes with it now.
+            if s.runtime_profile(&agent)?.is_none() {
+                remove_with_profile(s, &agent)?;
+            }
             Ok(())
         })
         .await?;
@@ -706,7 +796,12 @@ async fn check(
         if runs.get(&agent).copied().unwrap_or(0) + refreshing >= profile.max_runs {
             continue;
         }
-        let space = match read_space(&profile, &cache).await {
+        let space = async {
+            let head = branch_head(&switch.socket, &profile.from_branch).await?;
+            let version = current_version(&switch.socket, &cache).await?;
+            Ok::<_, Error>((head, version))
+        };
+        let (head, version) = match space.await {
             Ok(space) => space,
             Err(e) => {
                 eprintln!("build cache refresh of {agent}: {e:?}");
@@ -714,10 +809,10 @@ async fn check(
             }
         };
         // A branch that does not exist has nothing to build.
-        let Some(head) = space.head else {
+        let Some(head) = head else {
             continue;
         };
-        if !current.requested && space.current.is_some_and(|v| v.commit == head) {
+        if !current.requested && version.is_some_and(|v| v.commit == head) {
             continue;
         }
         let run_id = new_id("cache")?;
@@ -783,13 +878,13 @@ fn cached_profile(store: &Store, agent: &str) -> Result<Profile, Error> {
 /// A profile's cache as `cache show` reports it.
 async fn shown(store: &Arc<Store>, profile: Profile) -> Result<Value, Error> {
     let cache = cache_name(&profile);
-    let space = read_space(&profile, &cache).await?;
     let agent = profile.agent_id.clone();
-    let last = blocking(store.clone(), move |s| {
-        Ok(row(&*s.connection()?, &agent)?.last)
+    let (last, socket) = blocking(store.clone(), move |s| {
+        let last = row(&*s.connection()?, &agent)?.last;
+        Ok((last, runtime_socket(s)?))
     })
     .await?;
-    let current = space.current;
+    let current = current_version(&socket, &cache).await?;
     Ok(json!({
         "agent_id": profile.agent_id,
         "name": cache,
@@ -808,11 +903,11 @@ async fn list(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
             .collect::<Vec<_>>())
     })
     .await?;
-    let mut out = Vec::new();
+    let mut caches = Vec::new();
     for profile in profiles {
-        out.push(shown(&store, profile).await?);
+        caches.push(shown(&store, profile).await?);
     }
-    Ok(Json(Value::Array(out)))
+    Ok(Json(json!({ "caches": caches })))
 }
 
 async fn show(
@@ -854,7 +949,11 @@ async fn clear(
     State(store): State<Arc<Store>>,
     UrlPath(id): UrlPath<String>,
 ) -> Result<Json<Value>, Error> {
-    let profile = blocking(store, move |s| cached_profile(s, &id)).await?;
-    remove_cache(&cache_name(&profile)).await?;
+    let (profile, socket) = blocking(store, move |s| {
+        let profile = cached_profile(s, &id)?;
+        Ok((profile, runtime_socket(s)?))
+    })
+    .await?;
+    remove_cache(&socket, &cache_name(&profile)).await?;
     Ok(Json(json!({})))
 }
