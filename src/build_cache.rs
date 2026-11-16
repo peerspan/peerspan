@@ -404,6 +404,21 @@ fn end(
     let Some(last) = r.last.as_mut().filter(|l| l.run_id == run_id && l.active()) else {
         return Ok(());
     };
+    ended(&tx, agent, last, saved, reason)?;
+    save(&tx, agent, &r)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Marks `last` ended and records `runtime.cache_refreshed`, in the
+/// caller's transaction, which also saves the row.
+fn ended(
+    tx: &rusqlite::Transaction<'_>,
+    agent: &str,
+    last: &mut Refresh,
+    saved: bool,
+    reason: Option<String>,
+) -> Result<(), Error> {
     let at = now();
     last.ended_at = Some(at.clone());
     last.saved = Some(saved);
@@ -411,9 +426,7 @@ fn end(
     last.cleanup = true;
     last.before = None;
     let subject = format!("{agent}/{}/{saved}", last.commit);
-    save(&tx, agent, &r)?;
-    append_event(&tx, "runtime.cache_refreshed", &subject, &at)?;
-    tx.commit()?;
+    append_event(tx, "runtime.cache_refreshed", &subject, &at)?;
     Ok(())
 }
 
@@ -578,43 +591,39 @@ async fn follower(
 }
 
 /// Stores a page of runtime events. `results`, the last, ends the refresh
-/// with the `exited` result; whether it ended.
+/// with the `exited` result, in the same transaction as the cursor that
+/// passes it, so a restart never finds the cursor past an unended refresh;
+/// whether it ended.
 fn apply(store: &Store, agent: &str, run_id: &str, events: Vec<Value>) -> Result<bool, Error> {
-    let mut finished = None;
-    {
-        let mut conn = store.connection()?;
-        let tx = conn.transaction()?;
-        let mut r = row(&tx, agent)?;
-        let Some(last) = r.last.as_mut().filter(|l| l.run_id == run_id && l.active()) else {
-            return Ok(true);
-        };
-        for event in events {
-            let sequence = event["sequence"].as_u64().unwrap_or(0);
-            if sequence <= last.after {
-                continue;
-            }
-            last.after = sequence;
-            match event["kind"].as_str().unwrap_or_default() {
-                "started" => last.started = true,
-                "exited" => last.exited = Some(event["result"].clone()),
-                "results" => {
-                    let result = last.exited.clone().unwrap_or(Value::Null);
-                    finished = Some((result["cache_saved"] == Value::Bool(true), reason(&result)));
-                    break;
-                }
-                _ => {}
-            }
+    let mut conn = store.connection()?;
+    let tx = conn.transaction()?;
+    let mut r = row(&tx, agent)?;
+    let Some(last) = r.last.as_mut().filter(|l| l.run_id == run_id && l.active()) else {
+        return Ok(true);
+    };
+    let mut finished = false;
+    for event in events {
+        let sequence = event["sequence"].as_u64().unwrap_or(0);
+        if sequence <= last.after {
+            continue;
         }
-        save(&tx, agent, &r)?;
-        tx.commit()?;
-    }
-    match finished {
-        Some((saved, reason)) => {
-            end(store, agent, run_id, saved, reason)?;
-            Ok(true)
+        last.after = sequence;
+        match event["kind"].as_str().unwrap_or_default() {
+            "started" => last.started = true,
+            "exited" => last.exited = Some(event["result"].clone()),
+            "results" => {
+                let result = last.exited.clone().unwrap_or(Value::Null);
+                let saved = result["cache_saved"] == Value::Bool(true);
+                ended(&tx, agent, last, saved, reason(&result))?;
+                finished = true;
+                break;
+            }
+            _ => {}
         }
-        None => Ok(false),
     }
+    save(&tx, agent, &r)?;
+    tx.commit()?;
+    Ok(finished)
 }
 
 /// Deletes ended refreshes' runs that the runtime may still hold, and
