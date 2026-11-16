@@ -861,16 +861,18 @@ async fn check(
         };
         // The branch and cache requests may have taken a while: the dispatch
         // is recorded only if the profile, its cache, the switch and the
-        // profile's last refresh are as this check found them.
+        // profile's last refresh are as this check found them, and the tasks
+        // still leave room for it.
         let dispatched = {
             let (agent, stored, profile) = (agent.clone(), stored.clone(), profile.clone());
             let (socket, before) = (switch.socket.clone(), current.clone());
             blocking(store.clone(), move |s| {
                 let mut conn = s.connection()?;
                 let tx = conn.transaction()?;
-                let same_profile = s.runtime_profile(&agent)?.is_some_and(|now| {
+                let now = s.runtime_profile(&agent)?;
+                let same_profile = now.as_ref().is_some_and(|now| {
                     now.build_cache == profile.build_cache
-                        && cache_name(&now) == cache_name(&profile)
+                        && cache_name(now) == cache_name(&profile)
                 });
                 let same_switch = s.runtime_switch()?.is_some_and(|w| w.socket == socket);
                 let r = row(&tx, &agent)?;
@@ -878,7 +880,13 @@ async fn check(
                 let same_row = r.last.as_ref().map(|l| &l.run_id)
                     == before.last.as_ref().map(|l| &l.run_id)
                     && r.last.as_ref().is_none_or(|l| !l.active() && !l.cleanup);
-                if !(same_profile && same_switch && same_row) {
+                // Tasks may have arrived or started meanwhile: none of any
+                // runtime agent is queued, and fewer than `max_runs` of this
+                // profile's are dispatched or running.
+                let (runs, queued) = task_load(&tx)?;
+                let room =
+                    now.is_some_and(|now| runs.get(&agent).copied().unwrap_or(0) < now.max_runs);
+                if !(same_profile && same_switch && same_row && room) || queued {
                     return Ok(false);
                 }
                 save(&tx, &agent, &stored)?;
