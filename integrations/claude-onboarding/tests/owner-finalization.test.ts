@@ -1017,3 +1017,35 @@ test('finalization navigation and Check preserve established message task lease 
   expect(w.prompts.length).toBe(prompts); expect(readyCalls(w).length).toBe(ready); expect(w.tools.map(tool => tool.name)).toEqual(tools)
   expect(w.invitation).toEqual(issued); expect(finalCalls(w, 'sign')).toHaveLength(1); finalPrivacy(w, await visible(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section52: when finalization is due here, automatic progress neither checks nor opens, inspects or signs it.
+test('automatic progress offers due original finalization without opening inspecting or signing it', async ($, on) => {
+  const w = fixture(on), ui = await finalEligible($, w)
+  expect(await ui.find({ type: 'Button', text: /^Review original finalization$/ })).toBeDefined()
+  let at = w.calls.length; await pass(w, ui, 30000)
+  expect(finalCalls(w)).toHaveLength(0); expect(w.calls.slice(at).filter(e => e.kind.startsWith('join.owner.'))).toEqual([])
+  expect(await ui.find({ type: 'Button', text: /^Review original finalization$/ })).toBeDefined(); await noFinalSign(ui)
+  await finalReview(ui, w); expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
+  at = w.calls.length; await pass(w, ui, 30000)
+  expect(finalCalls(w, 'sign')).toHaveLength(0); expect(finalCalls(w, 'inspect')).toHaveLength(1)
+  expect(w.calls.slice(at).filter(e => e.kind.startsWith('join.owner.'))).toEqual([])
+  expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
+  expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
+  finalPrivacy(w, await visible(ui))
+})

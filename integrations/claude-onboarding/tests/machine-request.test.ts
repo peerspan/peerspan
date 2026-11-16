@@ -730,3 +730,58 @@ test('machine publication progress and navigation preserve established message t
   }
   privacy(w, await visible(ui), { runtime: true })
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section52: the published machine request checks its progress by itself while it waits on the existing computer.
+const mutating = /prepare|approve|decline|decide|sign|finali[sz]e|commit|reveal|handoff|identit/
+test('automatic progress checks a waiting machine request 5 seconds after it is shown and again 5 seconds after', async ($, on) => {
+  const w = fixture(on), ui = await setup($, w)
+  w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
+  await machineEntry(ui); await w.clock.settle(); await recorded(ui, w)
+  expect(count(w, 'join.progress')).toBe(0)
+  await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(0)
+  await pass(w, ui, 100); expect(count(w, 'join.progress')).toBe(1)
+  const shown = await visible(ui)
+  expect(shown).toContain('Checking automatically.'); expect(shown).toMatch(/person owner|original owner|existing (?:person|computer)/i)
+  expect(await button(ui, 'Check machine request progress')).toBeDefined(); await noOriginalControls(ui)
+  await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(1)
+  await pass(w, ui, 100); expect(count(w, 'join.progress')).toBe(2)
+  expect(await visible(ui)).toContain('Checking automatically.')
+  expect(await button(ui, 'Check machine request progress')).toBeDefined()
+  privacy(w, await visible(ui))
+})
+
+test('automatic progress runs exactly the Check machine request progress operations and stops when this computer must act', async ($, on) => {
+  const w = fixture(on), ui = await setup($, w), normal = w.run
+  w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
+  await machineEntry(ui); await w.clock.settle()
+  let at = w.calls.length; await press(ui, 'Check machine request progress'); await w.clock.settle()
+  const explicit = w.calls.slice(at).map(e => e.kind).sort()
+  expect(explicit).toContain('join.progress')
+  at = w.calls.length; await pass(w, ui, 5000)
+  const automatic = w.calls.slice(at).map(e => e.kind).sort()
+  expect(automatic).toEqual(explicit)
+  for (const kind of automatic) expect(kind).not.toMatch(mutating)
+  w.run = async (kind, payload, e) => kind === 'join.progress' ? progressResponse(w, 'needs_selection') : normal(kind, payload, e)
+  await pass(w, ui, 5000); const due = count(w, 'join.progress')
+  expect(await visible(ui)).toMatch(/requesting (?:machine|computer)|this (?:machine|computer)/i)
+  await pass(w, ui, 30000); expect(count(w, 'join.progress')).toBe(due)
+  expect(await button(ui, 'Check machine request progress')).toBeDefined()
+  expect(count(w, 'join.prepare')).toBe(0); expect(count(w, 'join.decide')).toBe(0)
+  privacy(w, await visible(ui))
+})

@@ -835,3 +835,70 @@ test('machine-owner controls preserve authorized messages tasks and the separate
   }
   safe(w, await visible(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section 52. A signed initial owner offer waits on the requester's selection.
+// Host operations in order, plus the distinct recheck kinds; section52 does not pin recheck counts.
+const kinds = (w: World, from: number) => { const all = w.calls.slice(from).map(c => c.kind)
+  return [...all.filter(k => k.startsWith('machine.')), ...[...new Set(all.filter(k => !k.startsWith('machine.')))].sort()] }
+test('automatic progress checks signed machine consent 5 seconds after shown and again with exactly the Check machine consent reads', async ($, on) => {
+  const w = fixture(on); w.counts[w.requests[0].request_id] = 3
+  const ui = await selected($, w, 'approved'); await evidence(ui, 3, 3); await absent(ui)
+  const c = clone(w.consents[w.requests[0].request_id]), at = w.calls.length
+  await pass(w, ui, 4900); expect(w.calls).toHaveLength(at)
+  await pass(w, ui, 100); const first = kinds(w, at)
+  expect(first.filter(k => k.startsWith('machine.')).length > 0).toBe(true)
+  let shown = await visible(ui); expect(shown).toContain('Checking automatically.')
+  expect(shown).toMatch(/requester[\s\S]*selection/i); await evidence(ui, 3, 3)
+  expect(await ui.find({ type: 'Button', text: /^Check machine consent$/ })).toBeDefined()
+  const second = w.calls.length
+  await pass(w, ui, 4900); expect(w.calls).toHaveLength(second)
+  await pass(w, ui, 100); expect(kinds(w, second)).toEqual(first)
+  const explicit = w.calls.length; await press(ui, 'Check machine consent'); await finished(w, ui)
+  expect(kinds(w, explicit)).toEqual(first)
+  for (const k of w.calls.map(e => e.kind)) expect(k).not.toMatch(/prepare|approve|decline|\.sign$|complete|commit|reveal|handoff/)
+  expect(writes(w)).toHaveLength(0); expect(w.consents[w.requests[0].request_id]).toEqual(c)
+  shown = await visible(ui); expect(shown).toContain('Checking automatically.')
+  expect(await ui.find({ type: 'Button', text: /^Check machine consent$/ })).toBeDefined()
+  safe(w, shown)
+})
+
+test('automatic progress never checks or signs while Sign machine owner offer is due here', async ($, on) => {
+  const w = fixture(on), ui = await selected($, w, 'approved'), at = w.calls.length
+  expect(await ui.find({ type: 'Button', text: /^Sign machine owner offer$/ })).toBeDefined()
+  await pass(w, ui, 30_000)
+  expect(w.calls).toHaveLength(at); expect(calls(w, 'sign')).toHaveLength(0)
+  expect(await ui.find({ type: 'Button', text: /^Sign machine owner offer$/ })).toBeDefined()
+  safe(w, await visible(ui))
+})
+
+test('automatic progress stops at a failed machine consent check and the next press starts it again', async ($, on) => {
+  const w = fixture(on), normal = w.run; w.counts[w.requests[0].request_id] = 3
+  const ui = await selected($, w, 'approved')
+  w.run = async (kind, payload, e) => kind === 'machine.lookup' ? { fixtureDeny: true } : normal(kind, payload, e)
+  const at = calls(w).length; await pass(w, ui, 5000)
+  expect(calls(w).length).toBeGreaterThan(at); const failed = w.calls.length
+  await pass(w, ui, 30_000); expect(w.calls).toHaveLength(failed)
+  expect(await ui.find({ type: 'Button', text: /^Check machine consent$/ })).toBeDefined()
+  w.run = normal; await press(ui, 'Check machine consent'); await finished(w, ui); await evidence(ui, 3, 3)
+  const pressed = w.calls.length
+  await pass(w, ui, 4900); expect(w.calls).toHaveLength(pressed)
+  await pass(w, ui, 100); expect(calls(w, 'lookup').length).toBeGreaterThan(0)
+  expect(w.calls.slice(pressed).map(c => c.kind)).toContain('machine.lookup'); expect(writes(w)).toHaveLength(0)
+  safe(w, await visible(ui))
+})

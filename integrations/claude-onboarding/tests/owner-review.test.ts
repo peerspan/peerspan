@@ -1128,3 +1128,54 @@ test('owner review approval navigation and recovery preserve established work ru
   expect(w.invitation).toEqual(issued); expect(ownerCalls(w, 'approve')).toHaveLength(1)
   ownerPrivacy(w, await visible(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section52: recorded owner consent that waits on other participants checks owner consent by itself.
+test('automatic progress checks waiting recorded owner consent 5 seconds after it is shown and again 5 seconds after', async ($, on) => {
+  const w = fixture(on); w.requestState = 'needs_administrator'
+  const ui = await ownerPublished($, w, { state: 'approved' }); await reviewOwner(ui); await w.clock.settle()
+  expect(await visible(ui)).toContain('Owner consent: recorded'); const shown = ownerCalls(w, 'lookup').length
+  await pass(w, ui, 4900); expect(ownerCalls(w, 'lookup')).toHaveLength(shown)
+  await pass(w, ui, 100); expect(ownerCalls(w, 'lookup')).toHaveLength(shown + 1)
+  expect(await visible(ui)).toContain('Checking automatically.'); expect(await visible(ui)).toContain('Owner consent: recorded')
+  expect(await visible(ui)).toMatch(/administrator/i)
+  expect(await ui.find({ type: 'Button', text: /^Check owner consent$/ })).toBeDefined()
+  await pass(w, ui, 4900); expect(ownerCalls(w, 'lookup')).toHaveLength(shown + 1)
+  await pass(w, ui, 100); expect(ownerCalls(w, 'lookup')).toHaveLength(shown + 2)
+  expect(await ui.find({ type: 'Button', text: /^Check owner consent$/ })).toBeDefined()
+  expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
+  ownerPrivacy(w, await visible(ui))
+})
+
+test('automatic progress runs exactly the Check owner consent operations, stops at a failure and restarts on a press', async ($, on) => {
+  const w = fixture(on); w.requestState = 'needs_administrator'
+  const ui = await ownerPublished($, w, { state: 'approved' }), normal = w.run; await reviewOwner(ui); await w.clock.settle()
+  let at = w.calls.length; await press(ui, 'Check owner consent'); await w.clock.settle()
+  const explicit = w.calls.slice(at).map(e => e.kind).sort(); expect(explicit).toContain('join.owner.lookup')
+  at = w.calls.length; await pass(w, ui, 5000)
+  const automatic = w.calls.slice(at).map(e => e.kind).sort(); expect(automatic).toEqual(explicit)
+  for (const kind of automatic) expect(kind).not.toMatch(/prepare|approve|decline|decide|sign|finali[sz]e|commit|reveal|handoff/)
+  w.run = async (kind, payload, e) => kind === 'join.owner.lookup' ? { fixtureDeny: true } : normal(kind, payload, e)
+  await pass(w, ui, 5000); const failed = ownerCalls(w, 'lookup').length; await noOwnerRecord(ui)
+  await pass(w, ui, 20000); expect(ownerCalls(w, 'lookup')).toHaveLength(failed)
+  w.run = normal; await press(ui, 'Check owner consent'); await w.clock.settle()
+  expect(ownerCalls(w, 'lookup')).toHaveLength(failed + 1); expect(await visible(ui)).toContain('Owner consent: recorded')
+  await pass(w, ui, 5000); expect(ownerCalls(w, 'lookup')).toHaveLength(failed + 2)
+  expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
+  ownerPrivacy(w, await visible(ui))
+})

@@ -793,3 +793,96 @@ test('administrator navigation preserves established adapter messages and tasks 
   }
   safe(w, await text(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section 52 automatic progress in the selected incoming-connections view.
+const automatic = (w: World, from: number) => calls(w).slice(from).map(call => call.kind)
+
+test('automatic progress fetches incoming proofs while owner or selection is missing and then only looks up', async ($, on) => {
+  const w = fixture(on); w.requests = [request(1, 'pending')]; w.progressState = 'pending'
+  const ui = await selected($, w); let at = calls(w).length
+  await pass(w, ui, 4900); expect(calls(w).length).toBe(at)
+  await pass(w, ui, 100)
+  let ran = automatic(w, at); expect(ran.filter(kind => kind === 'admission.progress')).toHaveLength(1)
+  expect(ran.every(kind => kind === 'admission.lookup' || kind === 'admission.progress')).toBe(true)
+  let shown = await text(ui)
+  expect(shown).toMatch(/(?:wait|missing|not yet)[\s\S]*(?:original|owner)|(?:original|owner)[\s\S]*(?:wait|missing|not yet)/i)
+  expect(shown).toContain('Checking automatically.')
+  for (const name of ['Fetch incoming proofs', 'Check administrator consent']) expect(await ui.find({ type: 'Button', text: new RegExp('^' + name + '$') }), name).toBeDefined()
+  w.progressState = 'needs_selection'; at = calls(w).length; await pass(w, ui, 5000)
+  ran = automatic(w, at); expect(ran.filter(kind => kind === 'admission.progress')).toHaveLength(1)
+  expect(ran.every(kind => kind === 'admission.lookup' || kind === 'admission.progress')).toBe(true)
+  shown = await text(ui)
+  expect(shown).toMatch(/(?:wait|missing|not yet)[\s\S]*selection|selection[\s\S]*(?:wait|missing|not yet)/i)
+  expect(shown).toContain('Checking automatically.')
+  expect(await ui.find({ type: 'Button', text: /^Check administrator consent$/ })).toBeDefined()
+  w.progressState = 'needs_administrator'; at = calls(w).length; await pass(w, ui, 5000)
+  ran = automatic(w, at); expect(ran.filter(kind => kind === 'admission.progress')).toHaveLength(1)
+  expect(await ui.find({ type: 'Button', text: /^Review administrator consent$/ })).toBeDefined()
+  at = calls(w).length; await pass(w, ui, 30_000)
+  expect(automatic(w, at).every(kind => kind === 'admission.lookup')).toBe(true)
+  expect(calls(w, 'progress')).toHaveLength(3)
+  expect(calls(w, 'inspect')).toHaveLength(0); expect(calls(w, 'prepare')).toHaveLength(0); expect(calls(w, 'approve')).toHaveLength(0)
+  await noApprove(ui); safe(w, await text(ui))
+})
+
+test('automatic progress continues after an unavailable incoming fetch', async ($, on) => {
+  const w = fixture(on), normal = w.run; w.requests = [request(1, 'pending')]; w.progressState = 'pending'
+  let unavailable = true
+  const ui = await selected($, w)
+  w.run = async (kind, payload, e) => kind === 'admission.progress' && unavailable ? { fixtureExit: true } : normal(kind, payload, e)
+  await pass(w, ui, 5000); expect(calls(w, 'progress')).toHaveLength(1)
+  await pass(w, ui, 5000); expect(calls(w, 'progress')).toHaveLength(2)
+  unavailable = false; w.progressState = 'needs_selection'
+  await pass(w, ui, 5000); expect(calls(w, 'progress')).toHaveLength(3)
+  expect(await text(ui)).toMatch(/(?:wait|missing|not yet)[\s\S]*selection|selection[\s\S]*(?:wait|missing|not yet)/i)
+  expect(calls(w, 'prepare')).toHaveLength(0); expect(calls(w, 'approve')).toHaveLength(0)
+  expect(w.admissions[w.requests[0].request_id] ?? null).toBe(null)
+  safe(w, await text(ui))
+})
+
+test('automatic incoming check stops when a retained consent review is due here and never approves', async ($, on) => {
+  const w = fixture(on)
+  const ui = await selected($, w, { state: 'review' }), at = calls(w).length
+  expect(await ui.find({ type: 'Button', text: /^Approve administrator consent$/ })).toBeDefined()
+  await pass(w, ui, 30_000)
+  expect(automatic(w, at).every(kind => kind === 'admission.lookup')).toBe(true)
+  expect(calls(w, 'approve')).toHaveLength(0); expect(calls(w, 'prepare')).toHaveLength(0); expect(calls(w, 'progress')).toHaveLength(0)
+  expect(w.admissions[w.requests[0].request_id].state).toBe('review')
+  safe(w, await text(ui))
+})
+
+test('automatic incoming checks stop on Leave Back Close Refresh and a project or conversation change', async ($, on) => {
+  const w = fixture(on)
+  for (const mode of ['Leave', 'Back', 'Close', 'Refresh', 'root', 'native']) {
+    w.root = ROOT; w.native = NATIVE
+    w.requests = [request(1, 'pending')]; w.progressState = 'pending'; w.admissions = {}
+    const ui = await selected($, w)
+    await pass(w, ui, 5000); const before = calls(w).length
+    expect(calls(w, 'progress').length, mode).toBeGreaterThan(0)
+    if (mode === 'Leave') await leave(ui)
+    if (mode === 'Back') await back(ui)
+    if (mode === 'Close') await press(ui, 'Close')
+    if (mode === 'Refresh') await press(ui, 'Refresh')
+    if (mode === 'root') { w.root = '/changed-private-root'; await $.classic.CwdChanged({ old_cwd: ROOT, new_cwd: w.root }) }
+    if (mode === 'native') w.native = 'changed-private-native'
+    await pass(w, ui, 30_000); expect(calls(w).length, mode).toBe(before)
+    await dispose(ui)
+  }
+  safe(w)
+})

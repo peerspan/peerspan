@@ -865,3 +865,147 @@ test('explicit progress and pane navigation preserve established message task le
   expect(w.joining).toEqual(requested); expect(w.invitation).toEqual(issued)
   progressPrivacy(w, await visible(ui), true)
 })
+
+// Section 52: an automatic check cannot be awaited like a press. Wait until the
+// recorded host operations and the drawing stay unchanged over several settles
+// and real asynchronous turns, so nothing is sampled while a check is in flight.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+// Advance in at most 5 s periods, letting each due automatic check finish.
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+// Section 52 automatic progress. needs_administrator waits on the network
+// administrator; needs_commit is the requesting machine's own next action.
+function progressAs(w: World, state: () => string | { fixtureDeny: true }) {
+  const normal = w.run
+  w.run = async (kind, payload, e) => {
+    if (kind !== 'join.progress') return normal(kind, payload, e)
+    const value = state(); return typeof value === 'string' ? progressResponse(w, value) : value
+  }
+  return normal
+}
+// Exact host operations in order; the project/host rechecks compared as a set.
+const rechecks = ['project.inspect', 'project.lookup', 'snapshot']
+const kinds = (w: World, from: number) => {
+  const slice = w.calls.slice(from).map(call => call.kind)
+  return { operations: slice.filter(kind => !rechecks.includes(kind)), rechecks: [...new Set(slice.filter(kind => rechecks.includes(kind)))].sort() }
+}
+
+test('automatic progress checks a waiting published request 5 seconds after it is shown and again 5 seconds after', async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
+  await w.clock.settle(); expect(count(w, 'join.progress')).toBe(0)
+  await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(0)
+  await pass(w, ui, 100); expect(count(w, 'join.progress')).toBe(1)
+  const shown = await visible(ui)
+  expect(shown).toContain('Join progress: needs_administrator'); expect(shown).toMatch(/administrator/i)
+  expect(shown).toContain('Checking automatically.')
+  expect(await ui.find({ type: 'Button', text: /^Check join progress$/ })).toBeDefined()
+  await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(1)
+  await pass(w, ui, 100); expect(count(w, 'join.progress')).toBe(2)
+  expect(await visible(ui)).toContain('Checking automatically.')
+  expect(await ui.find({ type: 'Button', text: /^Check join progress$/ })).toBeDefined()
+  expect(last(w, 'join.progress').payload).toEqual({ flow_id: w.joining.flow_id, context: context(w.parent), review_id: w.joining.review_id })
+  progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress runs exactly the Check join progress operations and never prepares decides or reveals', async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
+  let at = w.calls.length; await press(ui, 'Check join progress'); await w.clock.settle()
+  const explicit = kinds(w, at); expect(explicit.operations.filter(kind => kind === 'join.progress')).toHaveLength(1)
+  at = w.calls.length; await pass(w, ui, 5000)
+  expect(kinds(w, at)).toEqual(explicit)
+  at = w.calls.length; await pass(w, ui, 5000)
+  expect(kinds(w, at)).toEqual(explicit)
+  for (const call of w.calls) expect(call.kind).not.toMatch(/prepare|decide|approve|decline|sign|finali[sz]e|commit|reveal|handoff|owner|identit|resume/)
+  expect(w.joining.state).toBe('requested'); progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress keeps one check in flight and a press during an automatic check waits and runs once', async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
+  const normal = w.run; let active = 0, most = 0, delays = 0
+  let signal!: () => void; const started = new Promise<void>(resolve => { signal = resolve })
+  w.run = async (kind, payload, e) => {
+    if (kind !== 'join.progress') return normal(kind, payload, e)
+    active++; most = Math.max(most, active)
+    try { if (delays++ === 0) { const delay = w.clock.sleep(3000); signal(); await delay } return await normal(kind, payload, e) }
+    finally { active-- }
+  }
+  await pass(w, ui, 5000); await started; expect(count(w, 'join.progress')).toBe(1)
+  const pending = press(ui, 'Check join progress'); void pending.catch(() => undefined); await w.clock.settle()
+  expect(count(w, 'join.progress')).toBe(1)
+  await pass(w, ui, 3000); await pending; await w.clock.settle()
+  expect(count(w, 'join.progress')).toBe(2); expect(most).toBe(1)
+  await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(2)
+  expect(most).toBe(1); expect(await visible(ui)).toContain('Join progress: needs_administrator')
+  progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress stops at an action due here and at terminal or blocked states', async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); let state = 'needs_commit'; progressAs(w, () => state)
+  for (const [index, current] of ['needs_commit', 'linked', 'cancelled', 'expired', 'blocked'].entries()) {
+    if (index) {
+      await currentProject(ui); state = current
+      w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested', n: 70 + index })
+      await joinEntry(w, ui)
+    }
+    const before = count(w, 'join.progress')
+    await pass(w, ui, 5000); expect(count(w, 'join.progress'), current).toBe(before + 1)
+    await pass(w, ui, 30_000); expect(count(w, 'join.progress'), current).toBe(before + 1)
+    expect(await ui.find({ type: 'Button', text: /^Check join progress$/ }), current).toBeDefined()
+    expect(await visible(ui), current).not.toContain('Checking automatically.')
+  }
+  progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress stops after 120 checks', { timeoutMs: 60000 }, async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
+  await pass(w, ui, 605_000); await pass(w, ui, 60_000)
+  expect(count(w, 'join.progress')).toBe(120)
+  await pass(w, ui, 60_000); expect(count(w, 'join.progress')).toBe(120)
+  expect(await ui.find({ type: 'Button', text: /^Check join progress$/ })).toBeDefined()
+  progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress stops at a failed check keeping its text and the next press starts it again', async ($, on) => {
+  const w = fixture(on); const ui = await published($, w); let fail = true
+  progressAs(w, () => fail ? { fixtureDeny: true } : 'needs_administrator')
+  await pass(w, ui, 5000); expect(count(w, 'join.progress')).toBe(1)
+  expect(await visible(ui)).toContain('Join progress unavailable')
+  await pass(w, ui, 30_000); expect(count(w, 'join.progress')).toBe(1)
+  expect(await visible(ui)).toContain('Join progress unavailable')
+  fail = false; await press(ui, 'Check join progress'); await w.clock.settle()
+  expect(count(w, 'join.progress')).toBe(2); expect(await visible(ui)).toContain('Join progress: needs_administrator')
+  await pass(w, ui, 5000); expect(count(w, 'join.progress')).toBe(3)
+  await pass(w, ui, 5000); expect(count(w, 'join.progress')).toBe(4)
+  progressPrivacy(w, await visible(ui))
+})
+
+test('automatic progress stops on Close Back navigation Refresh and a project or conversation change', async ($, on) => {
+  const w = fixture(on); let ui = await published($, w); progressAs(w, () => 'needs_administrator')
+  for (const [index, mode] of ['close', 'back', 'navigation', 'refresh', 'root', 'native'].entries()) {
+    if (index) {
+      w.root = ROOT; w.native = NATIVE
+      ui = await enter($, w); await joinEntry(w, ui)
+    }
+    await pass(w, ui, 5000); const before = count(w, 'join.progress')
+    expect(before, mode).toBeGreaterThan(0)
+    if (mode === 'close') await press(ui, 'Close')
+    if (mode === 'back') await back(ui)
+    if (mode === 'navigation') { await back(ui); await recipientEntry(w, ui) }
+    if (mode === 'refresh') await press(ui, 'Refresh')
+    if (mode === 'root') { w.root = '/changed-private-root'; await $.classic.CwdChanged({ old_cwd: ROOT, new_cwd: w.root }) }
+    if (mode === 'native') w.native = 'changed-private-native'
+    await pass(w, ui, 30_000); expect(count(w, 'join.progress'), mode).toBe(before)
+    const close = await ui.find({ type: 'Button', text: /^Close$/ }); if (close) await ui.press({ key: close.key! })
+    await ui.unmount()
+  }
+  progressPrivacy(w)
+})

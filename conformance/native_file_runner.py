@@ -29,7 +29,7 @@ EXPECTED_FILES = frozenset('tests/' + name + '.test.ts' for name in (
     'native-message', 'native-task', 'new-identity', 'owner-finalization',
     'owner-review', 'owner-signing', 'peer-reachability', 'project-review',
     'readiness', 'requester-commit'))
-EXPECTED_CASES = 440
+EXPECTED_CASES = 463
 GATE_SECONDS = 600
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 # A case result line of the public CLI: `(fail) NAME [12.34ms]`.
