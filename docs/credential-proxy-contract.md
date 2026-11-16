@@ -150,6 +150,14 @@ compression is negotiated, adds the key, and sends the upgrade upstream. Once th
 answers 101, the proxy carries the frames both ways unchanged until either side closes. It reads
 the frames to count requests and usage (below) and never changes them. Any other upgrade is 403.
 
+After the 101 there is no HTTP status to answer with, so a refusal on an open WebSocket is a
+close. When a client message would pass a bound (below), or arrives after the credential was
+cleared or replaced, the proxy does not forward it. It sends the guest a close frame with code
+1008 and the refusal's message as the reason (for example
+`model request limit reached for this run`), closes the upstream connection, and carries nothing
+more either way. The harness then opens a new connection or falls back to HTTP, where the same
+refusal is answered with its status.
+
 ### Bounds
 
 | Bound | Value | On reaching it |
@@ -291,7 +299,9 @@ new activity kind: `runtime.agent_set` covers the new fields.
   - the credential cleared during a run makes the next request 401, and a new key is used from
     the next request on;
   - a streamed response arrives event by event;
-  - Codex's WebSocket carries frames both ways and its usage is counted;
+  - Codex's WebSocket carries frames both ways and its usage is counted; a message past a bound,
+    or after the credential was cleared, is not forwarded, and the guest gets close code 1008
+    with the refusal's message;
   - each bound, with its status;
   - usage as the fake provider reported it, for the owner and never in the sender's events;
   - after the task ends, its socket is gone and a held connection is closed;
