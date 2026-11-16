@@ -73,8 +73,8 @@ Build caches (docs/build-cache-contract.md, Runtime and Verification). `GET /v1/
 when the fake serves peerfs workspaces unless started with `--peerfs-caches 0`. `POST /v1/runs` takes `peerfs_cache`
 and `peerfs_cache_save`, each null or a cache name (1 to 128 characters of `a-z`, `0-9`, `.`, `_`, `-`, starting with
 a letter or digit) with `peerfs_fork_from` set, and `peerfs_cache_save` only with `peerfs_commit` false; either is 400
-`invalid` naming it otherwise, or when `peerfs_caches` is false. `run_id` may also be `cache_` and 32 lowercase hex
-digits (a host refresh run). The fake's paths are classed as peerfs classes them: a path under `target/`,
+`invalid` naming it otherwise, or when `peerfs_caches` is false. Every `run_id`, a host refresh's included, is `run_`
+and 64 lowercase hex digits (RUN-22); any other is 400 `invalid`. The fake's paths are classed as peerfs classes them: a path under `target/`,
 `node_modules/` or `.peerspan/cache/` is derived, and every other path is source. A branch's head is its last commit's
 ID, or, for a branch no run committed to (`main`, `dev`), `01` and the lowercase hex SHA-256 of its sorted source
 paths and contents (`branch_head`), so a suite moves `main`'s head by writing a source file into its directory.
@@ -159,7 +159,7 @@ from http.server import BaseHTTPRequestHandler
 
 CHUNK = 16384
 LOG_CUT = 104_857_600
-RUN_ID = re.compile(r"^(run_[0-9a-f]{64}|cache_[0-9a-f]{32})$")  # cache_: a host refresh run (build cache contract)
+RUN_ID = re.compile(r"^run_[0-9a-f]{64}$")  # every run, a host refresh included (RUN-22)
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 RUN_FIELDS = ("run_id", "argv", "cwd", "env", "resources", "workspace_archive", "peerfs_workspace", "results")
 PEERFS_NAME_BYTES = 255
@@ -1262,7 +1262,7 @@ class Runtime:
                     raise ApiError(400, "invalid", "link: its partner has this role")
                 if partner.shape != {k: link[k] for k in partner.shape}:
                     raise ApiError(400, "invalid", "link: its fields differ from its partner's")
-            if run_id.startswith("cache_") and self.busy_refreshes > 0:
+            if body["peerfs_cache_save"] is not None and self.busy_refreshes > 0:
                 self.busy_refreshes -= 1
                 raise ApiError(429, "busy", "every run slot is busy (--busy-refreshes)")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
@@ -1498,7 +1498,7 @@ def main():
     parser.add_argument("--peerfs-caches", type=int, choices=(0, 1), default=1,
                         help="0: GET /v1/runtime reports peerfs_caches false and runs may not name a cache")
     parser.add_argument("--busy-refreshes", type=int, default=0,
-                        help="answer the first N refresh starts (run_id cache_) with 429 busy")
+                        help="answer the first N refresh starts (peerfs_cache_save set) with 429 busy")
     parser.add_argument("--no-cache-saves", type=int, choices=(0, 1), default=0,
                         help="1: a refresh that would save saves nothing, with no error (cache_saved false)")
     parser.add_argument("--log-workspaces", type=int, choices=(0, 1), default=0,

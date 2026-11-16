@@ -34,6 +34,7 @@ IMAGE = "registry.example/peerspan/rust@sha256:" + "a" * 64
 BUILD = "write target/app.o built ; write .peerspan/cache/cargo/registry/crate.txt crate ; echo built"
 SHOW_KEYS = {"agent_id", "name", "commit", "saved_at", "bytes", "last_refresh"}  # cache Host, cache show
 LAST_KEYS = {"started_at", "run_id", "commit", "ended_at", "saved", "reason"}  # cache The host refresh
+RUN_ID = re.compile(r"^run_[0-9a-f]{64}$")  # every run's ID, a refresh's included (RUN-22)
 CHECK_WAIT = 8  # real seconds for the check after the clock moves 61 s
 QUIET = 2  # real seconds watched for a refresh that must not start
 suite = None
@@ -155,7 +156,7 @@ def refresh_ids(name, status=201):
     seen = []
     for answered, body in requests():
         rid = body.get("run_id")
-        if (isinstance(rid, str) and rid.startswith("cache_") and body.get("peerfs_cache_save") == name
+        if (isinstance(rid, str) and body.get("peerfs_cache_save") == name  # a refresh, by its fields (RUN-22)
                 and (status is None or answered == status) and rid not in seen):
             seen.append(rid)
     return seen
@@ -203,7 +204,12 @@ def expect_refresh(name, why, since=None, move=True):
     if move:
         tick()
     wait_for(lambda: count(name) > since, timeout=CHECK_WAIT, interval=0.2, message=f"a refresh of {name} {why}")
-    return refresh_ids(name)[since]
+    rid = refresh_ids(name)[since]
+    named = refresh_body(rid).get("peerfs_workspace")
+    check(RUN_ID.match(rid) and named == f"{name}.refresh.{rid[len('run_'):]}",
+          f"a refresh's run_id {rid!r} is not run_ and 64 lowercase hex digits (RUN-22), or its workspace "
+          f"{named!r} is not {name}.refresh. and those digits")
+    return rid
 
 
 def no_refresh(name, why):

@@ -22,7 +22,7 @@ suite = Suite("runtime_build_cache_refresh", __doc__)
 bind(suite)
 suite.use_clock()  # before any host starts
 NAME = cache_name("main", IMAGE)
-REFRESH_ID = re.compile(r"^cache_[0-9a-f]{32}$")
+REFRESH_ID = re.compile(r"^run_[0-9a-f]{64}$")  # RUN-22
 SLOW = "sleep 8 ; write target/app.o slow"
 
 
@@ -52,7 +52,7 @@ def _():
     body = refresh_body(rid)
     want = {"run_id": rid, "argv": sh("sleep 2 ; " + BUILD), "cwd": "/workspace", "env": {}, "stdin": None,
             "resources": {"cpus": 3, "memory_mib": 3072, "timeout_seconds": 300}, "network": "none", "image": IMAGE,
-            "peerfs_workspace": f"{NAME}.refresh.{rid[len('cache_'):]}", "peerfs_fork_from": "main",
+            "peerfs_workspace": f"{NAME}.refresh.{rid[len('run_'):]}", "peerfs_fork_from": "main",
             "peerfs_cache": NAME, "peerfs_cache_save": NAME, "peerfs_commit": False, "results": "none",
             "workspace_archive": None}
     check(REFRESH_ID.match(rid) and body == want, f"the refresh run differs from the contract: "

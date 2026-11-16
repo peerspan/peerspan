@@ -82,13 +82,13 @@ def _():
     imaged("--cpus", "3")
     fake(max_cpus=2)  # the profile's 3 vCPUs are over the runtime's maximum now: 422 too_large
     try:
-        since = len([1 for s, b in requests() if str(b.get("run_id")).startswith("cache_") and s == 422])
+        since = len([1 for s, b in requests() if b.get("peerfs_cache_save") == NAME and s == 422])
         refresh_by_hand("imaged")
         tick()
-        wait_for(lambda: len([1 for s, b in requests() if str(b.get("run_id")).startswith("cache_") and s == 422])
+        wait_for(lambda: len([1 for s, b in requests() if b.get("peerfs_cache_save") == NAME and s == 422])
                  > since, timeout=8, message="a refused refresh")
         refusal = rt.api("POST", "/v1/runs", {
-            "run_id": "cache_" + "1" * 32, "argv": ["echo"], "cwd": "/workspace", "env": {}, "workspace_archive": None,
+            "run_id": "run_" + "1" * 64, "argv": ["echo"], "cwd": "/workspace", "env": {}, "workspace_archive": None,
             "resources": {"cpus": 3, "memory_mib": 128, "timeout_seconds": 60}, "results": "none",
             "peerfs_workspace": None})[1]["error"]  # the runtime's error for the same refusal
 
