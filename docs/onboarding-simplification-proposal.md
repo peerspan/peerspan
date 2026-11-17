@@ -109,6 +109,12 @@ The owner chose the recommendation on all six on 2026-11-16.
 5. **A model tool that opens reviews (P6).** **Chosen: yes**, limited as described above. It changes the "no model setup tool" rule.
 6. **Keep the per-stage pane** behind "Show each step"? **Chosen: yes** for one release, then decide from use.
 7. **The inviter's wait (P3).** The inviter's pane learns that the joining person approved only through section 22's bounded incoming-proof fetch, which was explicit. **Chosen (2026-11-16): the open admission view runs that fetch automatically**, while either proof is missing, then the read-only lookup, every 5 seconds. It still never consents or signs ([guided session contract, section 52](guided-session-contract.md#52-automatic-progress-in-the-native-pane-p3)).
+8. **Join before publication (P1).** A machine's device key and its request's creation time exist only after publication. **Chosen (2026-11-17):** the Join screen states them in words, and its one press checks the prepared owner review against the screen before approving and signing. Any difference falls back to the separate owner review.
+9. **Finalization (P1).** **Chosen (2026-11-17):** the owner approval covers the original finalization signature (spec 8.2, 8.3). The open pane signs it without a press when the inspected terms match, and otherwise falls back to the explicit review.
+10. **Prepare when due (P1, P2).** **Chosen (2026-11-17):** the open pane prepares the requester commit and the administrator consent when they become due. Preparing is not consent. **Commit** then approves and completes; **Admit NAME** approves.
+11. **One incoming request (P2).** **Chosen (2026-11-17):** a sole incoming request opens directly; several keep the list.
+
+All four are specified in [section 53 of the guided session contract](guided-session-contract.md#53-merged-reviews-for-joining-and-admitting-p1-p2).
 
 ## Cost and order
 
