@@ -228,6 +228,32 @@ identity discovery. After stopping any active creation command, the owner can
 remove those temporary names; preserve `person_ed25519`. Never copy an original
 private key to another computer to link that computer.
 
+## Fewer reviews: Join, Commit and Admit
+
+By default the pane merges the protocol's stages into three reviews:
+
+- **Join.** After you choose an identity, one review shows the join request and
+  this machine's owner terms: powers 7, a lifetime of 7 days after publication,
+  and a new device key, which is shown once the request is published. One
+  **Join** press publishes the request, prepares the owner review, checks it
+  against what you saw, approves owner powers and signs the owner offer. If
+  anything differs, or an outcome is unknown, it stops with nothing more done,
+  and the step's own control appears (for example **Review owner powers**).
+- **Finalization.** Your owner approval also covers this machine's original
+  finalization. When the administrator's offer arrives, the open pane signs it
+  if its terms match what you approved; otherwise **Review original
+  finalization** appears.
+- **Commit.** When the final commit is due, the open pane prepares it and shows
+  one **Commit** button, which approves and then completes it.
+- **Admit (inviter).** With one incoming request, **Review incoming
+  connections** opens it directly. When the administrator review is due, the
+  open pane prepares it and shows one **Admit NAME** button.
+
+Creating a new identity, Decline join request and every Leave control stay
+separate. To keep the per-stage reviews described below for this release,
+install with `--config "show_each_step=true"`. The contract is
+[section 53](../../docs/guided-session-contract.md#53-merged-reviews-for-joining-and-admitting-p1-p2).
+
 ## Automatic progress
 
 While you wait on someone else, the open view checks by itself every 5 seconds,

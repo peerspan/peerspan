@@ -76,6 +76,10 @@ let runtimeNotice = null;
 let registeredMessageTools = new Set();
 let registeredTaskTools = new Map();
 
+// Merged reviews (guided session contract section53) apply unless the plugin
+// option show_each_step restores the per-stage controls.
+const steps = () => options?.show_each_step === true || options?.show_each_step === 'true';
+
 // Automatic progress (guided session contract section52). A waiting view keeps
 // its check scheduled each time it renders; a view that is not rendered, or no
 // longer waits, loses it. One check, automatic or pressed, is in flight in the
@@ -1927,7 +1931,16 @@ async function openAdmission($, previous, epoch) {
     const requests = await admissionParent($, running, epoch);
     if (!requests) return;
     await admissionView($, running, epoch, null, { stage: 'choose', requests, selected: null, page: 0 });
-  } catch { admissionFailure($, running, epoch); }
+  } catch { admissionFailure($, running, epoch); return; }
+  // A sole incoming request opens directly (section53).
+  if (!steps() && admitting.stage === 'choose' && admitting.requests?.length === 1 && epoch === generation) {
+    await readAdmission($, admitting, epoch, false, admitting.requests[0]);
+  }
+}
+function admissionDue(cur) {
+  const r = cur.selected;
+  return !!r && cur.knownNull && earlyAdmission(r) && r.state === 'needs_administrator' &&
+    r.owner_offer_id !== '-' && r.selection_id !== '-' && cur.value?.admission == null;
 }
 async function readAdmission($, previous, epoch, prepare = false, selected = previous.selected) {
   if (!selected || previous.stage === 'choose' && !previous.requests.includes(selected)) return;
@@ -2051,12 +2064,17 @@ function admissionControls($, { Text, Button }, epoch) {
     ...(previous.knownNull && earlyAdmission(r) ? [autoButton(Button, 'admission-fetch', 'Fetch incoming proofs', `admission:${r?.request_id}`, () => fetchAdmission($, previous, epoch), () => fetchAdmission($, admitting, epoch)),
       ...(r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'
         ? [button('admission-review', 'Review administrator consent', () => readAdmission($, previous, epoch, true))] : [])] : []),
-    ...(a?.state === 'review' && !previous.expired ? [button('admission-approve', 'Approve administrator consent', () => approveAdmission($, previous, epoch))] : []),
+    ...(a?.state === 'review' && !previous.expired ? [button('admission-approve', steps() ? 'Approve administrator consent' : `Admit ${a.review.member}`,
+      () => approveAdmission($, previous, epoch))] : []),
     ...autoCheck($, Text, `admission:${r?.request_id}`, epoch,
       !!r && (!previous.message || previous.fetchUnavailable) && !previous.expired && !ENDED.includes(r.state) && !(a?.state === 'review') &&
       !CLOSED.includes(a?.state) &&
-      !(previous.knownNull && earlyAdmission(r) && r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'),
-      () => admitting.knownNull && earlyAdmission(admitting.selected) ? fetchAdmission($, admitting, epoch) : readAdmission($, admitting, epoch)),
+      (!steps() && !previous.message || !(previous.knownNull && earlyAdmission(r) && r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-')),
+      async () => {
+        if (!steps() && admissionDue(admitting)) return readAdmission($, admitting, epoch, true);
+        await (admitting.knownNull && earlyAdmission(admitting.selected) ? fetchAdmission($, admitting, epoch) : readAdmission($, admitting, epoch));
+        if (!steps() && epoch === generation && admissionDue(admitting)) await readAdmission($, admitting, epoch, true);
+      }),
     ...(r ? [autoButton(Button, 'admission-check', 'Check administrator consent', `admission:${r?.request_id}`, () => readAdmission($, previous, epoch), () => readAdmission($, admitting, epoch))] : []), leave,
   ];
 }
@@ -2432,6 +2450,62 @@ async function decideJoining($, previous, epoch, decision) {
     await joinView($, running, epoch, outcome, { preview: null, selected: null, identities: [] });
   } catch { joinFailure($, running, epoch, sent); }
 }
+// Join (section53): publication, owner prepare, a check of the prepared owner
+// review against the Join screen, owner approval and original owner-offer
+// signing, each with its own rechecks. Any refusal, difference or unknown
+// outcome stops at that step and leaves its existing control.
+async function mergedJoin($, previous, epoch) {
+  if (steps() || previous.machine || previous.stage !== 'review' || !previous.selected) return;
+  const chosen = previous.selected.public_key, flowId = previous.flow?.flow_id;
+  const stopped = cur => epoch !== generation || cur.stage !== 'requested' || cur.flow?.flow_id !== flowId;
+  await decideJoining($, previous, epoch, 'approve');
+  let cur = joining;
+  if (stopped(cur)) return;
+  await readOwner($, cur, epoch, true);
+  cur = joining;
+  if (stopped(cur) || cur.ownerError || cur.owner?.owner?.state !== 'review' || cur.ownerExpired) return;
+  const r = cur.owner.owner.review;
+  if (r.person_public_key !== chosen || !same(cur.owner.request.completed, ['request_created'])) {
+    joining = { ...cur, ownerError: 'The prepared owner review differs from the Join review. Nothing was approved; review owner powers below.' };
+    $.ui.invalidate('ui.render');
+    return;
+  }
+  await approveOwner($, cur, epoch);
+  cur = joining;
+  if (stopped(cur) || cur.ownerError || cur.owner?.owner?.state !== 'approved') return;
+  if (cur.ownerCanSign && !cur.originalSignature) await signOriginalOwner($, cur, epoch);
+}
+// The owner view's automatic step (sections52, 53): sign a due original
+// finalization the approved owner consent covers, prepare a due requester
+// commit, or else check owner consent.
+function finalizationDue(cur) {
+  return cur.finalizationCanReview && cur.owner?.owner?.state === 'approved' && !cur.ownerError && !cur.ownerExpired;
+}
+async function mergedFinalize($, epoch) {
+  await readFinalization($, joining, epoch);
+  const cur = joining;
+  if (epoch !== generation || !cur.finalizationActive || cur.finalizationError || cur.finalizationExpired ||
+      !cur.finalizationCanSign || !cur.finalization) return;
+  await signFinalization($, cur, epoch);
+}
+async function joinAdvance($, epoch) {
+  if (!steps()) {
+    if (finalizationDue(joining)) return mergedFinalize($, epoch);
+    if (finalizationRecorded(joining.owner) && !joining.commitActive) return readRequester($, joining, epoch, true);
+  }
+  await readOwner($, joining, epoch, false);
+  if (steps() || epoch !== generation) return;
+  if (finalizationDue(joining)) await mergedFinalize($, epoch);
+  else if (finalizationRecorded(joining.owner) && !joining.commitActive) await readRequester($, joining, epoch, true);
+}
+// Commit (section53): approve, then complete once the approval is verified.
+async function mergedCommit($, previous, epoch) {
+  if (steps() || !previous.commitCanApprove) return;
+  await decideRequester($, previous, epoch);
+  const cur = joining;
+  if (epoch !== generation || !cur.commitActive || cur.commitError || !cur.commitCanComplete) return;
+  await decideRequester($, cur, epoch, true);
+}
 async function anotherJoining($, previous, epoch) {
   if (!previous.flow || previous.stage === 'review') return;
   const running = joinStart($, previous, epoch);
@@ -2783,14 +2857,17 @@ function requesterControls($, { Text, Button }, previous, epoch) {
     ...(previous.requester ? [Text({ children: [requesterReviewLines(previous.requester, previous.parent, previous.commitExpired)] })] : []),
     ...(previous.commitError ? [Text({ children: [previous.commitError] })] : []),
     ...(previous.commitCanPrepare ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
-    ...(previous.commitCanApprove ? [button('commit-approve', 'Approve requester commit', () => decideRequester($, previous, epoch))] : []),
+    ...(previous.commitCanApprove ? [steps() ? button('commit-approve', 'Approve requester commit', () => decideRequester($, previous, epoch))
+      : button('commit-approve', 'Commit', () => mergedCommit($, previous, epoch))] : []),
     ...(previous.commitCanComplete ? [button('commit-complete', 'Complete requester commit', () => decideRequester($, previous, epoch, true))] : []),
     ...(previous.commitExpired ? [Text({ children: ['Requester decision deadline elapsed. Check retained public consent; no automatic retry.'] })] : []),
     ...autoCheck($, Text, `requester:${previous.flow?.flow_id}`, epoch,
+      !steps() && previous.commitCanPrepare && !previous.commitError && !previous.commitExpired &&
+      !CLOSED.includes(previous.requester?.commit?.state) ||
       !previous.commitCanPrepare && !previous.commitCanApprove && !previous.commitCanComplete && !previous.commitError &&
       !previous.commitExpired && !requesterApplied(previous.requester) && !ENDED.includes(previous.owner?.request?.state) &&
       !CLOSED.includes(previous.requester?.commit?.state),
-      () => readRequester($, joining, epoch)),
+      () => readRequester($, joining, epoch, !steps() && joining.commitCanPrepare)),
     autoButton(Button, 'commit-check', 'Check requester consent', `requester:${previous.flow?.flow_id}`, () => readRequester($, previous, epoch), () => readRequester($, joining, epoch)),
     button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch)),
   ];
@@ -2848,7 +2925,10 @@ function ownerControls($, { Text, Button }, previous, epoch) {
       !CLOSED.includes(previous.owner.owner?.state) &&
       !(previous.owner.owner?.state === 'review' && !previous.ownerExpired) && !(previous.ownerCanSign && !previous.originalSignature) &&
       !previous.ownerSignExpired && !previous.finalizationCanReview && !finalizationRecorded(previous.owner) &&
-      !ENDED.includes(previous.owner.request?.state), () => readOwner($, joining, epoch, false)),
+      !ENDED.includes(previous.owner.request?.state) ||
+      !steps() && !!previous.owner && !previous.ownerError && !previous.ownerExpired &&
+      (finalizationDue(previous) || finalizationRecorded(previous.owner) && !previous.commitActive) &&
+      !ENDED.includes(previous.owner.request?.state), () => joinAdvance($, epoch)),
     autoButton(Button, 'owner-check', 'Check owner consent', `owner:${previous.flow?.flow_id}`, () => readOwner($, previous, epoch, false), () => readOwner($, joining, epoch, false)),
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),
   ];
@@ -3094,7 +3174,10 @@ function joiningControls($, { Text, Button, Input }, epoch) {
       ...(machine ? machineRequesterControls($, { Text, Button }, previous, epoch) : ownerControls($, { Text, Button }, previous, epoch)),
     ] : []),
     ...(previous.stage === 'review' ? [
-      ...(previous.secret && (previous.selected || machine && machinePinned(flow)) ? [button('join-approve', machine ? 'Approve machine request' : 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
+      ...(previous.secret && (previous.selected || machine && machinePinned(flow)) ? !machine && !steps() ? [
+        Text({ children: [joinOwnerTerms(previous.selected)] }),
+        button('join-approve', 'Join', () => mergedJoin($, previous, epoch)),
+      ] : [button('join-approve', machine ? 'Approve machine request' : 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
         Input({ key: 'join-recover-code', label: machine ? 'Private invitation for this computer' : 'Private invitation for joining', value: previous.code,
           onInput: v => joinDraft($, previous, epoch, v), onSubmit: v => joinDraft($, previous, epoch, v) }),
         button('join-recover', machine ? 'Check invitation for this machine request' : 'Check invitation for this review', () => recoverJoinCode($, previous, epoch)),
@@ -3103,6 +3186,20 @@ function joiningControls($, { Text, Button, Input }, epoch) {
     ] : flow ? [button('join-another', machine ? 'Review another machine request' : 'Review another join request', () => anotherJoining($, previous, epoch))] : []), back];
 }
 
+// The owner terms known before publication, shown on the Join review (section53).
+function joinOwnerTerms(selected) {
+  return ['Joining also approves this machine\'s owner powers and signs its owner offer:',
+    `Original person public key: ${quoted(selected.public_key)}`, `Host: this computer (${hostId})`,
+    'Device public key: a new device key for this machine, shown after publication', 'Proposed machine powers: 7',
+    'Policy editing (1); host binding (2); approval, renewal and revocation of eligible own devices (4).',
+    'Network administrator (8): not approved', 'Proposed powers end: 7 days after publication',
+    'Owner review expires: within 15 minutes, and within the join request\'s window',
+    'This approval also signs this machine\'s original finalization later, once the network administrator admits it.',
+    'After signing: publish the exact owner offer and select a single matching offer through the ordinary protocol.',
+    'Membership grants: none', 'Agent access grants: none', 'Network administration: none', 'Requester final commit: separate',
+    'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
+    'Join checks the prepared owner review against these terms before approving; any difference stops with nothing approved.'].join('\n');
+}
 function clearRecipient() {
   recipientExpiry?.cancel();
   recipientExpiry = null;
