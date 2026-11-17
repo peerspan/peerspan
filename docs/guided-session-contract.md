@@ -10966,7 +10966,9 @@ running call's result.
 
 One call makes only read-only lookups, each within the existing 5-second process
 bound: the current project's attachment lookup (section4), the `peerspan
-onboarding` observation (section1) and the invitation grant list (section55).
+onboarding` observation (section1), the invitation grant list (section55) and,
+when an incoming new-person request is `needs_administrator`, section20's
+read-only admission inspection.
 If the host is unavailable or a read fails, it returns `due:"host_unavailable"`.
 
 ### The result
@@ -10986,7 +10988,7 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `finalize` | an own new-person request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
 | `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
 | `approve_computer` | an incoming second-computer request is `pending` here (section41) | `you` | "Your other computer is asking to join. Open Peerspan and review it." |
-| `admit` | an incoming request is `needs_administrator` here | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
+| `admit` | an incoming new-person request is `needs_administrator` and section20's inspection lists it as admissible by this host | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
 | `grant_access` | an invitation grant is `waiting_for_owner` | `you` | "A person you invited was admitted. Open Peerspan and review Grant access." |
 | `inspect_status` | an own request is `blocked` | `you` | "Something needs your attention. Open Peerspan to see it." |
 | `waiting` | any own or incoming request is in another non-final state | `other_side` | "Waiting for the other person. Peerspan shows progress when it is open." |
@@ -10995,7 +10997,9 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 "Own" and "incoming" are the observation's requester and approver roles; a
 second-computer request maps the same way, except that on the new computer its
 `pending` and `needs_owner_finalization` stages belong to the existing computer
-(sections 41, 45 and 52) and select `waiting`. Only an own request's latest attempt
+(sections 41, 45 and 52) and select `waiting`; likewise an incoming
+second-computer request in `needs_administrator`, which a separate administrator
+admits (section41). Only an own request's latest attempt
 for its network counts: a cancelled or expired request that a later request for
 the same network replaced, or that the network has since been joined through,
 is history and selects nothing. `finalize` stays due while the request is in
