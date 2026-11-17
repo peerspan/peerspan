@@ -587,6 +587,7 @@ function stopMessages($, active, epoch) {
   attempt.deadline?.cancel();
   attempt.poll?.cancel();
   attempt.state = 'stopped';
+  active.p4Tasks = false;
   stopTasks(active);
   $.ui.invalidate('ui.render');
 }
@@ -3733,8 +3734,9 @@ function projectControls($, { Text, Button, Input }, epoch) {
       ...(previous.agents.length > page * 10 + 10 ? [button('project-next', 'More agents', () => projectPage($, previous, epoch, page + 1))] : []), back];
   }
   if (!steps() && previous.stage === 'attached' && !runtime && adapter.stage === 'inactive') {
-    // After a plugin reload: the attachment remains; one press reconnects (section54).
-    return [Text({ children: [connectTerms(previous)] }),
+    // After a plugin reload: the attachment remains; one press reconnects its agent (section54).
+    const retained = previous.flow.review.agent;
+    return [Text({ children: [connectTerms(previous, { id: retained.id, label: choiceLabel(retained) })] }),
       button('connect-messages', `Incoming messages: ${previous.p4Messages !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Messages')),
       ...(previous.p4Messages !== false ? [button('connect-tasks', `Incoming tasks: ${previous.p4Tasks !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Tasks'))] : []),
       button('project-reconnect', 'Connect this conversation', () => mergedConnect($, previous, epoch, null)), back];
