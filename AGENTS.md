@@ -165,6 +165,12 @@ Packaging, installer, upgrade and onboarding-integration changes require `script
 - `access_application`: exact signed policy local publication/application,
   atomic ordinary proof/edit/queue/result/event and pure recovery (section33).
 
+- `invitation_grants`: agent access granted with the invite: the review with and
+  without `agent_access`, atomic recording, binding only after the admission,
+  automatic and owner-completed signing, cancel, each ending rule on the test
+  clock and the terminal records (section55). Second tier only (668 lines,
+  93 seconds measured).
+
 - `readiness`: current exact-project membership, receiver-advertised access and
   exact-session adapter evidence, read purity and owner-router isolation
   (guided session contract section36). No peer/model readiness inference.
