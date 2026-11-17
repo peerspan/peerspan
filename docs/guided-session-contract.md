@@ -10660,7 +10660,8 @@ The 2026-11-17 answers:
 - **Nothing to deliver, nothing connected.** With both unchecked, the press
   records the attachment and the adapter authorization but does not connect.
 - **Stop incoming messages** is added.
-- **The press also reconnects** after a plugin reload or host restart.
+- **The press also reconnects** after a plugin reload. After a host restart
+  it gets as far as section5 allows (see below).
 
 ### The Connect this conversation review
 
@@ -10723,17 +10724,27 @@ model turn. **Stop adapter** is unchanged.
 
 ### After a reload or restart
 
-The runtime, lease and enabled paths live in the pane's memory, and a host
-restart invalidates the attachment (section3). An agent created by the earlier
-press stays registered, so it is no longer new. Afterwards, **Connect this
-conversation** shows the review with that exact agent, identified by the agent
-ID of the invalidated attachment (never by name or list order), as an existing
-agent, with section4's existing-agent terms and the resumption wording; the
-participant may instead choose another agent explicitly. Its press replaces the
-invalidated attachment or adapter flow (`replace_flow_id`, sections3 and 5) and
-reconnects a still-authorized adapter instead of preparing a new one, each
-checked against that screen as above. It never does this on entry, Refresh or
-reload.
+The runtime, lease and enabled paths live in the pane's memory.
+
+**After a plugin reload** (the host still running), the attachment and the
+adapter authorization remain. **Connect this conversation** shows the same review,
+and its press reconnects the still-authorized adapter instead of preparing a new
+one, then enables what is checked, each checked against the screen as above.
+
+**After a host restart,** section3 invalidates the attachment. An agent created
+by the earlier press stays registered, so it is no longer new. The review shows
+that exact agent, identified by the agent ID of the invalidated attachment (never
+by name or list order), as an existing agent, with section4's existing-agent
+terms and the resumption wording; the participant may instead choose another
+agent explicitly. The press replaces the invalidated attachment
+(`replace_flow_id`, section3). The agent's earlier credential stays recoverable
+until it expires, and section5 refuses a new authorization while it does, with
+no implicit revocation. In that case the press stops at the adapter step. The view
+names the earlier adapter, its credential end, and the owner's existing control
+to revoke it (`peerspan adapter revoke ADAPTER_ID`). After revocation or expiry,
+the next press continues from the adapter step.
+
+None of this happens on entry, Refresh or reload.
 
 ### Show each step
 
@@ -10745,7 +10756,7 @@ With `show_each_step` set (section53), the per-step controls of sections4 and
 Where this section applies, it replaces these rules:
 - section4: **Review new agent**, **Review agent NAME** and **Approve
   attachment** become part of the press, and **Review a replacement** may be
-  run by the press after a reload or restart;
+  run by the press after a host restart;
 - section5: the discarded "folding credential issuance into the metadata
   approval" no longer holds for this press;
 - section6: **Approve adapter** and **Connect adapter** may run as part of the
@@ -10772,9 +10783,12 @@ A separate contract-only author adds native cases for this section:
   authorization without connecting.
 - **Stop incoming messages** stops messages and tasks, and keeps the adapter
   connected.
+- **After a plugin reload,** the press reconnects the retained authorization.
 - **After a host restart,** the review shows the earlier agent as an existing
-  agent with the resumption wording, and the press replaces the invalidated flow
-  and connects again.
+  agent with the resumption wording. While the earlier credential is live, the
+  press replaces the attachment and stops at the adapter step, naming the
+  earlier adapter, its end and `peerspan adapter revoke`. After revocation, the
+  next press connects.
 - **`show_each_step=true`** restores the per-step controls.
 
 ## Implementation choices
