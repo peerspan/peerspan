@@ -2499,6 +2499,10 @@ async function mergedFinalize($, epoch) {
     return;
   }
   await signFinalization($, cur, epoch);
+  // A verified signature makes the requester commit due: prepare it (section53).
+  const signed = joining;
+  if (epoch === generation && signed.flow?.flow_id === before.flow?.flow_id && !signed.finalizationError &&
+      finalizationRecorded(signed.owner) && !signed.commitActive) await readRequester($, signed, epoch, true);
 }
 async function joinAdvance($, epoch) {
   if (!steps()) {
@@ -2912,7 +2916,10 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     ...(!finalizationRecorded(previous.owner) ? [Text({ children: ['Missing finalization evidence does not prove binding/device signatures are absent. Partial work may already be retained.'] })] : []),
     ...autoCheck($, Text, `finalization:${previous.flow?.flow_id}`, epoch,
       !previous.finalizationCanSign && !previous.finalizationError && !previous.finalizationExpired &&
-      !finalizationRecorded(previous.owner), () => readFinalization($, joining, epoch)),
+      !finalizationRecorded(previous.owner) ||
+      !steps() && finalizationRecorded(previous.owner) && !previous.finalizationError && !previous.commitActive,
+      () => !steps() && finalizationRecorded(joining.owner) && !joining.commitActive
+        ? readRequester($, joining, epoch, true) : readFinalization($, joining, epoch)),
     autoButton(Button, 'finalization-check', 'Check original finalization', `finalization:${previous.flow?.flow_id}`, () => readFinalization($, previous, epoch), () => readFinalization($, joining, epoch)),
     button('finalization-leave', 'Leave finalization review', () => leaveOwner($, previous, epoch)),
   ];
