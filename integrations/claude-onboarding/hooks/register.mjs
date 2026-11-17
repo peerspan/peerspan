@@ -3447,27 +3447,33 @@ function grantFlow() {
   const f = invitation.flow;
   return f?.review?.agent_access && f.invitation?.invitation_id ? f : null;
 }
-async function refreshGrant($, epoch) {
+async function refreshGrant($, epoch, automatic = false) {
   const flow = grantFlow();
   if (!flow || epoch !== generation) return;
   const id = flow.invitation.invitation_id;
   const mine = invitationGrant?.id === id ? invitationGrant : (invitationGrant?.poll?.cancel(), invitationGrant = { id, view: null, busy: false });
   if (mine.busy) return;
   mine.busy = true;
+  // Section52's limits: an explicit read starts a new run of automatic
+  // checks; at most AUTO_LIMIT run, and a failed one stops them.
+  mine.checks = automatic ? (mine.checks ?? 0) + 1 : 0;
+  let failed = false;
   try {
     const raw = await invitationRun($, ['grant', 'inspect', id]);
     if (invitationGrant !== mine || grantFlow() !== flow || epoch !== generation) return;
     mine.view = parseInvitationGrant(raw, flow);
     mine.message = null;
   } catch {
+    failed = true;
     if (invitationGrant === mine) mine.message = 'Access: unavailable. Refresh to check the host.';
   } finally { mine.busy = false; }
   if (invitationGrant !== mine) return;
   mine.poll?.cancel();
-  // Section52: no automatic check once the flow has ended or while an
-  // action is due here.
-  mine.poll = GRANT_ENDED.includes(mine.view?.state) || mine.view?.state === 'waiting_for_owner'
-    ? null : $.clock.after(5000, () => refreshGrant($, epoch));
+  // Section52: no automatic check once the flow has ended, while an action
+  // is due here, after a failed check, or past the limit.
+  const stop = failed || GRANT_ENDED.includes(mine.view?.state) || mine.view?.state === 'waiting_for_owner' || mine.checks >= AUTO_LIMIT;
+  if (mine.checks >= AUTO_LIMIT && !failed && !GRANT_ENDED.includes(mine.view?.state)) mine.message = 'Access: stopped checking automatically. Refresh to check again.';
+  mine.poll = stop ? null : $.clock.after(5000, () => refreshGrant($, epoch, true));
   $.ui.invalidate('ui.render');
 }
 async function grantAction($, epoch, which) {

@@ -485,6 +485,7 @@ fn sign(store: &Store, id: &str, explicit: bool) -> Result<Attempt, Error> {
         &grant.network_id,
         explicit,
         Some(&adjust),
+        grant.person.as_ref().map(|p| p.person_public_key.as_str()),
         |_, content| appended.set(merge(&grant, content)),
     )
     .map_err(crate::decentralized::product::model)?;
