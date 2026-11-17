@@ -757,7 +757,7 @@ test('prepare response exact shapes digests person effects nested public terms a
   expect(count(w, 'join.decide')).toBe(0)
 })
 
-test('separate double Approve and Decline recheck exact parent flow identities and fresh host then send one captured decision', async ($, on) => {
+test('separate double Approve and Decline recheck exact parent flow identities and fresh host then send one captured decision', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await joinReview($, w); const normal = w.run
   for (const [index, choice] of ['approve', 'decline'].entries()) {
     if (index) {
@@ -790,7 +790,7 @@ test('separate double Approve and Decline recheck exact parent flow identities a
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('changed review parent local key provenance host root surface and deadline prevent captured approval', async ($, on) => {
+test('changed review parent local key provenance host root surface and deadline prevent captured approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), originalParent = clone(w.parent), normal = w.run
   for (const [index, mode] of ['review', 'parent', 'identity', 'provenance', 'host', 'root', 'surface', 'deadline'].entries()) {
     if (index) await currentProject(ui)
@@ -859,7 +859,7 @@ test('lookup context digest and immutable requested outcome shape must validate 
   expect(count(w, 'join.identities')).toBe(0); expect(count(w, 'join.prepare')).toBe(0); expect(count(w, 'join.decide')).toBe(0)
 })
 
-test('live retained review requires exact private code check and explicit inventory while Decline requires neither code nor available signer', async ($, on) => {
+test('live retained review requires exact private code check and explicit inventory while Decline requires neither code nor available signer', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w)); const captured = clone(w.joining)
   await joinEntry(w, ui); await noJoinDecision(ui); expect(count(w, 'join.identities')).toBe(0)
@@ -898,7 +898,7 @@ test('retained check refuses a changed returned flow person digest public invita
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('uncertain committed decisions drop private code and recover by public Refresh without retrying or preparing', async ($, on) => {
+test('uncertain committed decisions drop private code and recover by public Refresh without retrying or preparing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await joinReview($, w), normal = w.run
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); return kind === 'join.decide' ? { fixtureDeny: true } : value }
   await press(ui, 'Approve join request'); expect(w.joining.state).toBe('requested')
@@ -923,7 +923,7 @@ test('public requested replacement is explicit preserves the latest flow referen
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('Refresh Back and Close discard retained private code so reopened live reviews require an empty explicit check', async ($, on) => {
+test('Refresh Back and Close discard retained private code so reopened live reviews require an empty explicit check', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await joinReview($, w)
   for (const mode of ['refresh', 'back', 'close']) {
     if (mode === 'refresh') await press(ui, 'Refresh')
@@ -939,7 +939,7 @@ test('Refresh Back and Close discard retained private code so reopened live revi
   expect(count(w, 'join.decide')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('late old prepare and decision inspection cannot enable or publish into a newer human view', async ($, on) => {
+test('late old prepare and decision inspection cannot enable or publish into a newer human view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   await joinEntry(w, ui); await joiningIdentities(w, ui)
   let first = true
@@ -961,7 +961,7 @@ test('late old prepare and decision inspection cannot enable or publish into a n
   expect(count(w, 'join.decide')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('fixed invitation and review deadlines clear authority while old timers cannot hide a newer joining view', async ($, on) => {
+test('fixed invitation and review deadlines clear authority while old timers cannot hide a newer joining view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   w.previewValue = await previewResponse(w, { expires: NOW + 3000 })
   await joinEntry(w, ui); await joiningIdentities(w, ui); await choose(w, ui)

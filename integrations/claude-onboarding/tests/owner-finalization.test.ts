@@ -1035,7 +1035,7 @@ async function pass(w: World, ui: Pane, ms: number) {
   for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
 }
 // Section52: when finalization is due here, automatic progress neither checks nor opens, inspects or signs it.
-test('automatic progress offers due original finalization without opening inspecting or signing it', async ($, on) => {
+test('automatic progress offers due original finalization without opening inspecting or signing it', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w)
   expect(await ui.find({ type: 'Button', text: /^Review original finalization$/ })).toBeDefined()
   let at = w.calls.length; await pass(w, ui, 30000)
@@ -1048,4 +1048,121 @@ test('automatic progress offers due original finalization without opening inspec
   expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
   expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
   finalPrivacy(w, await visible(ui))
+})
+
+// Section 53 (P1): the owner approval covers the original finalization. While
+// section 52 checks the approved owner consent and finalization becomes due, the
+// open pane inspects and signs it without a press when every term matches.
+async function finalWaiting($: Engine, w: World) {
+  // Approved owner consent, waiting on the administrator offer.
+  const ui = await finalEligible($, w, { requestState: 'needs_administrator' }); await finished(w, ui)
+  expect(finalCalls(w)).toHaveLength(0); return ui
+}
+async function becomeDue(w: World, ui: Pane) {
+  w.requestState = 'needs_owner_finalization'; await pass(w, ui, 10_000)
+}
+async function againWaiting(w: World, ui: Pane) {
+  w.run = normalRun.get(w)!; await leaveFinal(ui); await leaveIfPresent(ui)
+  w.requestState = 'needs_administrator'; w.lastInspection = null; await reviewOwner(ui); await finished(w, ui)
+}
+const normalRun = new WeakMap<World, World['run']>()
+
+test('due original finalization is inspected then signed without a press when every term matches', async ($, on) => {
+  const w = fixture(on), ui = await finalWaiting($, w), at = w.trace.length
+  await pass(w, ui, 15_000); expect(finalCalls(w)).toHaveLength(0)
+  await becomeDue(w, ui)
+  // Section 25's own preflight may reinspect; exactly one signature follows inspection.
+  expect(finalCalls(w, 'sign')).toHaveLength(1); expect(finalCalls(w).at(-1)!.kind).toBe(FINAL_SIGN)
+  expect(finalCalls(w, 'inspect').length >= 1).toBe(true)
+  expect(finalCalls(w, 'sign')[0].payload).toEqual({ flow_id: w.joining.flow_id, context: context(w.parent),
+    join_review_id: w.joining.review_id, owner_review_id: w.ownerValue.review_id,
+    finalization_review_id: w.lastInspection.review_id, decision: 'sign_original_finalization' })
+  const trace = w.trace.slice(at).map(e => e.kind)
+  expect(trace.indexOf(FINAL_INSPECT) < trace.indexOf(FINAL_SIGN)).toBe(true)
+  await recorded(ui, w)
+  await pass(w, ui, 30_000); expect(finalCalls(w, 'sign')).toHaveLength(1)
+  expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
+  finalPrivacy(w, await visible(ui))
+})
+
+test('an inspection refusal falls back to Review original finalization without signing', async ($, on) => {
+  const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
+  w.run = async (kind, payload, e) => kind === FINAL_INSPECT ? { fixtureExit: true } : normal(kind, payload, e)
+  await becomeDue(w, ui); await pass(w, ui, 30_000)
+  expect(finalCalls(w, 'sign')).toHaveLength(0); await noFinalRecord(ui)
+  const offered = await ui.find({ type: 'Button', text: /^Review original finalization$/ }) !== undefined
+  w.run = normal
+  if (offered) await finalReview(ui, w)
+  else { await press(ui, 'Check original finalization'); await finished(w, ui) }
+  expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
+  await pass(w, ui, 30_000); expect(finalCalls(w, 'sign')).toHaveLength(0)
+  finalPrivacy(w, await visible(ui))
+  expect(offered, 'inspection refusal offers Review original finalization').toBe(true)
+})
+
+test('a differing finalization term falls back to Review original finalization without signing', async ($, on) => {
+  const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
+  normalRun.set(w, normal)
+  const variants: [string, (r: any) => void][] = [
+    ['profile', r => { r.scopes = 3 }], ['binding', r => { r.binding_scopes = 3 }],
+    ['not_after', r => { r.not_after = stamp(Date.parse(r.not_after) - 1000) }],
+    ['person', r => { r.person_public_key = GENESIS_KEY }], ['host', r => { r.host_public_key = GENESIS_KEY }],
+    ['device', r => { r.device_public_key = GENESIS_KEY }], ['network', r => { r.network.name = 'Different network' }],
+    ['member', r => { r.member = 'Different member' }],
+  ]
+  const missing: string[] = []
+  for (const [index, [label, change]] of variants.entries()) {
+    if (index) await againWaiting(w, ui)
+    w.run = async (kind, payload, e) => {
+      if (kind !== FINAL_INSPECT) return normal(kind, payload, e)
+      const value = clone(await finalizationInspection(w)); change(value.review)
+      value.review_id = await digest('peerspan-original-finalization-inspection-v1', value.review)
+      w.lastInspection = clone(value); return value
+    }
+    await becomeDue(w, ui); await pass(w, ui, 15_000)
+    expect(finalCalls(w, 'sign'), label).toHaveLength(0); await noFinalRecord(ui, label)
+    if (!await ui.find({ type: 'Button', text: /^Review original finalization$/ })) missing.push(label)
+  }
+  expect(finalCalls(w, 'inspect').length >= variants.length).toBe(true)
+  w.run = normal; finalPrivacy(w, await visible(ui))
+  expect(missing, 'differences shown without Review original finalization').toEqual([])
+})
+
+test('an unknown automatic finalization outcome is not repeated and recovery stays explicit', async ($, on) => {
+  const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
+  normalRun.set(w, normal)
+  for (const mode of ['deny', 'timeout', 'raw']) {
+    if (mode !== 'deny') await againWaiting(w, ui)
+    w.run = async (kind, payload, e) => {
+      if (kind !== FINAL_SIGN) return normal(kind, payload, e)
+      return mode === 'deny' ? { fixtureDeny: true } : mode === 'timeout' ? { fixtureExit: true } : { fixtureRaw: RAW + CODE }
+    }
+    const before = finalCalls(w, 'sign').length
+    await becomeDue(w, ui); expect(finalCalls(w, 'sign').length, mode).toBe(before + 1)
+    await noFinalRecord(ui, mode); expect(await visible(ui), mode).toMatch(/unknown|not confirmed|unavailable/i)
+    expect(await visible(ui), mode).toContain('Join request: publication recorded')
+    await pass(w, ui, 30_000); expect(finalCalls(w, 'sign').length, mode).toBe(before + 1)
+    // Section 53 falls back to the explicit review; section 26 recovers an unknown outcome through Check.
+    expect(await ui.find({ type: 'Button', text: /^(?:Review|Check) original finalization$/ }), mode).toBeDefined()
+    await noFinalSign(ui, mode)
+  }
+  w.run = normal; finalPrivacy(w, await visible(ui))
+})
+
+test('possibly partial B/D after a lost automatic signature falls back to an explicit review and press', async ($, on) => {
+  const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
+  w.run = async (kind, payload, e) => kind === FINAL_SIGN ? { fixtureExit: true } : normal(kind, payload, e)
+  await becomeDue(w, ui); expect(finalCalls(w, 'sign')).toHaveLength(1); await noFinalRecord(ui)
+  // The lost result may have recorded B/D; F is still missing, so finalization stays due.
+  w.run = normal
+  const check = await ui.find({ type: 'Button', text: /^Check original finalization$/ })
+  if (check) { await ui.press({ key: check.key! }); await finished(w, ui) }
+  await pass(w, ui, 30_000); expect(finalCalls(w, 'sign')).toHaveLength(1); await noFinalRecord(ui)
+  if (!await ui.find({ type: 'Button', text: /^Sign original finalization$/ })) await finalReview(ui, w)
+  const shown = await visible(ui)
+  expect(shown).not.toMatch(/\b(?:no|absent|missing) (?:binding|device|original) signatures?\b/i)
+  expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
+  await pass(w, ui, 30_000); expect(finalCalls(w, 'sign')).toHaveLength(1)
+  await press(ui, 'Sign original finalization'); await finished(w, ui)
+  expect(finalCalls(w, 'sign')).toHaveLength(2); await recorded(ui, w)
 })

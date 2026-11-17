@@ -742,7 +742,7 @@ test('entry requires exact approved original F while expired or cancelled null h
   expect(mutations(w)).toHaveLength(0); privacy(w, await visible(ui))
 })
 
-test('explicit null lookup precedes one preparation and displays exact quoted powers parents provider and effects', async ($, on) => {
+test('explicit null lookup precedes one preparation and displays exact quoted powers parents provider and effects', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w)
   expect(commitCalls(w)).toHaveLength(0); await reviewCommit(ui, w)
   expect(commitCalls(w).map(e => e.kind)).toEqual([COMMIT_LOOKUP, COMMIT_PREPARE])
@@ -772,7 +772,7 @@ test('existing review approved and terminal histories recover lookup-only and nu
   await noMutations(ui); privacy(w, await visible(ui))
 })
 
-test('double Approve freshly rechecks exact bindings and sends one configured5s private stdin action without Complete', configuredCommit, async ($, on) => {
+test('double Approve freshly rechecks exact bindings and sends one configured5s private stdin action without Complete', { ...configuredCommit, options: { ...configuredCommit.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w); await reviewCommit(ui, w)
   const normal = w.run, delayed = delaySignal(w, 1000), captured = clone(w.commitValue), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.owner.lookup') await delayed.wait(); return value }
@@ -806,7 +806,7 @@ test('double Complete sends one configured95s exact decision and requires verifi
   await applicationRecorded(ui, w, false, configuredCommit.options)
 })
 
-test('already globally approved or locally applied preflight recovers read-only with zero mutation calls', async ($, on) => {
+test('already globally approved or locally applied preflight recovers read-only with zero mutation calls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w); await reviewCommit(ui, w)
   w.commitValue = { ...w.commitValue, state: 'approved', next_action: 'follow_join_progress' }
   await press(ui, 'Approve requester commit'); expect(mutations(w)).toHaveLength(0); await consentRecorded(ui)
@@ -815,7 +815,7 @@ test('already globally approved or locally applied preflight recovers read-only 
   expect(commitCalls(w, 'prepare')).toHaveLength(1)
 })
 
-test('changed immutable consent original F request provider or selected terms stop preflight without mutation', async ($, on) => {
+test('changed immutable consent original F request provider or selected terms stop preflight without mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['intent', v => { v.commit.review.intent_id = id('dint', 999) }], ['root', v => { v.commit.review.root_state_id = id64('ds', 999) }],
@@ -947,7 +947,7 @@ test('all seven short private token forms including decorated OSC content never 
   expect(mutations(w)).toHaveLength(0); privacy(w, await visible(ui))
 })
 
-test('malformed or changed approval replies stay unknown and Check recovers only global consent without completion', async ($, on) => {
+test('malformed or changed approval replies stay unknown and Check recovers only global consent without completion', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['missing', v => { delete v.commit }], ['null', v => { v.commit = null }], ['extra', v => { v.extra = true }],
@@ -997,7 +997,7 @@ test('bare null extra mismatched or overclaiming completion markers cannot confi
   expect(commitCalls(w, 'approve')).toHaveLength(0); privacy(w, await visible(ui))
 })
 
-test('denied nonzero timed-out raw and null mutations show fixed unknown without automatic retry or raw echo', async ($, on) => {
+test('denied nonzero timed-out raw and null mutations show fixed unknown without automatic retry or raw echo', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   for (const op of ['approve', 'complete']) for (const mode of ['deny', 'timeout', 'raw', 'null']) {
     w.run = normal; w.requestState = 'needs_commit'; w.commitValue = await commitRecord(w, { state: op === 'approve' ? 'review' : 'approved' })
@@ -1022,7 +1022,7 @@ test('denied nonzero timed-out raw and null mutations show fixed unknown without
   privacy(w, await visible(ui))
 })
 
-test('human review expiry removes Approve at the exact boundary without reading renewing or mutating', async ($, on) => {
+test('human review expiry removes Approve at the exact boundary without reading renewing or mutating', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w); await reviewCommit(ui, w)
   const end = Date.parse(w.commitValue.review.expires_at), before = w.calls.length
   await w.clock.advance(end - w.clock.now() - 1)
@@ -1043,7 +1043,7 @@ test('approved signed six-stage work keeps Complete after review expiry then los
   expect(w.calls).toHaveLength(before); privacy(w, await visible(ui))
 })
 
-test('actual registered preflight deadline crossing blocks dispatch while post-dispatch expiry permits valid historical evidence', async ($, on) => {
+test('actual registered preflight deadline crossing blocks dispatch while post-dispatch expiry permits valid historical evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui: Pane | undefined; const normal = w.run
   for (const op of ['approve', 'complete']) for (const phase of ['preflight', 'dispatched']) {
     w.run = normal; w.commitValue = null
@@ -1111,7 +1111,7 @@ test('Leave pending operations and native navigation changes invalidate late res
   expect(commitCalls(w, 'complete')).toHaveLength(10); privacy(w)
 })
 
-test('requester navigation preserves established message task lease and invitation state without new tools prompts or storage', async ($, on) => {
+test('requester navigation preserves established message task lease and invitation state without new tools prompts or storage', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w)
   await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, network(9), { state: 'issued' }); const issued = clone(w.invitation)
@@ -1146,7 +1146,7 @@ async function finished(w: World, ui: Pane) {
 async function pass(w: World, ui: Pane, ms: number) {
   for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
 }
-test('automatic progress never checks requester consent while approval or completion is due here or after local application', async ($, on) => {
+test('automatic progress never checks requester consent while approval or completion is due here or after local application', { options: { show_each_step: 'true' } }, async ($, on) => {
   // Section52: checking stops when the view shows an action due for this
   // participant or a terminal state, and never approves or completes by itself.
   const w = fixture(on), ui = await commitEligible($, w); await reviewCommit(ui, w)
@@ -1166,4 +1166,82 @@ test('automatic progress never checks requester consent while approval or comple
   await quiet('locally applied')
   expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(commitCalls(w, 'approve')).toHaveLength(1)
   expect(commitCalls(w, 'complete')).toHaveLength(1); privacy(w, await visible(ui))
+})
+
+// Section 53 (P1): when the requester commit becomes due, the open pane prepares
+// it once without a press; one Commit press approves, then completes.
+async function commitWaiting($: Engine, w: World) {
+  const ui = await commitEligible($, w, { requestState: 'needs_administrator' }); await finished(w, ui)
+  expect(commitCalls(w)).toHaveLength(0); return ui
+}
+async function openCommit(w: World, ui: Pane) {
+  // The prepared review may be shown directly or behind its existing review control.
+  if (!await button(ui, 'Commit')) {
+    const review = await button(ui, 'Review requester commit')
+    if (review) { await ui.press({ key: review.key! }); await finished(w, ui) }
+  }
+  expect(await button(ui, 'Commit'), 'merged Commit control').toBeDefined()
+}
+async function commitDue($: Engine, w: World) {
+  const ui = await commitWaiting($, w)
+  w.requestState = 'needs_commit'; await pass(w, ui, 10_000)
+  expect(commitCalls(w, 'prepare'), 'prepared without a press').toHaveLength(1)
+  await openCommit(w, ui); return ui
+}
+
+test('a due requester commit is prepared once without a press and never twice', async ($, on) => {
+  const w = fixture(on), ui = await commitWaiting($, w)
+  await pass(w, ui, 15_000); expect(commitCalls(w, 'prepare')).toHaveLength(0)
+  w.requestState = 'needs_commit'; await pass(w, ui, 10_000)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(mutations(w)).toHaveLength(0)
+  await openCommit(w, ui); await terms(ui, w)
+  await noMutations(ui)
+  await pass(w, ui, 30_000)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(mutations(w)).toHaveLength(0)
+  await leaveCommit(ui); await leaveIfPresent(ui); await reviewOwner(ui); await pass(w, ui, 10_000); await openCommit(w, ui)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1)
+  await press(ui, 'Refresh'); await finished(w, ui); await back(ui); await joinEntry(w, ui); await reviewOwner(ui)
+  await pass(w, ui, 10_000); await openCommit(w, ui)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(mutations(w)).toHaveLength(0)
+  privacy(w, await visible(ui))
+})
+
+test('one Commit press approves the prepared commit and then completes it', async ($, on) => {
+  const w = fixture(on), ui = await commitDue($, w), captured = clone(w.commitValue), at = w.calls.length
+  await press(ui, 'Commit'); await finished(w, ui)
+  expect(w.calls.slice(at).filter(e => [COMMIT_APPROVE, COMMIT_COMPLETE].includes(e.kind)).map(e => e.kind)).toEqual([COMMIT_APPROVE, COMMIT_COMPLETE])
+  expect(commitCalls(w, 'approve')[0].payload).toEqual({ flow_id: w.joining.flow_id, context: context(w.parent),
+    join_review_id: w.joining.review_id, commit_review_id: captured.review_id })
+  expect(commitCalls(w, 'complete')[0].payload).toEqual({ flow_id: w.joining.flow_id, context: context(w.parent),
+    join_review_id: w.joining.review_id, commit_review_id: captured.review_id, decision: 'complete_requester_commit' })
+  await applicationRecorded(ui, w); expect(await button(ui, 'Commit')).toBeUndefined()
+  await pass(w, ui, 30_000)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1); expect(commitCalls(w, 'approve')).toHaveLength(1); expect(commitCalls(w, 'complete')).toHaveLength(1)
+  privacy(w, await visible(ui))
+})
+
+test('an unknown Commit approval never completes and is not repeated', async ($, on) => {
+  const w = fixture(on), normal = w.run
+  for (const mode of ['deny', 'timeout', 'mismatch']) {
+    const ui = await commitDue($, w)
+    w.run = async (kind, payload, e) => {
+      const value = await normal(kind, payload, e)
+      if (kind !== COMMIT_APPROVE) return value
+      if (mode === 'deny') return { fixtureDeny: true }
+      if (mode === 'timeout') return { fixtureExit: true }
+      value.commit.review_id = id64('review', 99); return value
+    }
+    await press(ui, 'Commit'); await finished(w, ui)
+    expect(commitCalls(w, 'approve'), mode).toHaveLength(1); expect(commitCalls(w, 'complete'), mode).toHaveLength(0)
+    await unknownCommit(ui, w, mode); expect(await button(ui, 'Commit'), mode).toBeUndefined()
+    await pass(w, ui, 30_000)
+    expect(commitCalls(w, 'approve'), mode).toHaveLength(1); expect(commitCalls(w, 'complete'), mode).toHaveLength(0)
+    w.run = normal; await press(ui, 'Check requester consent'); await finished(w, ui)
+    expect(commitCalls(w, 'complete'), mode).toHaveLength(0); expect(commitCalls(w, 'approve'), mode).toHaveLength(1)
+    expect(await visible(ui), mode).not.toContain('Local application: recorded')
+    privacy(w, await visible(ui))
+    const close = await button(ui, 'Close'); if (close) await ui.press({ key: close.key! })
+    await ui.unmount()
+    w.calls = []; w.trace = []; w.commitValue = null; w.ownerValue = null; w.joining = null; w.lastCommit = null
+  }
 })

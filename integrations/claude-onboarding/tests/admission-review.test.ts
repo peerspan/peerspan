@@ -446,7 +446,7 @@ test('duplicate public identities remain twelve explicit ordinal choices over te
   expect(await ui.find({ type: 'Input' })).toBeUndefined(); safe(w, await text(ui))
 })
 
-test('selection looks up first and terminal null or retained histories never fetch or prepare', async ($, on) => {
+test('selection looks up first and terminal null or retained histories never fetch or prepare', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const state of ['review', 'approved', 'expired', 'cancelled', 'invalidated', 'null']) {
     w.requests = [request(1, state === 'null' ? 'cancelled' : 'needs_administrator')]
@@ -466,7 +466,7 @@ test('selection looks up first and terminal null or retained histories never fet
   safe(w)
 })
 
-test('one explicit Fetch maps owner waiting selection waiting and verified selected prefix without polling', async ($, on) => {
+test('one explicit Fetch maps owner waiting selection waiting and verified selected prefix without polling', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const state of ['pending', 'needs_selection', 'needs_administrator']) {
     w.requests = [request(1, 'pending')]; w.admissions = {}; w.progressState = state
@@ -483,7 +483,7 @@ test('one explicit Fetch maps owner waiting selection waiting and verified selec
   }
 })
 
-test('fresh lookup discovers a competing retained intent before Fetch and suppresses carrier action', async ($, on) => {
+test('fresh lookup discovers a competing retained intent before Fetch and suppresses carrier action', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requests = [request(1, 'pending')]
   const ui = await selected($, w)
   w.requests = [request()]; w.admissions[w.requests[0].request_id] = await admissionRecord(w, w.requests[0].request_id)
@@ -494,7 +494,7 @@ test('fresh lookup discovers a competing retained intent before Fetch and suppre
   safe(w, await text(ui))
 })
 
-test('successful Fetch never prepares and Check Refresh or reentry cannot turn it into consent', async ($, on) => {
+test('successful Fetch never prepares and Check Refresh or reentry cannot turn it into consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requests = [request(1, 'pending')]
   let ui = await selected($, w); await press(ui, 'Fetch incoming proofs')
   await w.clock.advance(5000); await press(ui, 'Check administrator consent')
@@ -506,7 +506,7 @@ test('successful Fetch never prepares and Check Refresh or reentry cannot turn i
   safe(w, await text(ui))
 })
 
-test('explicit Review repeats lookup then authentic inspection before one exactly matching prepare', async ($, on) => {
+test('explicit Review repeats lookup then authentic inspection before one exactly matching prepare', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), before = calls(w).length
   await review(ui)
   expect(calls(w).slice(before).map(call => call.kind)).toEqual(['admission.lookup', 'admission.inspect', 'admission.prepare'])
@@ -529,7 +529,7 @@ test('explicit Review repeats lookup then authentic inspection before one exactl
   safe(w)
 })
 
-test('an existing review appearing at explicit Review is reused without inspect or replacement preparation', async ($, on) => {
+test('an existing review appearing at explicit Review is reused without inspect or replacement preparation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w)
   w.admissions[w.requests[0].request_id] = await admissionRecord(w, w.requests[0].request_id)
   await review(ui)
@@ -540,7 +540,7 @@ test('an existing review appearing at explicit Review is reused without inspect 
   safe(w, await text(ui))
 })
 
-test('exact administrator terms render reversibly with every finite power effect and public dependency', async ($, on) => {
+test('exact administrator terms render reversibly with every finite power effect and public dependency', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w, { state: 'review' }), retained = w.admissions[w.requests[0].request_id]
   const r = retained.review, shown = await text(ui)
   for (const value of [ROOT, w.parent.review.agent.name, w.parent.review.agent.owner, ...w.parent.review.agent.capabilities,
@@ -559,7 +559,7 @@ test('exact administrator terms render reversibly with every finite power effect
 const configuredAdmission: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private admission state/$(literal)' },
 }
-test('double explicit approval performs fresh exact lookup and one configured five-second private stdin call', configuredAdmission, async ($, on) => {
+test('double explicit approval performs fresh exact lookup and one configured five-second private stdin call', { ...configuredAdmission, options: { ...configuredAdmission.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w, { state: 'review' }), retained = clone(w.admissions[w.requests[0].request_id])
   const normal = w.run, delayed = delaySignal(w, 1000), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'admission.lookup') await delayed.wait(); return value }
@@ -576,7 +576,7 @@ test('double explicit approval performs fresh exact lookup and one configured fi
   safe(w, await text(ui), false, configuredAdmission.options.executable, configuredAdmission.options.state)
 })
 
-test('changed review root tuple parent native conversation host and terminal cannot authorize approval', async ($, on) => {
+test('changed review root tuple parent native conversation host and terminal cannot authorize approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['review', 'root-key', 'tuple', 'parent', 'root', 'native', 'host', 'terminal', 'post-lookup-parent', 'post-lookup-host']) {
     w.root = ROOT; w.native = NATIVE; w.host = HOST; w.surface = 'terminal'; w.surfaces = ['terminal']; w.run = normal
@@ -604,7 +604,7 @@ test('changed review root tuple parent native conversation host and terminal can
   safe(w)
 })
 
-test('review and null request deadlines plus raw creation and future observation bounds remove write authority', async ($, on) => {
+test('review and null request deadlines plus raw creation and future observation bounds remove write authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['review-deadline', 'null-deadline', 'fetched-deadline', 'before-creation', 'future-observation']) {
     w.admissions = {}; w.run = normal
@@ -633,7 +633,7 @@ test('review and null request deadlines plus raw creation and future observation
   safe(w)
 })
 
-test('approved global history stays readable after request and review expiry without fresh write or attribution', async ($, on) => {
+test('approved global history stays readable after request and review expiry without fresh write or attribution', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.requests = [request(1, 'linked', { created: NOW - 7_200_000, expires: NOW - 3_600_000 })]
   const ui = await selected($, w, { state: 'approved', created: NOW - 7_199_000 })
@@ -645,7 +645,7 @@ test('approved global history stays readable after request and review expiry wit
   safe(w, await text(ui))
 })
 
-test('malformed extra private and decorated response terms never expose secrets or approval controls', async ($, on) => {
+test('malformed extra private and decorated response terms never expose secrets or approval controls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.', 'peerspan-person-invite-v1.', 'token_', 'instance_']
   const variants = ['outer-extra', 'review-extra', 'request-extra', 'digest', 'effect', 'lifetime', 'stages', 'state-action',
@@ -682,7 +682,7 @@ test('malformed extra private and decorated response terms never expose secrets 
   safe(w)
 })
 
-test('failed reads and lost prepare or approval results require explicit lookup-only recovery', async ($, on) => {
+test('failed reads and lost prepare or approval results require explicit lookup-only recovery', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['lookup-denied', 'lookup-raw', 'prepare-lost', 'approve-lost', 'approve-mismatch', 'progress-lost']) {
     w.admissions = {}; w.requests = [request(1, mode === 'progress-lost' ? 'pending' : 'needs_administrator')]; w.run = normal
@@ -711,7 +711,7 @@ test('failed reads and lost prepare or approval results require explicit lookup-
   }
 })
 
-test('dispatched reads writes and fetches lose local authority on navigation context host or terminal loss', async ($, on) => {
+test('dispatched reads writes and fetches lose local authority on navigation context host or terminal loss', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const [operation, mode] of [['lookup', 'Leave'], ['prepare', 'Back'], ['approve', 'Close'], ['progress', 'Refresh'],
     ['prepare', 'root'], ['prepare', 'native'], ['prepare', 'terminal'], ['prepare', 'parent'], ['prepare', 'host'], ['prepare', 'end']]) {
@@ -742,7 +742,7 @@ test('dispatched reads writes and fetches lose local authority on navigation con
   safe(w)
 })
 
-test('old timers and delayed results cannot replace newer explicit selection and reentry restores no authority', async ($, on) => {
+test('old timers and delayed results cannot replace newer explicit selection and reentry restores no authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   w.requests = [request(1, 'pending', { created: NOW - 3_599_000, expires: NOW + 1000 }), request(2)]
   const ui = await setup($, w); await begin(w, ui); await choose(w, ui)
@@ -763,7 +763,7 @@ test('old timers and delayed results cannot replace newer explicit selection and
   expect(w.admissions[id64('link', 2)]).toEqual(second); safe(w, await text(fresh))
 })
 
-test('administrator navigation preserves established adapter messages and tasks without new prompts tools or secrets', async ($, on) => {
+test('administrator navigation preserves established adapter messages and tasks without new prompts tools or secrets', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w)
   w.child = await adapterFlow(w.parent, { n: w.sequence, state: 'authorized' })
   await press(ui, 'Review adapter connection'); await press(ui, 'Connect adapter'); await w.clock.settle()
@@ -813,7 +813,7 @@ async function pass(w: World, ui: Pane, ms: number) {
 // Section 52 automatic progress in the selected incoming-connections view.
 const automatic = (w: World, from: number) => calls(w).slice(from).map(call => call.kind)
 
-test('automatic progress fetches incoming proofs while owner or selection is missing and then only looks up', async ($, on) => {
+test('automatic progress fetches incoming proofs while owner or selection is missing and then only looks up', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requests = [request(1, 'pending')]; w.progressState = 'pending'
   const ui = await selected($, w); let at = calls(w).length
   await pass(w, ui, 4900); expect(calls(w).length).toBe(at)
@@ -841,7 +841,7 @@ test('automatic progress fetches incoming proofs while owner or selection is mis
   await noApprove(ui); safe(w, await text(ui))
 })
 
-test('automatic progress continues after an unavailable incoming fetch', async ($, on) => {
+test('automatic progress continues after an unavailable incoming fetch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run; w.requests = [request(1, 'pending')]; w.progressState = 'pending'
   let unavailable = true
   const ui = await selected($, w)
@@ -856,7 +856,7 @@ test('automatic progress continues after an unavailable incoming fetch', async (
   safe(w, await text(ui))
 })
 
-test('automatic incoming check stops when a retained consent review is due here and never approves', async ($, on) => {
+test('automatic incoming check stops when a retained consent review is due here and never approves', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const ui = await selected($, w, { state: 'review' }), at = calls(w).length
   expect(await ui.find({ type: 'Button', text: /^Approve administrator consent$/ })).toBeDefined()
@@ -867,7 +867,7 @@ test('automatic incoming check stops when a retained consent review is due here 
   safe(w, await text(ui))
 })
 
-test('automatic incoming checks stop on Leave Back Close Refresh and a project or conversation change', async ($, on) => {
+test('automatic incoming checks stop on Leave Back Close Refresh and a project or conversation change', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const mode of ['Leave', 'Back', 'Close', 'Refresh', 'root', 'native']) {
     w.root = ROOT; w.native = NATIVE
@@ -885,4 +885,87 @@ test('automatic incoming checks stop on Leave Back Close Refresh and a project o
     await dispose(ui)
   }
   safe(w)
+})
+
+// Section 53 (P2): a sole incoming request opens directly; when the administrator
+// review becomes due the open pane inspects and prepares it once; one Admit NAME
+// press approves it.
+const admitButton = (ui: Pane) => ui.find({ type: 'Button', text: /^Admit\b.*Incoming.*member/ })
+async function soleOpened($: Engine, w: World) {
+  const ui = await setup($, w), before = calls(w).length; await begin(w, ui); await finished(w, ui)
+  const opened = calls(w).slice(before)
+  expect(opened.length > 0, 'sole request opened directly').toBe(true)
+  expect(opened[0].kind).toBe('admission.lookup'); expect(opened[0].payload.request_id).toBe(w.requests[0].request_id)
+  return ui
+}
+async function admitDue($: Engine, w: World) {
+  w.requests = [request(1, 'pending')]; w.progressState = 'pending'; w.admissions = {}
+  const ui = await soleOpened($, w)
+  await pass(w, ui, 5000); expect(calls(w, 'progress')).toHaveLength(1); expect(calls(w, 'prepare')).toHaveLength(0)
+  w.progressState = 'needs_administrator'; await pass(w, ui, 10_000)
+  return ui
+}
+
+test('a sole incoming request opens directly while several keep the explicit list', async ($, on) => {
+  const w = fixture(on); w.requests = [request(1, 'pending')]; w.progressState = 'pending'
+  let ui = await soleOpened($, w)
+  expect(await choices(w, ui)).toHaveLength(0)
+  expect(await ui.find({ type: 'Button', text: /^Check administrator consent$/ })).toBeDefined()
+  expect(calls(w, 'inspect')).toHaveLength(0); expect(calls(w, 'prepare')).toHaveLength(0); expect(calls(w, 'approve')).toHaveLength(0)
+  safe(w, await text(ui)); await dispose(ui)
+  w.requests = [request(2, 'pending'), request(1, 'pending')]
+  ui = await setup($, w); const before = calls(w).length; await begin(w, ui)
+  expect(await choices(w, ui)).toHaveLength(2); expect(calls(w).length).toBe(before)
+  await pass(w, ui, 30_000); expect(calls(w).length).toBe(before)
+  await choose(w, ui)
+  expect(calls(w).slice(before)[0].payload.request_id).toBe(id64('link', 1))
+  safe(w, await text(ui))
+})
+
+test('a due administrator review is inspected and prepared once without a press and never approved without one', async ($, on) => {
+  const w = fixture(on), ui = await admitDue($, w)
+  expect(calls(w, 'inspect')).toHaveLength(1); expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
+  const trace = calls(w).map(call => call.kind)
+  expect(trace.lastIndexOf('admission.inspect') < trace.lastIndexOf('admission.prepare')).toBe(true)
+  expect(await admitButton(ui)).toBeDefined(); await noApprove(ui)
+  const r = w.admissions[w.requests[0].request_id].review, shown = await text(ui)
+  for (const value of [r.network.name, r.member]) expect(shown, value).toContain(quote(value))
+  for (const value of [r.network.id, r.root_state_id, r.person_public_key, r.host_public_key, r.device_public_key, r.not_after, r.expires_at]) expect(shown, value).toContain(value)
+  await pass(w, ui, 30_000)
+  expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
+  expect(w.admissions[w.requests[0].request_id].state).toBe('review'); await noRecord(ui)
+  await leave(ui); await dispose(ui); const reopened = await soleOpened($, w); await pass(w, reopened, 10_000)
+  expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
+  expect(await admitButton(reopened)).toBeDefined()
+  safe(w, await text(reopened))
+})
+
+test('an already due sole request is prepared once on opening and one Admit press approves it', async ($, on) => {
+  const w = fixture(on); w.requests = [request()]; w.progressState = 'needs_administrator'
+  const ui = await soleOpened($, w); await pass(w, ui, 10_000)
+  expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
+  const retained = w.admissions[w.requests[0].request_id], at = calls(w).length
+  const admit = await admitButton(ui); expect(admit).toBeDefined()
+  await ui.press({ key: admit!.key! }); await finished(w, ui)
+  expect(calls(w, 'approve')).toHaveLength(1)
+  expect(calls(w, 'approve')[0].payload).toEqual({ context: context(w.parent), request_id: w.requests[0].request_id,
+    admission_review_id: retained.review_id })
+  expect(calls(w).slice(at).filter(call => call.kind === 'admission.prepare')).toHaveLength(0)
+  expect(await text(ui)).toContain('Administrator consent: recorded'); expect(await admitButton(ui)).toBeUndefined()
+  await pass(w, ui, 30_000); expect(calls(w, 'approve')).toHaveLength(1); expect(calls(w, 'prepare')).toHaveLength(1)
+  safe(w, await text(ui))
+})
+
+test('show_each_step keeps the incoming list explicit review and separate approval', { options: { show_each_step: 'true' } }, async ($, on) => {
+  const w = fixture(on); w.requests = [request()]; w.progressState = 'needs_administrator'
+  const ui = await setup($, w); await begin(w, ui)
+  expect(await choices(w, ui)).toHaveLength(1); expect(calls(w)).toHaveLength(0)
+  await choose(w, ui); await pass(w, ui, 30_000)
+  expect(calls(w, 'inspect')).toHaveLength(0); expect(calls(w, 'prepare')).toHaveLength(0)
+  expect(await ui.find({ type: 'Button', text: /^Review administrator consent$/ })).toBeDefined()
+  expect(await admitButton(ui)).toBeUndefined()
+  await review(ui); await finished(w, ui)
+  expect(await ui.find({ type: 'Button', text: /^Approve administrator consent$/ })).toBeDefined()
+  await pass(w, ui, 30_000); expect(calls(w, 'approve')).toHaveLength(0)
+  safe(w, await text(ui))
 })
