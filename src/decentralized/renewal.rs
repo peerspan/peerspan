@@ -267,7 +267,7 @@ pub(super) fn cap(
     Ok(())
 }
 pub(super) fn payload(p: &Projection, provider: &Resolved, body: PolicyBody) -> Result<Value> {
-    payload_adjusted(p, provider, body, None)
+    payload_adjusted(p, provider, body, None, None)
 }
 /// As [`payload`], with `adjust` applied to the body's raw JSON before it is
 /// encoded (guided session contract section55: an appended profile rule keeps
@@ -277,6 +277,7 @@ pub(super) fn payload_adjusted(
     provider: &Resolved,
     body: PolicyBody,
     adjust: Option<&dyn Fn(&mut Value)>,
+    participant: Option<&str>,
 ) -> Result<Value> {
     let person = text(&provider.actor, "person_public_key")?;
     let person_stream = vec!["person".into(), person.into()];
@@ -307,6 +308,12 @@ pub(super) fn payload_adjusted(
                 .stream()?
                 .ok_or_else(|| Error::new("invalid"))?,
         )?;
+        until = until.min(deadline);
+    }
+    // A grant to a participant ends no later than that person's current
+    // lease (guided session contract sections 31 and 55).
+    if let Some(key) = participant {
+        let (_, deadline) = p.current_statement(&["person".into(), key.into()])?;
         until = until.min(deadline);
     }
     require(until > p.decision_time, "authority_expired")?;

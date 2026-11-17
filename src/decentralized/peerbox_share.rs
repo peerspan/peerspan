@@ -79,6 +79,7 @@ pub(crate) fn sign_peerbox_rules(
             How::Automatic,
             &|_| true,
             None,
+            None,
             |host, content| change(host, &mut content.peerbox_rules),
         )? {
             Core::Done(_) => Signing::Done,
@@ -108,6 +109,7 @@ pub(crate) fn sign_content(
     network: &str,
     explicit: bool,
     adjust: Option<Adjust<'_>>,
+    participant: Option<&str>,
     change: impl FnOnce(&str, &mut crate::policy::Content),
 ) -> Result<ContentSigning> {
     let how = if explicit {
@@ -116,7 +118,7 @@ pub(crate) fn sign_content(
         How::Automatic
     };
     Ok(
-        match core(store, network, how, &|_| true, adjust, change)? {
+        match core(store, network, how, &|_| true, adjust, participant, change)? {
             Core::Done(v) => ContentSigning::Signed(v),
             Core::Unchanged(v) => ContentSigning::Unchanged(v),
             Core::Changed => ContentSigning::Unchanged(0),
@@ -157,9 +159,15 @@ pub(crate) fn sign_proposal_share(
         ProposalSigner::Key(key) => How::Key(key),
     };
     Ok(
-        match core(store, network, how, reviewed, None, |host, content| {
-            change(host, &mut content.peerbox_rules)
-        })? {
+        match core(
+            store,
+            network,
+            how,
+            reviewed,
+            None,
+            None,
+            |host, content| change(host, &mut content.peerbox_rules),
+        )? {
             Core::Done(v) => ProposalSigning::Signed(v),
             Core::Unchanged(v) => ProposalSigning::Unchanged(v),
             Core::NeedsOwner => ProposalSigning::NeedsOwner,
@@ -236,6 +244,7 @@ fn core(
     how: How<'_>,
     reviewed: &dyn Fn(&[PeerboxRule]) -> bool,
     adjust: Option<Adjust<'_>>,
+    participant: Option<&str>,
     change: impl FnOnce(&str, &mut crate::policy::Content),
 ) -> Result<Core> {
     let host = store.identity().id;
@@ -310,6 +319,7 @@ fn core(
             &provider,
             body,
             adjust.as_ref().map(|f| f as &dyn Fn(&mut Value)),
+            participant,
         )?;
         let version = payload
             .get("sequence")
