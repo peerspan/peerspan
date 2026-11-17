@@ -121,6 +121,12 @@ All four are specified in [section 53 of the guided session contract](guided-ses
 15. **Reconnect after a reload or restart (P4).** **Chosen (2026-11-17):** the Connect this conversation press reconnects a retained authorization after a plugin reload, and after a host restart replaces the invalidated attachment, checked against the screen, never on entry. After a host restart the agent's earlier credential stays recoverable until it expires, and the host refuses a new one meanwhile (no implicit revocation), so the press stops at the adapter step and names `peerspan adapter revoke`.
 
 Decisions 12–15 are specified in [section 54 of the guided session contract](guided-session-contract.md#54-one-consent-to-connect-a-conversation-p4).
+16. **Grant scope (P5).** **Chosen (2026-11-17):** the invitation's own agent, by its exact name (on all the owner's machines), not `*`.
+17. **Grant terms (P5).** **Chosen (2026-11-17):** section 31's profile: messages and tasks, 64 KiB per message, no artifacts, 24-hour policy kept alive by the usual renewal.
+18. **SSH person key (P5).** **Chosen (2026-11-17):** one pane press, **Grant access to NAME**, signs through the ssh-agent or key file; a device key signs automatically.
+19. **Binding (P5).** **Chosen (2026-11-17):** the grant binds to the key in the exact request the administrator admits, as peerbox pending shares do, with their lifetime (invitation expiry, 1 hour after the last request, 7 days at most); an already-member admission binds nothing.
+
+Decisions 16–19 are specified in [section 55 of the guided session contract](guided-session-contract.md#55-agent-access-granted-with-the-invite-p5).
 
 ## Cost and order
 
