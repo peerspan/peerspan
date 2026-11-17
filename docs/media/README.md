@@ -1,6 +1,6 @@
 # Media
 
-## `collaborative-hillclimb-demo-720p.mp4` (64 s, no sound)
+## `collaborative-hillclimb-demo-720p.mp4` and `collaborative-hillclimb-demo.gif` (64 s, no sound)
 
 Two owners' coding agents improve one bot together, in a peerbox.
 
