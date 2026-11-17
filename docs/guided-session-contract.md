@@ -10981,9 +10981,9 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | --- | --- | --- | --- |
 | `host_unavailable` | a read failed | `nobody` | "Peerspan isn't running here. Start it, then ask again." |
 | `connect_conversation` | this conversation's project has no current attachment, or it is attached but this conversation has no live adapter connection in this session (section54, for example after a plugin reload), unless its last Connect this conversation press in this session chose neither messages nor tasks | `you` | "Open Peerspan and review Connect this conversation." |
-| `review_join` | an own request is `pending` or `needs_selection` | `you` | "Open Peerspan and review Join." |
+| `review_join` | an own new-person request is `pending`, or any own request is `needs_selection` | `you` | "Open Peerspan and review Join." |
 | `commit` | an own request is `needs_commit` | `you` | "Open Peerspan and review Commit." |
-| `finalize` | an own request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
+| `finalize` | an own new-person request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
 | `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
 | `approve_computer` | an incoming second-computer request is `pending` here (section41) | `you` | "Your other computer is asking to join. Open Peerspan and review it." |
 | `admit` | an incoming request is `needs_administrator` here | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
@@ -10993,7 +10993,9 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `nothing_due` | otherwise | `nobody` | "Nothing is waiting in Peerspan." |
 
 "Own" and "incoming" are the observation's requester and approver roles; a
-second-computer request maps the same way. Only an own request's latest attempt
+second-computer request maps the same way, except that on the new computer its
+`pending` and `needs_owner_finalization` stages belong to the existing computer
+(sections 41, 45 and 52) and select `waiting`. Only an own request's latest attempt
 for its network counts: a cancelled or expired request that a later request for
 the same network replaced, or that the network has since been joined through,
 is history and selects nothing. `finalize` stays due while the request is in
