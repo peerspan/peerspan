@@ -8,7 +8,8 @@ import { tools as taskTools, handoff as parseTask, cancellation as parseCancella
   cancelPrompt, argumentsFor as taskArguments, result as taskResult, url as taskUrl } from './tasks.mjs';
 
 import { flow as parseInvitationFlow, lookup as parseInvitationLookup, networks as invitationNetworks,
-  proposal as invitationProposal, handoff as parseInvitationHandoff, reviewLines as invitationReviewLines } from './invitation.mjs';
+  proposal as invitationProposal, handoff as parseInvitationHandoff, reviewLines as invitationReviewLines,
+  accessWords as invitationAccessWords, grant as parseInvitationGrant, grantLines as invitationGrantLines } from './invitation.mjs';
 
 import { validCode as validInvitationCode, preview as parseRecipientPreview, reviewLines as recipientReviewLines, terms as recipientPublicTerms } from './recipient.mjs';
 import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdentity, flow as parseJoinFlow, lookup as parseJoinLookup,
@@ -3434,7 +3435,58 @@ function recipientControls($, { Text, Button, Input }, epoch) {
 function clearInvitation() {
   invitationExpiry?.cancel();
   invitationExpiry = null;
+  invitationGrant?.poll?.cancel();
+  invitationGrant = null;
   invitation = { stage: 'inactive', busy: false };
+}
+// Section55: the pending agent-access grant of the shown issued invitation,
+// read from the owner lookup and refreshed while the view is open.
+let invitationGrant = null;
+const GRANT_ENDED = ['granted', 'cancelled', 'expired', 'stopped'];
+function grantFlow() {
+  const f = invitation.flow;
+  return f?.review?.agent_access && f.invitation?.invitation_id ? f : null;
+}
+async function refreshGrant($, epoch) {
+  const flow = grantFlow();
+  if (!flow || epoch !== generation) return;
+  const id = flow.invitation.invitation_id;
+  const mine = invitationGrant?.id === id ? invitationGrant : (invitationGrant?.poll?.cancel(), invitationGrant = { id, view: null, busy: false });
+  if (mine.busy) return;
+  mine.busy = true;
+  try {
+    const raw = await invitationRun($, ['grant', 'inspect', id]);
+    if (invitationGrant !== mine || grantFlow() !== flow || epoch !== generation) return;
+    mine.view = parseInvitationGrant(raw, flow);
+    mine.message = null;
+  } catch {
+    if (invitationGrant === mine) mine.message = 'Access: unavailable. Refresh to check the host.';
+  } finally { mine.busy = false; }
+  if (invitationGrant !== mine) return;
+  mine.poll?.cancel();
+  mine.poll = GRANT_ENDED.includes(mine.view?.state) ? null : $.clock.after(5000, () => refreshGrant($, epoch));
+  $.ui.invalidate('ui.render');
+}
+async function grantAction($, epoch, which) {
+  const flow = grantFlow(), mine = invitationGrant;
+  if (!flow || !mine?.view || mine.busy || epoch !== generation || mine.id !== flow.invitation.invitation_id) return;
+  if (which === 'complete' && mine.view.state !== 'waiting_for_owner') return;
+  if (which === 'cancel' && GRANT_ENDED.includes(mine.view.state)) return;
+  mine.busy = true;
+  $.ui.invalidate('ui.render');
+  try {
+    const raw = await invitationRun($, ['grant', which, mine.id]);
+    if (invitationGrant !== mine || grantFlow() !== flow) return;
+    mine.view = parseInvitationGrant(raw, flow);
+    mine.message = null;
+  } catch {
+    if (invitationGrant === mine) mine.message = which === 'complete'
+      ? 'Access: not granted. Your signer may be unavailable; Refresh to check, or use Review agent access.'
+      : 'Access: cancel outcome unknown. Refresh to check the host.';
+  } finally {
+    mine.busy = false;
+    if (invitationGrant === mine) $.ui.invalidate('ui.render');
+  }
 }
 function invitationStart($, previous, epoch) {
   if (invitation !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
@@ -3489,6 +3541,7 @@ async function invitationView($, running, epoch, flow, extra = {}) {
   const deadline = flow?.state === 'review' ? flow.review.expires_at : flow?.state === 'issued' ? flow.review.invitation_expires_at : null;
   const stage = flow === null ? 'choose' : deadline && Date.parse(deadline) <= now ? 'expired' : flow.state;
   invitation = { ...running, ...extra, code: null, stage, flow, busy: false, message: null };
+  if (flow?.review?.agent_access && flow.invitation) void refreshGrant($, epoch);
   if (deadline && stage !== 'expired') {
     invitationExpiry = $.clock.after(Math.max(0, Date.parse(deadline) - now), () => {
       if (epoch === generation && invitation.flow === flow && ['review', 'issued'].includes(invitation.stage)) {
@@ -3546,13 +3599,15 @@ async function prepareInvitation($, previous, epoch) {
       return;
     }
     if (!await inspectInvitationParent($, running, epoch)) return;
+    const access = !steps() && previous.access !== false;
     const request = { context: adapterContext(running.parent), network_id: previous.selected.id, ...terms,
-      ...(previous.replace ? { replace_flow_id: previous.replace } : {}) };
+      ...(previous.replace ? { replace_flow_id: previous.replace } : {}), ...(access ? { agent_access: true } : {}) };
     const raw = await invitationRun($, ['prepare', '--stdin'], request);
     if (!await invitationCurrent($, running, epoch)) return;
     const flow = await parseInvitationFlow(JSON.parse(raw), running.parent, running.host);
     if (flow.state !== 'review' || flow.review.network.id !== request.network_id || flow.review.member !== terms.member ||
-        flow.review.expected_person_public_key !== terms.expected_person_public_key || flow.flow_id === previous.replace) throw new Error('Changed invitation proposal');
+        flow.review.expected_person_public_key !== terms.expected_person_public_key || flow.flow_id === previous.replace ||
+        Boolean(flow.review.agent_access) !== access) throw new Error('Changed invitation proposal');
     await invitationView($, running, epoch, flow);
   } catch { invitationFailure($, running, epoch); }
 }
@@ -3650,10 +3705,24 @@ function invitationControls($, { Text, Button, Input }, epoch) {
       onInput: v => invitationDraft($, previous, epoch, 'member', v), onSubmit: v => invitationDraft($, previous, epoch, 'member', v) }),
     Input({ key: 'invitation-pin', label: 'Expected person public key', value: previous.pin,
       onInput: v => invitationDraft($, previous, epoch, 'pin', v), onSubmit: v => invitationDraft($, previous, epoch, 'pin', v) }),
+    ...(steps() ? [] : (() => {
+      const member = previous.member?.trim() || 'the invitee', agent = project.flow?.review?.agent?.name ?? 'this agent', on = previous.access !== false;
+      return [Text({ children: [invitationAccessWords(member, agent)] }),
+        button('invitation-access', `Let ${quoted(member)} reach ${quoted(agent)}: ${on ? 'on' : 'off'}`,
+          () => invitationDraft($, previous, epoch, 'access', !on))];
+    })()),
     button('invitation-prepare', 'Review invitation', () => prepareInvitation($, previous, epoch)), back];
   const status = previous.stage === 'expired' && previous.flow.state === 'review'
     ? 'Invitation: review expired locally. Refresh to check the host.' : `Invitation: ${previous.stage}`;
+  const g = grantFlow() && invitationGrant?.id === previous.flow.invitation?.invitation_id ? invitationGrant : null;
+  const grantControls = !grantFlow() ? [] : g?.busy && !g.view ? [Text({ children: ['Access: checking…'] })] : [
+    Text({ children: [g?.view ? invitationGrantLines(g.view) : 'Access: not yet checked', g?.message ? '\n' + g.message : ''] }),
+    ...(g?.view?.state === 'waiting_for_owner' ? [button('invitation-grant-complete', `Grant access to ${quoted(previous.flow.review.member)}`,
+      () => grantAction($, epoch, 'complete'))] : []),
+    ...(g?.view && !GRANT_ENDED.includes(g.view.state) ? [button('invitation-grant-cancel', 'Cancel access', () => grantAction($, epoch, 'cancel'))] : []),
+  ];
   return [Text({ children: [status, '\n', invitationReviewLines(previous.flow)] }),
+    ...grantControls,
     ...(previous.stage === 'review' ? [
       button('invitation-approve', 'Approve invitation', () => decideInvitation($, previous, epoch, 'approve')),
       button('invitation-decline', 'Decline invitation', () => decideInvitation($, previous, epoch, 'decline')),
