@@ -10980,11 +10980,12 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | due | when | who | words |
 | --- | --- | --- | --- |
 | `host_unavailable` | a read failed | `nobody` | "Peerspan isn't running here. Start it, then ask again." |
-| `connect_conversation` | this conversation's project has no current attachment | `you` | "Open Peerspan and review Connect this conversation." |
+| `connect_conversation` | this conversation's project has no current attachment, or it is attached but this conversation has no live adapter connection in this session (section54, for example after a plugin reload), unless its last Connect this conversation press in this session chose neither messages nor tasks | `you` | "Open Peerspan and review Connect this conversation." |
 | `review_join` | an own request is `pending` or `needs_selection` | `you` | "Open Peerspan and review Join." |
 | `commit` | an own request is `needs_commit` | `you` | "Open Peerspan and review Commit." |
 | `finalize` | an own request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
 | `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
+| `approve_computer` | an incoming second-computer request is `pending` here (section41) | `you` | "Your other computer is asking to join. Open Peerspan and review it." |
 | `admit` | an incoming request is `needs_administrator` here | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
 | `grant_access` | an invitation grant is `waiting_for_owner` | `you` | "A person you invited was admitted. Open Peerspan and review Grant access." |
 | `inspect_status` | an own request is `blocked` | `you` | "Something needs your attention. Open Peerspan to see it." |
