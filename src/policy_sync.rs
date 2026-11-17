@@ -1256,7 +1256,7 @@ mod tests {
             .unwrap()
             .execute_batch("PRAGMA user_version = 37;")
             .unwrap();
-        assert!(Store::open(&path).is_err());
+        assert!(Store::reopen(&path).is_err());
     }
 
     #[test]

@@ -175,6 +175,25 @@ impl Store {
 }
 
 impl Store {
+    /// Test helper: `open` again after the previous `Store` was dropped.
+    /// Another test thread that forks a child holds a duplicate of the lock's
+    /// file description until that child execs, so the lock can outlive the
+    /// drop for a moment; this waits that out, and returns any other error.
+    #[cfg(test)]
+    pub(crate) fn reopen(directory: &Path) -> anyhow::Result<Self> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match Self::open(directory) {
+                Err(error)
+                    if error.to_string() == "host state is already in use"
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                other => return other,
+            }
+        }
+    }
     pub fn open(directory: &Path) -> anyhow::Result<Self> {
         if directory.as_os_str().is_empty() {
             bail!("state directory is empty");

@@ -1122,7 +1122,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
         .unwrap()
         .execute_batch("PRAGMA user_version = 37;")
         .unwrap();
-    assert!(Store::open(&path).is_err());
+    assert!(Store::reopen(&path).is_err());
 }
 
 fn time(text: &str) -> chrono::DateTime<chrono::Utc> {
