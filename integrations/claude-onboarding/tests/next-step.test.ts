@@ -9,10 +9,13 @@
  * host state, as in connect-conversation.
  *
  * Contract readings this file depends on (reported, not settled here):
- * - section 56 reads section 41's machine lookup to tell an incoming second
- *   computer from a new person (a refused lookup is a new person's); the fake host's
- *   lookup answers for a request whose person key is this host's person in that
- *   network and refuses (409) any other, as sections 20 and 41 imply;
+ * - section 56 reads section 42's machine lookup to tell an incoming second
+ *   computer from a new person: only validated section 41 inspection or section 42
+ *   consent evidence makes a second computer. The fake host's lookup answers this
+ *   person's second computer (same person key, sections 20 and 41) with an
+ *   inspection while `pending` and an approved consent later, shaped as in
+ *   machine-owner, and anyone else with neither, as a real host does; variants
+ *   answer neither for everyone or refuse every lookup;
  * - an own request's "latest attempt for its network" is the one created last;
  * - the grant list answers `{version:1,grants:[...]}`, as a real host's
  *   `onboarding invitation grant list` printed it, with invitation-access's records;
@@ -28,7 +31,8 @@ import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const NOW = Date.parse('2026-11-18T12:00:00Z')
-const HOST = 'host_' + 'a'.repeat(64)
+// SHA256 of the decoded local host key HOST_KEY (32 zero bytes), as in machine-owner.
+const HOST = 'host_66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925'
 const ROOT = '/private project/Next $(literal)'
 const NATIVE = 'private-native-next-step-conversation'
 const TOKEN = 'token_' + 'b'.repeat(64)
@@ -43,10 +47,14 @@ const PERSON = 'person_' + 'e'.repeat(64)
 const OWN = 'BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU='
 const STRANGER = 'BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY='
 const GENESIS_KEY = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE='
-const HOST_KEY = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI='
+const HOST_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 const PEER_HOST_KEY = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM='
 const DEVICE_KEY = 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ='
-const NETWORK_NAME = 'Team psl2-PRIVATE_PAIRING /private/network-path'
+// Section 42's lookup carries no unsafe or private-prefixed label, and its review repeats the network's
+// name and member, so network labels are ordinary private names; token-shaped text is elsewhere.
+const NETWORK_NAME = 'Team Kestrel "東京" network'
+const OWNER_LABEL = 'Kestrel Owner Label'
+const PRIVATE_NAME = 'Team psl2-PRIVATE_PAIRING /private/network-path'
 const MEMBER = 'Dana peerspan-invite-v1.PRIVATE_LABEL'
 const ADMIT_MEMBER = 'Incoming token_PRIVATE_MEMBER'
 const MINUTE = 60_000, HOUR = 3_600_000
@@ -151,7 +159,7 @@ async function transport(child: any) {
 function network(n: number): any {
   return { id: id64('net', n), name: NETWORK_NAME + ' ' + n, mode: 'decentralized', context_id: id64('ctx', n),
     genesis_root_public_key: GENESIS_KEY, root_state_id: id64('ds', n), root_public_key: GENESIS_KEY, root_epoch: 0,
-    member: 'Local owner ' + MEMBER, host_public_key: HOST_KEY, person_public_key: OWN, provider: null,
+    member: OWNER_LABEL, host_public_key: HOST_KEY, person_public_key: OWN, provider: null,
     provider_state: { state: 'not_selected', code: '-', error: '-', required_ids: [] },
     authority: { state: 'usable', not_after: stamp(NOW + 86_400_000), required_ids: [], conflict_ids: [] },
     delivery: { pending_proof_ids: [], peer_errors: [] }, created_at: stamp(NOW - 86_400_000) }
@@ -170,10 +178,11 @@ function link(n: number, role: 'requester' | 'approver', state: string, net: num
     administrator_offer_id: level >= 3 ? id64('dpk', n * 10 + 3) : '-', owner_finalization_id: level >= 4 ? id64('dpk', n * 10 + 4) : '-',
     manifest_id: level >= 4 ? id64('dm', n * 10 + 5) : '-', activation_id: level >= 5 ? id64('da', n * 10 + 6) : '-',
     outcome_id: level >= 6 ? id64('dpk', n * 10 + 7) : '-', selection_approved: false, commit_approved: false,
-    completed: STAGES.slice(0, level + 1), attention: ['Private attention ' + RAW], next: [] }
+    completed: STAGES.slice(0, level + 1), attention: [], next: [] }
 }
 const own = (n: number, state: string, net: number, options: any = {}) => link(n, 'requester', state, net, options)
-const secondComputer = (n: number, state: string, net: number) => link(n, 'approver', state, net, { person: OWN })
+// A second computer's request is recent, so its section 42 consent is within the request and stage windows.
+const secondComputer = (n: number, state: string, net: number) => link(n, 'approver', state, net, { person: OWN, created: NOW - 2 * MINUTE + n * 1000 })
 const newPerson = (n: number, state: string, net: number) => link(n, 'approver', state, net, { person: STRANGER })
 // Section 55 grant records, with the field names a real host returned (see invitation-access).
 function grant(n: number, state: string, w: World) {
@@ -199,11 +208,66 @@ async function inspection(w: World, rid: string) {
     review_id: await digest('peerspan-admission-inspection-v1', review), review, next_action: 'review_administrator_consent' }
 }
 
+// Section 41's machine inspection and section 42's consent, shaped as in machine-owner.test.ts.
+const OWN_DEVICE = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc='
+const machineInspectEffects = { verify_request_signature: true, inspect_current_owner_authority: true,
+  prepare_owner_intent: false, approve_owner_intent: false, sign_owner_offer: false,
+  publish_owner_offer: false, grant_membership: false, grant_machine_powers: false,
+  grant_agent_access: false, commit_request: false, share_files: false, share_conversation: false, capability_calls: false }
+const machineConsentEffects = { approve_owner_intent: true, authorize_owner_offer_signature: true,
+  publish_owner_offer_after_signatures: true, authorize_owner_finalization: true,
+  authorize_binding_and_device_signatures: true, authorize_host_admission_if_folded: true,
+  grant_membership_now: false, grant_machine_powers_now: false, grant_agent_access: false,
+  authorize_requester_selection: false, commit_request: false, share_files: false,
+  share_conversation: false, capability_calls: false }
+async function machineInspection(w: World, r: any) {
+  const net = w.networks.find(value => value.id === r.network_id) ?? network(1)
+  const providerEnd = NOW + 86_400_000, personLease = id64('ds', 11), deviceLease = id64('ds', 14)
+  const provider = { kind: 'device', person_public_key: OWN, host_public_key: HOST_KEY, device_public_key: OWN_DEVICE,
+    lease_id: deviceLease, root_state_id: net.root_state_id, scopes: 15, not_after: stamp(providerEnd) }
+  const review = { version: 1, kind: 'inspect_existing_person_machine', host_id: HOST, context: context(w.parent),
+    agent: clone(w.parent.review.agent), network: { id: net.id, name: net.name, context_id: net.context_id,
+      genesis_root_public_key: net.genesis_root_public_key }, root_state_id: net.root_state_id,
+    request_id: r.request_id, request_packet_id: r.request_packet_id, person_public_key: r.person_public_key,
+    host_public_key: r.host_public_key, device_public_key: r.device_public_key, member: net.member,
+    person_lease_id: personLease, local_host: { host_public_key: HOST_KEY, member: 'Kestrel laptop',
+      person_public_key: OWN, host_lease_id: id64('ds', 12), binding_lease_id: id64('ds', 13),
+      device_lease_id: deviceLease, not_after: stamp(providerEnd) }, provider,
+    provider_id: deviceLease, signature_format: 'ed25519', scopes: 7,
+    not_after: stamp(Math.min(Date.parse(r.created_at) + 7 * 86_400_000, providerEnd)),
+    host_admission: 'owner_may_fold', created_at: r.created_at, expires_at: r.expires_at, effects: clone(machineInspectEffects) }
+  return { review_id: await digest('peerspan-machine-owner-inspection-v1', review), review }
+}
+async function machineConsent(w: World, r: any) {
+  const source = await machineInspection(w, r), inspected = source.review
+  const created = Date.parse(r.created_at) + 1000, stageDeadline = Date.parse(r.created_at) + 600_000
+  const review = { version: 1, kind: 'approve_existing_person_machine', consent_id: id('dint', 90),
+    host_id: HOST, context: context(w.parent), agent: clone(w.parent.review.agent), request_id: r.request_id,
+    request_packet_id: r.request_packet_id, inspection_review_id: source.review_id, inspection: clone(inspected),
+    intent_id: id('dint', 91), proposed_owner_offer_id: id64('dpk', 92), replaces_consent_id: '-', created_at: stamp(created),
+    expires_at: stamp(Math.min(created + 300_000, Date.parse(r.expires_at), stageDeadline, Date.parse(inspected.not_after))),
+    request_stage_deadline: stamp(stageDeadline), effects: clone(machineConsentEffects) }
+  return { consent_id: review.consent_id, review_id: await digest('peerspan-machine-owner-consent-v1', review), review,
+    state: 'approved', next_action: 'follow_machine_link' }
+}
+async function machineLookup(w: World, payload: any) {
+  if (w.machineLookup === 'refuse') return { fixtureExit: 1 }
+  const r = w.requests.find(value => value.request_id === payload.request_id)
+  if (!r) return { fixtureExit: 1 }
+  const second = w.machineLookup === 'real' && r.role === 'approver' && r.person_public_key === OWN
+  return { version: 1, host_id: HOST, context: payload.context, observed_at: stamp(Math.floor(w.clock.now() / 1000) * 1000),
+    request: clone(r), inspection: second && r.state === 'pending' ? await machineInspection(w, r) : null,
+    consent: second && r.state !== 'pending' ? await machineConsent(w, r) : null }
+}
+
 function fixture(on: On) {
   const clock = mock.clock(on, { now: NOW })
   const w = { clock, started: false, root: ROOT, native: NATIVE, surface: 'terminal' as string | null,
     agents: [] as any[], parent: null as any, adapters: {} as Record<string, any>, sequence: 20,
     networks: [] as any[], requests: [] as any[], grants: [] as any[], fail: new Set<string>(), refuseInspection: false,
+    // How section 42's lookup answers: 'real' (evidence for this person's second computer, neither for anyone
+    // else, as a real host does), 'empty' (neither for every request) or 'refuse' (409 for every request).
+    machineLookup: 'real' as 'real' | 'empty' | 'refuse',
     paneOpen: false, opened: [] as any[], closes: 0, extraReads: [] as string[],
     calls: [] as any[], trace: [] as any[], httpCalls: [] as any[], outside: [] as string[], tools: [] as any[],
     forbidden: [] as string[], prompts: [] as any[], materials: [] as any[], pending: 0,
@@ -256,13 +320,7 @@ function fixture(on: On) {
     }
     if (kind === 'admission.lookup') return { version: 1, host_id: HOST, context: payload.context, observed_at: stamp(second(clock.now())),
       request: clone(w.requests.find(r => r.request_id === payload.request_id) ?? null), admission: null }
-    if (kind === 'machine.lookup') {
-      // Section 42's lookup; a request that is not this person's second computer is unsupported evidence (409).
-      const r = w.requests.find(r => r.request_id === payload.request_id)
-      if (!r || r.person_public_key !== OWN) return { fixtureExit: 1 }
-      return { version: 1, host_id: HOST, context: payload.context, observed_at: stamp(second(clock.now())),
-        request: clone(r), inspection: null, consent: null }
-    }
+    if (kind === 'machine.lookup') return machineLookup(w, payload)
     // Any other operation is outside this fixture's host: it answers unavailable.
     return { fixtureExit: 1 }
   }
@@ -451,7 +509,7 @@ function nonce(w: World, at = 0) {
 
 // Every private-looking value the fake host returns; none may reach a result.
 function privateValues(w: World) {
-  return [ROOT, NATIVE, TOKEN, SOCKET, RAW, CODE, HOST, NETWORK_NAME, MEMBER, ADMIT_MEMBER, PERSON, OWN, STRANGER,
+  return [ROOT, NATIVE, TOKEN, SOCKET, RAW, CODE, HOST, NETWORK_NAME, OWNER_LABEL, PRIVATE_NAME, 'Kestrel', MEMBER, ADMIT_MEMBER, PERSON, OWN, STRANGER,
     'psi2-', 'psl2-', 'peerspan-invite-v1.', 'token_', '/private', 'Granted agent', 'PRIVATE',
     ...w.agents.flatMap(a => [a.id, a.name]), ...w.requests.flatMap(r => [r.request_id, r.network_id]),
     ...w.networks.flatMap(n => [n.id, n.name]), ...w.grants.flatMap(g => [g.invitation_id, g.flow_id]),
@@ -635,6 +693,18 @@ test('read failures give host_unavailable and a refused admission inspection doe
   }
   w.requests = [newPerson(8, 'cancelled', 3), secondComputer(9, 'linked', 3)]
   await due($, w, 'nothing_due', 'not_opened', 'incoming final states')
+  // Without validated evidence a request is a new person's: a lookup with neither, or a refused lookup.
+  w.networks = [network(3)]
+  for (const mode of ['empty', 'refuse'] as const) {
+    w.machineLookup = mode
+    w.requests = [newPerson(7, 'needs_administrator', 3)]
+    await due($, w, 'admit', 'not_opened', 'new person, lookup ' + mode)
+    w.requests = [secondComputer(4, 'pending', 3)]
+    await due($, w, 'waiting', 'not_opened', 'same-person pending, lookup ' + mode)
+    w.requests = [secondComputer(4, 'needs_owner_finalization', 3)]
+    await due($, w, 'waiting', 'not_opened', 'same-person needs_owner_finalization, lookup ' + mode)
+  }
+  w.machineLookup = 'real'
   // Several live incoming requests: at most two machine lookups per call.
   w.networks = [network(1), network(2), network(3)]
   w.requests = [secondComputer(11, 'pending', 1), secondComputer(12, 'pending', 2), secondComputer(13, 'pending', 3)]
@@ -821,8 +891,12 @@ test('the result never holds a name label ID path code or host text even when th
   const ui = await connectNeither($, w); await close(w, ui)
   everything(w)
   // Host text in every free-form field: names, members, attention and unknown fields.
-  w.networks = w.networks.map(n => ({ ...n, member: CODE + ' ' + MEMBER, attention_private: RAW }))
-  w.requests = w.requests.map(r => ({ ...r, attention: [RAW, CODE], next: ['Open Peerspan /private/next ' + CODE], display_hint: MEMBER }))
+  // Token-shaped network labels where no second computer's lookup repeats them (section 42 forbids them there).
+  const second = new Set(w.requests.filter(r => r.role === 'approver' && r.person_public_key === OWN).map(r => r.network_id))
+  w.networks = w.networks.map(n => second.has(n.id) ? { ...n, attention_private: RAW }
+    : { ...n, name: PRIVATE_NAME, member: CODE + ' ' + MEMBER, attention_private: RAW })
+  w.requests = w.requests.map(r => second.has(r.network_id) ? { ...r, display_hint: MEMBER }
+    : { ...r, attention: [RAW, CODE], next: ['Open Peerspan /private/next ' + CODE], display_hint: MEMBER })
   w.grants = w.grants.map(g => ({ ...g, member: CODE + ' ' + MEMBER, agent: { ...g.agent, name: RAW } }))
   await walk($, w)
   for (const answer of [await ask($), await ask($, { open: false })]) clean(w, JSON.stringify(answer))

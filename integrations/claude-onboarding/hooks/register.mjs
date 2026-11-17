@@ -267,9 +267,14 @@ async function nextDue($) {
   const classify = async r => {
     if (classified.has(r.request_id)) return classified.get(r.request_id);
     if (classified.size >= 2) return 'unknown';
+    // A second computer only on validated machine evidence: the lookup can
+    // succeed with neither an inspection nor a consent for any other request.
     let value = 'person';
-    try { await nextRead($, ['onboarding', 'machine', 'lookup', '--stdin'], { context, request_id: r.request_id }); value = 'computer'; }
-    catch { value = 'person'; }
+    try {
+      const raw = await nextRead($, ['onboarding', 'machine', 'lookup', '--stdin'], { context, request_id: r.request_id });
+      const v = await parseMachineOwner(raw, r, attached, host);
+      if (v.inspection !== null || v.consent !== null) value = 'computer';
+    } catch { value = 'person'; }
     classified.set(r.request_id, value);
     return value;
   };

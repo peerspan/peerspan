@@ -10969,7 +10969,10 @@ bound: the current project's attachment lookup (section4), the `peerspan
 onboarding` observation (section1), the invitation grant list (section55),
 with a current attachment section41's read-only machine lookup for at most two
 incoming requests (the observation cannot tell an incoming second computer from a
-new person; a request the lookup refuses is a new person's), and,
+new person; a request is a second computer only when the lookup's validated
+response carries section41's machine inspection or section42's consent, and
+otherwise, including when the lookup succeeds with neither or is refused, a new
+person's), and,
 when an incoming new-person request is `needs_administrator` and this
 conversation's project has a current attachment, section20's read-only
 admission inspection. No read-only route reports whether this computer holds the
