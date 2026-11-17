@@ -10983,7 +10983,8 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `connect_conversation` | this conversation's project has no current attachment | `you` | "Open Peerspan and review Connect this conversation." |
 | `review_join` | an own request is `pending` or `needs_selection` | `you` | "Open Peerspan and review Join." |
 | `commit` | an own request is `needs_commit` | `you` | "Open Peerspan and review Commit." |
-| `review_replacement` | an own request is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
+| `finalize` | an own request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
+| `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
 | `admit` | an incoming request is `needs_administrator` here | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
 | `grant_access` | an invitation grant is `waiting_for_owner` | `you` | "A person you invited was admitted. Open Peerspan and review Grant access." |
 | `inspect_status` | an own request is `blocked` | `you` | "Something needs your attention. Open Peerspan to see it." |
@@ -10991,7 +10992,12 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `nothing_due` | otherwise | `nobody` | "Nothing is waiting in Peerspan." |
 
 "Own" and "incoming" are the observation's requester and approver roles; a
-second-computer request maps the same way. With `show_each_step` set, the words
+second-computer request maps the same way. Only an own request's latest attempt
+for its network counts: a cancelled or expired request that a later request for
+the same network replaced, or that the network has since been joined through,
+is history and selects nothing. `finalize` stays due while the request is in
+that state, since the open pane signs it automatically only when section53's
+terms match (and never with `show_each_step`). With `show_each_step` set, the words
 name the same entry, and the pane shows its per-step control.
 
 The result is checked as section1 checks public text before it is returned: it
@@ -11027,6 +11033,7 @@ A separate contract-only author adds native cases:
 - the tool list at session start is exactly `delivery_acknowledge` and
   `peerspan_next_step`, and existing tool-list assertions move to it;
 - each `due` value from a fake host, in priority order, with its exact words;
+- a cancelled request replaced by a later or linked one selects nothing;
 - a read failure gives `host_unavailable`;
 - a subagent call and a call during a delivered peer-message or task turn are
   denied and read nothing;
