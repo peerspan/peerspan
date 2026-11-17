@@ -127,6 +127,12 @@ Decisions 12–15 are specified in [section 54 of the guided session contract](g
 19. **Binding (P5).** **Chosen (2026-11-17):** the grant binds to the key in the exact request the administrator admits, as peerbox pending shares do, with their lifetime (invitation expiry, 1 hour after the last request, 7 days at most); an already-member admission binds nothing.
 
 Decisions 16–19 are specified in [section 55 of the guided session contract](guided-session-contract.md#55-agent-access-granted-with-the-invite-p5).
+20. **When the tool exists (P6).** **Chosen (2026-11-17):** always, registered at session start beside `delivery_acknowledge`, so the walkthrough works before anyone opens the pane.
+21. **What it does to the pane (P6).** **Chosen (2026-11-17):** opens a closed pane at the due review's entry control and prepares nothing; never moves an open pane.
+22. **Words (P6).** **Chosen (2026-11-17):** fixed phrases only, with no names, labels, IDs or host text.
+23. **Peer turns (P6).** **Chosen (2026-11-17):** refused while the conversation handles a delivered peer message or task, and from subagents.
+
+Decisions 20–23 are specified in [section 56 of the guided session contract](guided-session-contract.md#56-the-ai-can-point-to-the-next-review-p6).
 
 ## Cost and order
 

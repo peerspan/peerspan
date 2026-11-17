@@ -184,7 +184,8 @@ current project's host observation and controls **Refresh**, **Check this
 conversation** and **Close**. While a check is waiting, its control is replaced
 by waiting text; stale/double presses still queue no second check. It registers
 no invitation, access,
-approval or setup tools for the model. It creates no network, agent, attachment
+approval or setup tools for the model (section56's read-only
+`peerspan_next_step` is the one exception). It creates no network, agent, attachment
 or credential. Loading the plugin alone neither reads the host nor submits a
 prompt. Refresh and explicit entry read the observation; there is no recurring
 poll or model timer merely because the plugin is installed.
@@ -10937,6 +10938,105 @@ A separate contract-only author adds:
   to MEMBER**;
 - `conformance/slim/peerbox_invites.py` stays passing if the pending-share code
   is shared.
+
+## 56. The AI can point to the next review (P6)
+
+Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
+decision 5) and 2026-11-17 (decisions 20–23 there). One model tool,
+`peerspan_next_step`, tells the model in fixed words which review is due for this
+participant, and can open the pane at that review's entry. It reads only. It
+never prepares, approves, presses, signs, enters or reveals a code, and never
+returns names, labels, IDs, paths or host text. The human still reviews and
+approves in the pane. This is the only exception to section2's "no invitation,
+access, approval or setup tools for the model"; every other section's rule that
+the model cannot begin, inspect or decide a flow still holds.
+
+### Registration and callers
+
+The plugin registers `peerspan_next_step` at session start, beside section2's
+`delivery_acknowledge`, with the input schema
+`{type:"object",properties:{open:{type:"boolean"}},additionalProperties:false}`.
+Only the main model in an ordinary turn may call it: a call from a subagent, or
+during a turn the pane started to deliver a peer message or task (sections7 and
+8), from that prompt's submission until the turn ends, is denied with fixed text
+and reads nothing. Calls are single-flight; a call while one runs returns the
+running call's result.
+
+### What it reads
+
+One call makes only read-only lookups, each within the existing 5-second process
+bound: the current project's attachment lookup (section4), the `peerspan
+onboarding` observation (section1) and the invitation grant list (section55).
+If the host is unavailable or a read fails, it returns `due:"host_unavailable"`.
+
+### The result
+
+The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
+- `due`, one of the values below, the first that applies in this order;
+- `who`: `you`, `other_side` or `nobody`;
+- `words`: the fixed sentence for `due` below, unchanged;
+- `pane`: `opened`, `already_open` or `not_opened`.
+
+| due | when | who | words |
+| --- | --- | --- | --- |
+| `host_unavailable` | a read failed | `nobody` | "Peerspan isn't running here. Start it, then ask again." |
+| `connect_conversation` | this conversation's project has no current attachment | `you` | "Open Peerspan and review Connect this conversation." |
+| `review_join` | an own request is `pending` or `needs_selection` | `you` | "Open Peerspan and review Join." |
+| `commit` | an own request is `needs_commit` | `you` | "Open Peerspan and review Commit." |
+| `review_replacement` | an own request is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
+| `admit` | an incoming request is `needs_administrator` here | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
+| `grant_access` | an invitation grant is `waiting_for_owner` | `you` | "A person you invited was admitted. Open Peerspan and review Grant access." |
+| `inspect_status` | an own request is `blocked` | `you` | "Something needs your attention. Open Peerspan to see it." |
+| `waiting` | any own or incoming request is in another non-final state | `other_side` | "Waiting for the other person. Peerspan shows progress when it is open." |
+| `nothing_due` | otherwise | `nobody` | "Nothing is waiting in Peerspan." |
+
+"Own" and "incoming" are the observation's requester and approver roles; a
+second-computer request maps the same way. With `show_each_step` set, the words
+name the same entry, and the pane shows its per-step control.
+
+The result is checked as section1 checks public text before it is returned: it
+holds only these fixed values, so a private value never appears.
+
+### Opening the pane
+
+With `open:true`, on a terminal surface only:
+- if the pane is closed, the tool opens it as **/peerspan** does, asking for
+  focus, which Claude Code may decline while the composer is busy. The pane opens
+  on its overview with the due entry control first (for example **Join a
+  network** above the others, with "Next: …"). Opening prepares, looks up or
+  presses nothing beyond what **/peerspan** entry already reads;
+- if the pane is open, the tool does not change it, and `pane` is
+  `already_open`; the pane's overview shows the same "Next: …" line on **Back to
+  Peerspan**;
+- it opens at most once per 5 seconds, and not again for the same `due` while the
+  pane stays open.
+
+Otherwise `pane` is `not_opened`.
+
+### Changes to earlier sections
+
+- Section2: the pane registers `delivery_acknowledge` and `peerspan_next_step`;
+  no other tool before messages are enabled (section7).
+- Sections 9–55 keep every rule that the model cannot begin, inspect, approve or
+  decide a flow, or see a code. This tool only reports what is due and opens the
+  pane.
+
+### Verification
+
+A separate contract-only author adds native cases:
+- the tool list at session start is exactly `delivery_acknowledge` and
+  `peerspan_next_step`, and existing tool-list assertions move to it;
+- each `due` value from a fake host, in priority order, with its exact words;
+- a read failure gives `host_unavailable`;
+- a subagent call and a call during a delivered peer-message or task turn are
+  denied and read nothing;
+- `open:true` on a closed pane opens the overview with the due entry first and
+  prepares nothing; on an open pane it changes nothing; the 5-second and
+  same-`due` limits;
+- `open:true` on a non-terminal surface returns `not_opened`;
+- the result never holds a name, label, ID, path, code or host text, even when
+  the fake host's values contain private-looking text;
+- `show_each_step=true` keeps the same `due` values.
 
 ## Implementation choices
 
