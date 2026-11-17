@@ -81,6 +81,8 @@ let registeredTaskTools = new Map();
 // longer waits, loses it. One check, automatic or pressed, is in flight in the
 // pane at a time, and each runs against the flow's current state.
 const AUTO_DELAY = 5000, AUTO_LIMIT = 120, ENDED = ['linked', 'cancelled', 'expired', 'blocked'];
+// Recorded consent states after which a view no longer waits on anyone.
+const CLOSED = ['expired', 'invalidated', 'cancelled', 'declined'];
 const autos = new Map();
 let autoSeen = new Set(), autoFlight = null, autoActive = false;
 // Views whose checking Refresh stopped; a press of that view's Check resumes it.
@@ -1813,6 +1815,7 @@ function machineOwnerControls($, { Text, Button }, epoch) {
     ] : []),
     ...autoCheck($, Text, `machine-owner:${previous.selected?.request_id}`, epoch,
       !!previous.selected && !!v && !previous.message && !previous.expired && !ENDED.includes(v.request?.state) &&
+      !CLOSED.includes(c?.state) &&
       !(previous.actionable && (c === null && v.inspection || c?.state === 'review' && machineOwnerOwn(v, previous.parent) ||
         v.signing?.can_sign && machineOwnerOwn(v, previous.parent))), () => readMachineOwner($, machineOwning, epoch)),
     ...(previous.selected ? [autoButton(Button, 'machine-owner-check', 'Check machine consent', `machine-owner:${previous.selected?.request_id}`, () => readMachineOwner($, previous, epoch), () => readMachineOwner($, machineOwning, epoch))] : []), leave,
@@ -2051,6 +2054,7 @@ function admissionControls($, { Text, Button }, epoch) {
     ...(a?.state === 'review' && !previous.expired ? [button('admission-approve', 'Approve administrator consent', () => approveAdmission($, previous, epoch))] : []),
     ...autoCheck($, Text, `admission:${r?.request_id}`, epoch,
       !!r && (!previous.message || previous.fetchUnavailable) && !previous.expired && !ENDED.includes(r.state) && !(a?.state === 'review') &&
+      !CLOSED.includes(a?.state) &&
       !(previous.knownNull && earlyAdmission(r) && r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'),
       () => admitting.knownNull && earlyAdmission(admitting.selected) ? fetchAdmission($, admitting, epoch) : readAdmission($, admitting, epoch)),
     ...(r ? [autoButton(Button, 'admission-check', 'Check administrator consent', `admission:${r?.request_id}`, () => readAdmission($, previous, epoch), () => readAdmission($, admitting, epoch))] : []), leave,
@@ -2784,7 +2788,8 @@ function requesterControls($, { Text, Button }, previous, epoch) {
     ...(previous.commitExpired ? [Text({ children: ['Requester decision deadline elapsed. Check retained public consent; no automatic retry.'] })] : []),
     ...autoCheck($, Text, `requester:${previous.flow?.flow_id}`, epoch,
       !previous.commitCanPrepare && !previous.commitCanApprove && !previous.commitCanComplete && !previous.commitError &&
-      !previous.commitExpired && !requesterApplied(previous.requester) && !ENDED.includes(previous.owner?.request?.state),
+      !previous.commitExpired && !requesterApplied(previous.requester) && !ENDED.includes(previous.owner?.request?.state) &&
+      !CLOSED.includes(previous.requester?.commit?.state),
       () => readRequester($, joining, epoch)),
     autoButton(Button, 'commit-check', 'Check requester consent', `requester:${previous.flow?.flow_id}`, () => readRequester($, previous, epoch), () => readRequester($, joining, epoch)),
     button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch)),
@@ -2839,7 +2844,8 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     ...(finalizationRecorded(previous.owner) ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
     ...(previous.owner?.owner === null ? [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))] : []),
     ...autoCheck($, Text, `owner:${previous.flow?.flow_id}`, epoch,
-      !!previous.owner && !previous.ownerError && previous.owner.owner !== null &&
+      !!previous.owner && !previous.ownerError && previous.owner.owner !== null && !previous.ownerExpired &&
+      !CLOSED.includes(previous.owner.owner?.state) &&
       !(previous.owner.owner?.state === 'review' && !previous.ownerExpired) && !(previous.ownerCanSign && !previous.originalSignature) &&
       !previous.ownerSignExpired && !previous.finalizationCanReview && !finalizationRecorded(previous.owner) &&
       !ENDED.includes(previous.owner.request?.state), () => readOwner($, joining, epoch, false)),
@@ -2992,7 +2998,8 @@ function machineRequesterControls($, { Text, Button }, previous, epoch) {
     ...autoCheck($, Text, `machine-requester:${previous.flow?.flow_id}`, epoch,
       !previous.machineRequesterCanPrepare && !previous.machineRequesterCanApprove && !previous.machineRequesterCanComplete &&
       !previous.machineRequesterError && !previous.machineRequesterExpired &&
-      !machineRequesterApplied(previous.machineRequester) && !ENDED.includes(previous.machineRequester?.request?.state),
+      !machineRequesterApplied(previous.machineRequester) && !ENDED.includes(previous.machineRequester?.request?.state) &&
+      !CLOSED.includes(previous.machineRequester?.consent?.state),
       () => readMachineRequester($, joining, epoch)),
     autoButton(Button, 'machine-requester-check', 'Check machine requester consent', `machine-requester:${previous.flow?.flow_id}`, () => readMachineRequester($, previous, epoch), () => readMachineRequester($, joining, epoch)),
     button('machine-requester-leave', 'Leave machine requester review', () => leaveMachineRequester($, previous, epoch)),
