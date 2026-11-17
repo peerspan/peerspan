@@ -510,7 +510,7 @@ function connectTerms(previous, existing = null) {
   return ['Connect this conversation',
     `Project: ${quoted(previous.context.project_root)}`, 'Conversation: current conversation',
     existing ? `Agent: existing agent ${existing.label.replace(/^Review agent /, '')} (${existing.id}). Already-authorized held work may resume and start model turns at once.`
-      : 'Agent: a new agent with the name below, or choose an existing agent.',
+      : 'Agent: a new agent with the name below, or choose an existing agent. For an existing agent, already-authorized held work may resume and start model turns at once.',
     'Attachment: records this conversation as a local session of that agent. Registers the agent if new. Grants no network membership or access.',
     'The attachment review ends 15 minutes after it is prepared during the press.',
     'Adapter: a scoped credential for this conversation, ending about 24 hours after it is prepared during the press, not renewable, held only in this pane\'s memory.',
@@ -520,20 +520,40 @@ function connectTerms(previous, existing = null) {
       : 'With both off, the press records the attachment and adapter authorization but does not connect.',
     'Each step is checked against these terms; any difference stops with that step\'s own control.'].join('\n');
 }
+function connectChoose($, previous, epoch, agent) {
+  if (project !== previous || previous.busy || epoch !== generation || previous.stage !== 'choose') return;
+  project = { ...previous, p4Agent: agent, notice: null };
+  $.ui.invalidate('ui.render');
+}
 function connectToggle($, previous, epoch, key) {
   if (project !== previous || previous.busy || epoch !== generation) return;
   const value = previous[key] !== false;
   project = { ...previous, [key]: !value };
   $.ui.invalidate('ui.render');
 }
-async function mergedConnect($, previous, epoch, choice) {
+async function earlierAdapter($, earlier) {
+  try {
+    const raw = await adapterRun($, ['lookup', '--stdin'], adapterContext(earlier));
+    // Read-only: the earlier attachment is invalidated, so validate its adapter as of when it was attached.
+    const flow = parseAdapterLookup(raw, { ...earlier, state: 'attached' }, hostId).flow;
+    return flow ? { id: flow.review.adapter_id, until: flow.review.credential_expires_at } : null;
+  } catch { return null; }
+}
+async function mergedConnect($, previous, epoch, choice, earlier = null) {
   if (steps()) return;
   const messages = previous.p4Messages !== false, tasks = messages && previous.p4Tasks !== false;
   const nav = autoNavigation, pressed = await $.clock.now();
   const stopped = () => epoch !== generation || autoNavigation !== nav;
   if (previous.stage === 'choose') {
     await prepareProject($, previous, epoch, choice);
-    if (stopped() || project.stage !== 'review' || Date.parse(project.flow.review.expires_at) <= pressed) return;
+    if (stopped() || project.stage !== 'review') return;
+    const prepared = await $.clock.now(), until = Date.parse(project.flow.review.expires_at);
+    if (stopped() || project.stage !== 'review') return;
+    if (!(until > pressed && until <= prepared + 15 * 60 * 1000)) {
+      project = { ...project, notice: 'Project: the prepared attachment review does not match the terms shown. Review it before approving.' };
+      $.ui.invalidate('ui.render');
+      return;
+    }
     await decideProject($, project, epoch, 'approve');
   }
   if (stopped() || project.stage !== 'attached' || runtime) return;
@@ -541,8 +561,12 @@ async function mergedConnect($, previous, epoch, choice) {
   else if (['declined', 'expired', 'invalidated'].includes(adapter.stage)) await replaceAdapter($, adapter, epoch);
   if (stopped()) return;
   if (adapter.stage === 'unavailable') {
-    adapter = { ...adapter, message: 'Adapter: not authorized. If this agent still holds a live credential from an earlier connection, the host keeps it until it ends; find it with `peerspan adapter list` and revoke it with `peerspan adapter revoke ADAPTER_ID`, or wait for it to end, then press Connect this conversation again.' };
-    $.ui.invalidate('ui.render');
+    const held = earlier ? await earlierAdapter($, earlier) : null;
+    if (stopped() || adapter.stage !== 'unavailable') return;
+    if (held) {
+      adapter = { ...adapter, message: `Adapter: not authorized. This agent's earlier adapter ${held.id} keeps its credential until ${held.until}, and the host allows no new one meanwhile. Revoke it with \`peerspan adapter revoke ${held.id}\`, or wait until then, and press Connect this conversation again.` };
+      $.ui.invalidate('ui.render');
+    }
     return;
   }
   if (adapter.stage === 'review') {
@@ -3655,7 +3679,12 @@ function adapterControls($, { Text, Button }, epoch) {
   const back = button('adapter-back', 'Back to project', () => {
     if (adapter === previous && epoch === generation) { clearAdapter(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
+  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }),
+    ...(steps() ? [] : [button('adapter-review', 'Review adapter connection', () => {
+      if (adapter !== previous || epoch !== generation) return;
+      adapter = { stage: 'inactive', busy: false };
+      return openAdapter($, adapter, epoch, true);
+    })]), back];
   if (previous.stage === 'empty') return [button('adapter-prepare', 'Review adapter permissions', () => openAdapter($, previous, epoch, true)), back];
   const status = previous.stage === 'authorized' ? 'Adapter: authorized'
     : previous.stage === 'review' ? 'Adapter: review permissions' : `Adapter: ${previous.stage}`;
@@ -3678,22 +3707,28 @@ function projectControls($, { Text, Button, Input }, epoch) {
   if (previous.stage === 'attached' && (machineOwning.stage !== 'inactive' || accessing.stage !== 'inactive' || admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
-  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
+  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }),
+    ...(!steps() && previous.context ? [button('project-replace', 'Review a replacement', () => {
+      if (project !== previous || epoch !== generation) return;
+      project = { stage: 'inactive', busy: false };
+      return openProject($, project, epoch);
+    })] : []), back];
   if (previous.stage === 'choose' && !steps()) {
     const page = previous.page ?? 0, messages = previous.p4Messages !== false;
-    return [Text({ children: [connectTerms(previous)] }),
-      Input({ key: 'project-new-name', label: 'New agent name', value: previous.name,
+    return [Text({ children: [connectTerms(previous, previous.p4Agent), ...(previous.notice ? ['\n', previous.notice] : [])] }),
+      ...(previous.p4Agent ? [] : [Input({ key: 'project-new-name', label: 'New agent name', value: previous.name,
         onInput: value => projectDraft($, previous, epoch, 'name', value),
         onSubmit: value => projectDraft($, previous, epoch, 'name', value) }),
       Input({ key: 'project-owner', label: 'Owner label', value: previous.owner,
         onInput: value => projectDraft($, previous, epoch, 'owner', value),
-        onSubmit: value => projectDraft($, previous, epoch, 'owner', value) }),
+        onSubmit: value => projectDraft($, previous, epoch, 'owner', value) })]),
       button('connect-messages', `Incoming messages: ${messages ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Messages')),
       ...(messages ? [button('connect-tasks', `Incoming tasks: ${previous.p4Tasks !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Tasks'))] : []),
       button('project-new-review', 'Connect this conversation', () => mergedConnect($, previous, epoch,
-        { kind: 'new', name: previous.name, owner: previous.owner })),
-      ...previous.agents.slice(page * 10, page * 10 + 10).map(a => button(`project-agent-${a.id}`, choiceLabel(a).replace(/^Review agent/, 'Connect with agent'),
-        () => mergedConnect($, previous, epoch, { kind: 'existing', id: a.id }))),
+        previous.p4Agent ? { kind: 'existing', id: previous.p4Agent.id } : { kind: 'new', name: previous.name, owner: previous.owner })),
+      ...(previous.p4Agent ? [button('project-agent-new', 'Use a new agent instead', () => connectChoose($, previous, epoch, null))] : []),
+      ...previous.agents.slice(page * 10, page * 10 + 10).filter(a => a.id !== previous.p4Agent?.id).map(a => button(`project-agent-${a.id}`,
+        choiceLabel(a).replace(/^Review agent/, 'Use existing agent'), () => connectChoose($, previous, epoch, { id: a.id, label: choiceLabel(a) }))),
       ...(page > 0 ? [button('project-prev', 'Previous agents', () => projectPage($, previous, epoch, page - 1))] : []),
       ...(previous.agents.length > page * 10 + 10 ? [button('project-next', 'More agents', () => projectPage($, previous, epoch, page + 1))] : []), back];
   }
@@ -3704,13 +3739,13 @@ function projectControls($, { Text, Button, Input }, epoch) {
       ...(previous.p4Messages !== false ? [button('connect-tasks', `Incoming tasks: ${previous.p4Tasks !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Tasks'))] : []),
       button('project-reconnect', 'Connect this conversation', () => mergedConnect($, previous, epoch, null)), back];
   }
-  if (!steps() && ['declined', 'expired', 'invalidated'].includes(previous.stage) && previous.flow) {
+  if (!steps() && previous.stage === 'invalidated' && previous.flow) {
     // After a host restart: the earlier agent, by its ID, as an existing agent (section54).
     const earlier = previous.agents?.find(a => a.id === previous.flow.review.agent.id) ?? null;
     return [Text({ children: [connectTerms(previous, earlier ? { id: earlier.id, label: choiceLabel(earlier) } : null)] }),
       ...(earlier ? [button('project-reconnect-existing', choiceLabel(earlier).replace(/^Review agent/, 'Connect with existing agent'), () => {
         replaceProject($, previous, epoch);
-        return mergedConnect($, project, epoch, { kind: 'existing', id: earlier.id });
+        return mergedConnect($, project, epoch, { kind: 'existing', id: earlier.id }, previous.flow);
       })] : []),
       button('project-replace', 'Choose another agent', () => replaceProject($, previous, epoch)), back];
   }
@@ -3731,7 +3766,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
       ...(previous.agents.length > page * 10 + 10 ? [button('project-next', 'More agents', () => projectPage($, previous, epoch, page + 1))] : []), back];
   }
   const status = previous.stage === 'attached' ? 'Project: attachment recorded\nAdapter connection is next.'
-    : previous.stage === 'review' ? 'Project: review attachment'
+    : previous.stage === 'review' ? (previous.notice && !steps() ? previous.notice : 'Project: review attachment')
     : previous.stage === 'expired' ? 'Project: review deadline reached. Refresh to check the host.'
     : `Project: ${previous.stage}`;
   return [Text({ children: [status, '\n', reviewLines(previous.flow)] }),
