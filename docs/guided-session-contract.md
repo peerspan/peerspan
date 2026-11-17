@@ -10967,8 +10967,11 @@ running call's result.
 One call makes only read-only lookups, each within the existing 5-second process
 bound: the current project's attachment lookup (section4), the `peerspan
 onboarding` observation (section1), the invitation grant list (section55) and,
-when an incoming new-person request is `needs_administrator`, section20's
-read-only admission inspection.
+when an incoming new-person request is `needs_administrator` and this
+conversation's project has a current attachment, section20's read-only
+admission inspection. The reads follow the table's order and stop at the first
+`due` that applies; without an attachment, `connect_conversation` applies before
+any admission inspection is needed.
 If the host is unavailable or a read fails, it returns `due:"host_unavailable"`.
 
 ### The result
