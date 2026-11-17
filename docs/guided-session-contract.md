@@ -10724,11 +10724,16 @@ model turn. **Stop adapter** is unchanged.
 ### After a reload or restart
 
 The runtime, lease and enabled paths live in the pane's memory, and a host
-restart invalidates the attachment (section3). Afterwards, **Connect this
-conversation** shows the same review, and its press replaces an invalidated
-attachment or adapter flow (`replace_flow_id`, sections3 and 5), and reconnects
-a still-authorized adapter instead of preparing a new one, each checked against
-the screen as above. It never does this on entry, Refresh or reload.
+restart invalidates the attachment (section3). An agent created by the earlier
+press stays registered, so it is no longer new. Afterwards, **Connect this
+conversation** shows the review with that exact agent, identified by the agent
+ID of the invalidated attachment (never by name or list order), as an existing
+agent, with section4's existing-agent terms and the resumption wording; the
+participant may instead choose another agent explicitly. Its press replaces the
+invalidated attachment or adapter flow (`replace_flow_id`, sections3 and 5) and
+reconnects a still-authorized adapter instead of preparing a new one, each
+checked against that screen as above. It never does this on entry, Refresh or
+reload.
 
 ### Show each step
 
@@ -10767,8 +10772,9 @@ A separate contract-only author adds native cases for this section:
   authorization without connecting.
 - **Stop incoming messages** stops messages and tasks, and keeps the adapter
   connected.
-- **After a host restart,** the press replaces the invalidated flow and connects
-  again.
+- **After a host restart,** the review shows the earlier agent as an existing
+  agent with the resumption wording, and the press replaces the invalidated flow
+  and connects again.
 - **`show_each_step=true`** restores the per-step controls.
 
 ## Implementation choices
