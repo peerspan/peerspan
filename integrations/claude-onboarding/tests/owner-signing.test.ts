@@ -1130,3 +1130,174 @@ test('signing and ordinary navigation preserve established delivery task lease a
   expect(w.prompts.length).toBe(prompts); expect(readyCalls(w).length).toBe(ready); expect(w.tools.map(tool => tool.name)).toEqual(tools)
   expect(w.invitation).toEqual(issued); expect(signCalls(w)).toHaveLength(1); signPrivacy(w, await visible(ui), true)
 })
+
+// Section 53 (P1): the merged Join review. Automatic work follows section 52's
+// schedule, so wait until host operations and the drawing are stable.
+async function finished(w: World, ui: Pane) {
+  let last = '', same = 0
+  for (let turn = 0; turn < 1000 && same < 12; turn++) {
+    await w.clock.settle()
+    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
+    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
+    same = now === last ? same + 1 : 0; last = now
+  }
+}
+async function pass(w: World, ui: Pane, ms: number) {
+  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+}
+const JOIN_STEPS = ['join.decide', 'join.owner.prepare', 'join.owner.approve', 'join.owner.sign']
+const joinSteps = (w: World, from = 0) => w.calls.slice(from).filter(e => JOIN_STEPS.includes(e.kind)).map(e => e.kind)
+const eachStep: TestOptions & { options: Record<string, string> } = { options: { show_each_step: 'true' } }
+async function mergedJoin(w: World, ui: Pane) {
+  // Explicit fresh joining attempt through identity choice to the Join screen.
+  w.joining = null; w.ownerValue = null; w.requestState = 'pending'
+  await currentProject(ui); await joinEntry(w, ui); await joiningIdentities(w, ui); await choose(w, ui)
+  expect(await ui.find({ type: 'Button', text: /^Join$/ }), 'merged Join control').toBeDefined()
+}
+function codeGone(w: World, shown: string, from = 0) {
+  expect(w.forbidden).toEqual([])
+  for (const code of w.codes) {
+    expect(shown).not.toContain(code); expect(w.outside.join('\n')).not.toContain(code)
+    for (const prompt of w.prompts) expect(prompt.text).not.toContain(code)
+    for (const e of w.calls.slice(from)) {
+      expect(e.argv.join('\n')).not.toContain(code)
+      if (e.kind !== 'join.decide' && e.kind !== 'join.prepare' && e.kind !== 'invitation.preview') expect(JSON.stringify(e.payload ?? null)).not.toContain(code)
+    }
+  }
+  for (const value of [RAW, 'PRIVATE_PROVIDER_ERROR', NATIVE, w.joining?.flow_id, w.joining?.review_id, w.ownerValue?.review_id].filter(Boolean)) {
+    expect(shown).not.toContain(value); expect(w.outside.join('\n')).not.toContain(value)
+  }
+}
+
+test('merged Join shows the join review and every owner term known before publication', async ($, on) => {
+  const w = fixture(on), ui = await joinReview($, w)
+  expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /^Approve join request$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', text: /^Decline join request$/ })).toBeDefined()
+  await fullTerms(ui, w.joining.review)
+  const shown = await visible(ui), lower = shown.toLowerCase()
+  for (const term of [KEY, w.joining.review.expires_at, HOST]) expect(shown).toContain(term)
+  for (const meaning of [/new device key[^\n]{0,80}after publication|after publication[^\n]{0,80}device key/i,
+    /(?:7|seven) days[^\n]{0,60}publication|publication[^\n]{0,60}(?:7|seven) days/i, /15 minutes/i,
+    /policy.*edit|edit.*policy/i, /host.*bind|bind.*host/i, /own.*device|device.*own/i]) expect(shown).toMatch(meaning)
+  for (const term of [/finali[sz]/, /single.*offer|one.*offer/, /select/, /sign/, /owner/, /membership/, /agent access/]) expect(lower).toMatch(term)
+  expect(joinSteps(w)).toEqual([]); codeGone(w, shown)
+})
+
+test('one Join press runs publication owner prepare owner approve and signing once each in order', async ($, on) => {
+  const w = fixture(on), ui = await joinReview($, w), captured = clone(w.joining), at = w.calls.length
+  await press(ui, 'Join'); await finished(w, ui)
+  expect(joinSteps(w, at)).toEqual(JOIN_STEPS)
+  expect(last(w, 'join.decide').payload).toEqual({ flow_id: captured.flow_id, context: context(w.parent),
+    review_id: captured.review_id, decision: 'approve', invitation: CODE })
+  for (const op of ['prepare', 'approve', 'sign']) {
+    const sent = ownerCalls(w, op)[0]
+    expect(sent.payload, op).toEqual({ flow_id: captured.flow_id, context: context(w.parent), join_review_id: captured.review_id,
+      ...(op !== 'prepare' ? { owner_review_id: w.ownerValue.review_id } : {}), ...(op === 'sign' ? { decision: 'sign_original_owner_offer' } : {}) })
+  }
+  const shown = await visible(ui)
+  expect(shown).toContain('Original signature: recorded')
+  expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeUndefined()
+  await pass(w, ui, 30_000); expect(joinSteps(w, at)).toEqual(JOIN_STEPS)
+  codeGone(w, await visible(ui), at)
+})
+
+test('a difference in any checked owner term stops after publication without approval and offers Review owner powers', async ($, on) => {
+  const w = fixture(on), ui = await setup($, w), normal = w.run
+  const variants: [string, (v: any) => void][] = [
+    ['kind', v => { v.owner.review.kind = 'approve_existing_owner' }],
+    ['effects', v => { v.owner.review.effects.grant_membership = true }],
+    ['network', v => { v.owner.review.network.name = 'Different network' }],
+    ['member', v => { v.owner.review.member = 'Different member' }],
+    ['person', v => { v.owner.review.person_public_key = GENESIS_KEY }],
+    ['host', v => { v.owner.review.host_public_key = HELPER_KEY }],
+    ['request', v => { v.owner.review.request_id = id64('link', 999) }],
+    ['device', v => { v.owner.review.device_public_key = HELPER_KEY }],
+    ['scopes', v => { v.owner.review.scopes = 3 }],
+    ['not_after', v => { v.owner.review.not_after = stamp(Date.parse(v.owner.review.not_after) + 1000) }],
+    ['expiry', v => { v.owner.review.expires_at = stamp(Math.floor((w.clock.now() + 1_200_000) / 1000) * 1000) }],
+    ['recorded', v => { v.request.completed = ['request_created', 'owner_offered']; v.request.owner_offer_id = id64('dpk', 61); v.request.state = 'needs_selection' }],
+  ]
+  const offered: string[] = []
+  for (const [label, change] of variants) {
+    w.run = async (kind, payload, e) => {
+      const value = await normal(kind, payload, e)
+      if (kind === 'join.owner.prepare' && value?.owner) {
+        change(value); value.owner.review_id = await digest('peerspan-onboarding-original-owner-review-v1', value.owner.review)
+      }
+      return value
+    }
+    await mergedJoin(w, ui); const at = w.calls.length
+    await press(ui, 'Join'); await finished(w, ui)
+    expect(joinSteps(w, at), label).toEqual(['join.decide', 'join.owner.prepare'])
+    expect(await visible(ui), label).toContain('Join request: publication recorded')
+    expect(await visible(ui), label).not.toContain('Owner consent: recorded')
+    if (!await ui.find({ type: 'Button', text: /^Review owner powers$/ })) offered.push(label)
+    await pass(w, ui, 15_000); expect(joinSteps(w, at), label).toEqual(['join.decide', 'join.owner.prepare'])
+    codeGone(w, await visible(ui), at)
+  }
+  expect(ownerCalls(w, 'approve')).toHaveLength(0); expect(signCalls(w)).toHaveLength(0)
+  expect(offered, 'differences shown without Review owner powers').toEqual([])
+})
+
+test('unknown publication approval or signing outcomes stop at that step offer its control and never repeat', async ($, on) => {
+  const w = fixture(on), ui = await setup($, w), normal = w.run
+  for (const step of ['join.decide', 'join.owner.approve', 'join.owner.sign']) {
+    w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); return kind === step ? { fixtureDeny: true } : value }
+    await mergedJoin(w, ui); const at = w.calls.length
+    await press(ui, 'Join'); await finished(w, ui)
+    const expected = JOIN_STEPS.slice(0, JOIN_STEPS.indexOf(step) + 1)
+    expect(joinSteps(w, at), step).toEqual(expected)
+    expect(await visible(ui), step).toMatch(/unknown|uncertain|unavailable|not confirmed/i)
+    expect(await visible(ui), step).not.toContain('Original signature: recorded')
+    await pass(w, ui, 30_000); expect(joinSteps(w, at), step).toEqual(expected)
+    w.run = normal
+    if (step === 'join.decide') {
+      await press(ui, 'Refresh'); await finished(w, ui)
+      expect(await visible(ui), step).toContain('Join request: publication recorded')
+      expect(await ui.find({ type: 'Button', text: /^Review owner powers$/ }), step).toBeDefined()
+    }
+    // Section 53 names the step's existing control; sections 17 and 19 recover
+    // an unknown approval or signature through Check owner consent first.
+    if (step === 'join.owner.approve') expect(await ui.find({ type: 'Button', text: /^(?:Review owner powers|Check owner consent)$/ }), step).toBeDefined()
+    if (step === 'join.owner.sign') expect(await ui.find({ type: 'Button', text: /^(?:Sign original owner offer|Check owner consent)$/ }), step).toBeDefined()
+    if (step !== 'join.decide') {
+      const check = await ui.find({ type: 'Button', text: /^Check owner consent$/ })
+      if (check) { await ui.press({ key: check.key! }); await finished(w, ui) }
+      if (step === 'join.owner.approve') expect(await visible(ui), step).toContain('Owner consent: recorded')
+    }
+    expect(joinSteps(w, at), step).toEqual(expected); codeGone(w, await visible(ui), at)
+  }
+  expect(count(w, 'join.decide')).toBe(3); expect(signCalls(w)).toHaveLength(1)
+})
+
+test('the invitation code is dropped after the Join decision and reopening resumes from lookups', async ($, on) => {
+  const w = fixture(on), ui = await joinReview($, w), at = w.calls.length
+  expect((await ui.findAll({ type: 'Input' })).map(input => input.props.value ?? '').join('')).not.toContain(CODE)
+  await press(ui, 'Join'); await finished(w, ui)
+  expect(joinSteps(w, at)).toEqual(JOIN_STEPS)
+  for (const input of await ui.findAll({ type: 'Input' })) expect(input.props.value ?? '').toBe('')
+  codeGone(w, await visible(ui), at)
+  const decided = w.calls.findIndex((e, index) => index >= at && e.kind === 'join.decide')
+  for (const e of w.calls.slice(decided + 1)) expect(JSON.stringify(e.payload ?? null), e.kind).not.toContain(CODE)
+  await currentProject(ui); await joinEntry(w, ui); await finished(w, ui)
+  expect(await visible(ui)).toContain('Join request: publication recorded')
+  expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeUndefined()
+  await pass(w, ui, 15_000); expect(joinSteps(w, at)).toEqual(JOIN_STEPS)
+  codeGone(w, await visible(ui), at)
+})
+
+test('show_each_step restores separate join publication and owner controls without merged work', eachStep, async ($, on) => {
+  const w = fixture(on), ui = await joinReview($, w)
+  expect(await ui.find({ type: 'Button', text: /^Approve join request$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeUndefined()
+  const at = w.calls.length; await press(ui, 'Approve join request'); await finished(w, ui)
+  expect(joinSteps(w, at)).toEqual(['join.decide'])
+  expect(await visible(ui)).toContain('Join request: publication recorded')
+  await pass(w, ui, 30_000); expect(joinSteps(w, at)).toEqual(['join.decide'])
+  await reviewOwner(ui); await finished(w, ui)
+  expect(await ui.find({ type: 'Button', text: /^Approve owner powers$/ })).toBeDefined()
+  expect(ownerCalls(w, 'approve')).toHaveLength(0); expect(signCalls(w)).toHaveLength(0)
+  await pass(w, ui, 30_000); expect(ownerCalls(w, 'approve')).toHaveLength(0); expect(signCalls(w)).toHaveLength(0)
+  codeGone(w, await visible(ui), at)
+})

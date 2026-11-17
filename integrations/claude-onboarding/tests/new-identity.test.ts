@@ -701,7 +701,7 @@ test('post-save inventory accepts generated inclusion plus concurrent agent prov
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('saved identity requires separate explicit key choice and publication consent and survives later decline', async ($, on) => {
+test('saved identity requires separate explicit key choice and publication consent and survives later decline', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w)
   await press(ui, 'Create and save identity'); await w.clock.settle()
   expect(count(w, 'join.prepare')).toBe(0); expect(count(w, 'join.decide')).toBe(0)
