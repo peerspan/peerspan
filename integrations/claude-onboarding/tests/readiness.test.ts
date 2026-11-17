@@ -466,7 +466,7 @@ async function altered(w: World, normal: World['read'], change: (v: any) => void
 
 // 1. Existing actions stay inert; only this exact private configured command reads.
 test('explicit configured connection Check is absent before verified choices and never implicit in consent Finish or recovery',
-  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private readiness state/$(literal)' } } as TestOptions, async ($, on) => {
+  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private readiness state/$(literal)', show_each_step: 'true' } } as TestOptions, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   expect(await button(ui, 'Check connection status')).toBeUndefined(); expect(statusCalls(w)).toEqual([])
   await press(ui, 'Review agent access'); await choose(ui, w.selected.id)
@@ -482,7 +482,7 @@ test('explicit configured connection Check is absent before verified choices and
 })
 
 // 2. Empty evidence is specific, and complete details require no additional IO.
-test('empty authorizations and metadata-only session remain observed facts with complete purely local details', async ($, on) => {
+test('empty authorizations and metadata-only session remain observed facts with complete purely local details', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await openStatus($, w)
   await statusTerms(ui, w)
   expect(await shown(ui)).toMatch(/no (?:current )?(?:adapter|credential)|(?:adapter|credential)[^\n]*(?:none|absent)/i)
@@ -501,7 +501,7 @@ test('empty authorizations and metadata-only session remain observed facts with 
 })
 
 // 3. Directory entries keep category/order, exact bounds, origin and offset times.
-test('self policy and ordered grants preserve repeated action order origin restrictions and offset fractional expiry', async ($, on) => {
+test('self policy and ordered grants preserve repeated action order origin restrictions and offset fractional expiry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.person = OWNER; w.personEnd = w.ownerEnd
   w.members[1].person_public_key = OWNER
   w.ruleActions = ['task.submit', 'message.append', 'task.submit']
@@ -521,7 +521,7 @@ test('self policy and ordered grants preserve repeated action order origin restr
 })
 
 // 4. Independent current state replaces historical approval/application facts.
-test('fresh current receiver withdrawal and enforced policy replace observed permissions without altering retained application', async ($, on) => {
+test('fresh current receiver withdrawal and enforced policy replace observed permissions without altering retained application', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.access = await receipt(w, { state: 'approved' })
   w.applicationState = 'locally_applied'; w.statusAuthorizations = [policy()]
   const retained = clone(w.access), ui = await openStatus($, w); await statusTerms(ui, w)
@@ -537,7 +537,7 @@ test('fresh current receiver withdrawal and enforced policy replace observed per
 })
 
 // 5. Host channel evidence is not this module's or a peer/model readiness proof.
-test('exact-session registered live unverified live verified and offline history stay distinct with fractional UTC times', async ($, on) => {
+test('exact-session registered live unverified live verified and offline history stay distinct with fractional UTC times', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w)
   const modes: [string, boolean][] = [['registered', false], ['ready', false], ['ready', true], ['offline', true]]
   for (const [state, verified] of modes) {
@@ -557,7 +557,7 @@ test('exact-session registered live unverified live verified and offline history
 })
 
 // 6. The mutable readiness aggregate never borrows the inspection's digest trust.
-test('closed wrapper inspection digest unverified flags and unsafe integers fail unavailable rather than empty success', async ($, on) => {
+test('closed wrapper inspection digest unverified flags and unsafe integers fail unavailable rather than empty success', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), normal = w.read
   const variants: [string, (v: any) => void | Promise<void>][] = [
     ['unknown-wrapper', v => { v.extra = true }],
@@ -573,7 +573,7 @@ test('closed wrapper inspection digest unverified flags and unsafe integers fail
 })
 
 // 7. No directory authorization is unioned or made more permissive by parsing.
-test('authorization closed fields actions message bounds and grant references refuse independently', async ($, on) => {
+test('authorization closed fields actions message bounds and grant references refuse independently', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), normal = w.read; w.statusAuthorizations = [policy(), grant()]
   const variants: [string, (v: any) => void][] = [
     ['unknown-field', v => { v.readiness.peers[0].authorizations[0].extra = false }],
@@ -588,7 +588,7 @@ test('authorization closed fields actions message bounds and grant references re
 })
 
 // 8. A current person can have multiple machines; exact roster is independent.
-test('derived sorted multi-machine roster refuses missing extra duplicate and mismatched host identities', async ($, on) => {
+test('derived sorted multi-machine roster refuses missing extra duplicate and mismatched host identities', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.members.push(member(PERSON, OWNER, 30, 'Other "machine"'))
   const ui = await openStatus($, w), normal = w.read; await statusTerms(ui, w)
   expect(w.lastStatus.readiness.peers).toHaveLength(2)
@@ -607,7 +607,7 @@ test('derived sorted multi-machine roster refuses missing extra duplicate and mi
 })
 
 // 9. Connection plumbing may not supply another conversation's channel.
-test('connection exact session adapter order real calendar and verified-channel timestamps are mandatory', async ($, on) => {
+test('connection exact session adapter order real calendar and verified-channel timestamps are mandatory', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), normal = w.read
   w.statusConnections = [statusConnection(w, 'ready', true, 10), statusConnection(w, 'registered', false, 11)]
   const variants: [string, (v: any) => void][] = [
@@ -623,7 +623,7 @@ test('connection exact session adapter order real calendar and verified-channel 
 })
 
 // 10. Unsafe aggregate values do not leak via a successful inspection digest.
-test('short private protocol decorated OSC payload controls and oversized JSON never become visible status', async ($, on) => {
+test('short private protocol decorated OSC payload controls and oversized JSON never become visible status', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), normal = w.read
   w.statusConnections = [statusConnection(w, 'ready')]
   const variants: [string, (v: any) => void | Promise<void>][] = [
@@ -642,7 +642,7 @@ test('short private protocol decorated OSC payload controls and oversized JSON n
 })
 
 // 11. Uncertain reads erase old facts; only explicit human action can recover.
-test('denied nonzero raw and missing replies clear observed terms without fallback auto retry or mutation', async ($, on) => {
+test('denied nonzero raw and missing replies clear observed terms without fallback auto retry or mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await openStatus($, w), normal = w.read; await statusTerms(ui, w)
   const failures = [{ fixtureDeny: true }, { fixtureExit: true }, { fixtureRaw: RAW }, null]
   for (const value of failures) {
@@ -658,7 +658,7 @@ test('denied nonzero raw and missing replies clear observed terms without fallba
 })
 
 // 12. No observation deadline is extended, and an old timer cannot clear a fresh read.
-test('earliest observation membership grant and lease expiry clear details without IO and explicit fresh Check recovers', async ($, on) => {
+test('earliest observation membership grant and lease expiry clear details without IO and explicit fresh Check recovers', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w)
   for (const kind of ['observation', 'membership', 'grant', 'lease']) {
     const now = w.clock.now(), duration = kind === 'observation' ? 30_000 : 2000
@@ -677,7 +677,7 @@ test('earliest observation membership grant and lease expiry clear details witho
 })
 
 // 13. Delay is registered before testing busy/elapsed or departing callbacks.
-test('dispatched delayed read is single flight elapsed replies cannot restore facts and Close invalidates a later pending read', async ($, on) => {
+test('dispatched delayed read is single flight elapsed replies cannot restore facts and Close invalidates a later pending read', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), normal = w.read
   w.statusObserved = w.clock.now() - 29_000
   let delayed = delaySignal(w, 2000)
@@ -695,7 +695,7 @@ test('dispatched delayed read is single flight elapsed replies cannot restore fa
 })
 
 // 14. Async parent/host/native/network guards use captured bindings, never a rebind.
-test('actual preflight and IO guard changes discard old root native host and authoritative parent context', async ($, on) => {
+test('actual preflight and IO guard changes discard old root native host and authoritative parent context', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read
   for (const mode of ['preflight-root', 'io-native', 'io-host', 'io-network-context', 'post-io-parent']) {
     w.root = ROOT; w.native = NATIVE; w.host = HOST; w.parent = await parentFlow(); w.read = normal
@@ -725,7 +725,7 @@ test('actual preflight and IO guard changes discard old root native host and aut
 })
 
 // 15. Public navigation invalidates late callbacks, without fictitious old handlers.
-test('Leave Refresh end and lost terminal surface discard dispatched late observations without resurrecting terms', async ($, on) => {
+test('Leave Refresh end and lost terminal surface discard dispatched late observations without resurrecting terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read
   for (const mode of ['leave', 'refresh', 'end', 'surface']) {
     w.surface = 'terminal'; w.surfaces = ['terminal']; w.read = normal; w.parent = await parentFlow()
@@ -744,7 +744,7 @@ test('Leave Refresh end and lost terminal surface discard dispatched late observ
 })
 
 // 16. Observation, details/failure/Leave do not revoke a separate authorized lease.
-test('connection Check unavailable local details and Leave preserve an established runtime with no new model tools or direct transport', async ($, on) => {
+test('connection Check unavailable local details and Leave preserve an established runtime with no new model tools or direct transport', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   await press(ui, 'Review adapter connection'); await press(ui, 'Approve adapter'); await press(ui, 'Connect adapter')
   expect(w.http).toHaveLength(1); await press(ui, /^Back to project$/)

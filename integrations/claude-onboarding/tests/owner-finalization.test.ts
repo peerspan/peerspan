@@ -373,7 +373,7 @@ async function setup($: Engine, w: World, state: string | null = null, options: 
   w.parent = await parentFlow({ agent: { id: id('agent', 1), name: 'Agent "東京"', owner: 'Owner \\é', capabilities: ['capability "metadata"'] } })
   if (state) w.invitation = await invitationFlow(w.parent, w.networks[0], { ...options, state })
   if (!w.started) await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
-  const ui = await enter($, w); await press(ui, 'Connect this project'); return ui
+  const ui = await enter($, w); await press(ui, /^Connect this (?:project|conversation)$/); return ui
 }
 async function visible(ui: Pane) {
   return (await text(ui)) + '\n' + (await ui.findAll({ type: 'Input' })).map(input => input.props.value ?? '').join('\n')
@@ -423,7 +423,9 @@ async function joinFlow(parent: any, preview: any, person = KEY, options: any = 
     review_id: await digest('peerspan-join-review-v1', review), state, review, outcome, next_action: actions[state] }
 }
 async function joinEntry(w: World, ui: Pane) {
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Join a network$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   await press(ui, 'Join a network'); await w.clock.settle()
 }
@@ -684,7 +686,7 @@ const configuredFinalization: TestOptions & { options: Record<string, string> } 
 }
 
 // Group1: explicit entry and complete meaning, never read-as-sign.
-test('entry owner approval progress Check Refresh and reentry are finalization inert', async ($, on) => {
+test('entry owner approval progress Check Refresh and reentry are finalization inert', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w, { state: 'review', requestState: 'pending' })
   await press(ui, 'Approve owner powers'); expect(finalCalls(w)).toHaveLength(0)
   // Separate already-approved ordinary work supplies the verified prefix.
@@ -697,7 +699,7 @@ test('entry owner approval progress Check Refresh and reentry are finalization i
   expect(finalCalls(w)).toHaveLength(0); finalPrivacy(w, await visible(ui))
 })
 
-test('only exact approved live requester four-stage prefix offers finalization review', async ($, on) => {
+test('only exact approved live requester four-stage prefix offers finalization review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['unapproved', v => { v.owner.state = 'review'; v.owner.next_action = 'approve_owner_intent' }],
@@ -717,7 +719,7 @@ test('only exact approved live requester four-stage prefix offers finalization r
   expect(finalCalls(w)).toHaveLength(0); finalPrivacy(w, await visible(ui))
 })
 
-test('explicit pure inspection displays complete quoted targets parents bounded effects and separate commit access readiness', async ($, on) => {
+test('explicit pure inspection displays complete quoted targets parents bounded effects and separate commit access readiness', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w)
   await finalReview(ui, w); expect(finalCalls(w, 'inspect')).toHaveLength(1); expect(finalCalls(w, 'sign')).toHaveLength(0)
   await finalTerms(ui, w)
@@ -725,7 +727,7 @@ test('explicit pure inspection displays complete quoted targets parents bounded 
 })
 
 // Group2: fresh pinned preflight and one literal bounded command.
-test('double Sign freshly checks parent flow host owner and inspection then sends one exact configured95s stdin call', configuredFinalization, async ($, on) => {
+test('double Sign freshly checks parent flow host owner and inspection then sends one exact configured95s stdin call', { ...configuredFinalization, options: { ...configuredFinalization.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w); await finalReview(ui, w)
   const captured = clone(w.lastInspection), normal = w.run, delayed = delaySignal(w, 1000), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.owner.lookup') await delayed.wait(); return value }
@@ -745,7 +747,7 @@ test('double Sign freshly checks parent flow host owner and inspection then send
   finalPrivacy(w, await visible(ui), false, configuredFinalization.options.executable, configuredFinalization.options.state)
 })
 
-test('changed owner consent immutable request keys or selected prefix stop preflight before signing', async ($, on) => {
+test('changed owner consent immutable request keys or selected prefix stop preflight before signing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['intent', v => { v.owner.review.intent_id = id('dint', 99) }], ['unapproved', v => { v.owner.state = 'invalidated'; v.owner.next_action = 'inspect_join_progress' }],
@@ -765,7 +767,7 @@ test('changed owner consent immutable request keys or selected prefix stop prefl
   finalPrivacy(w, await visible(ui))
 })
 
-test('fresh reinspection cannot silently rebind digest root P H administrator or fixed powers', async ($, on) => {
+test('fresh reinspection cannot silently rebind digest root P H administrator or fixed powers', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['digest', v => { v.review_id = id64('review', 99) }], ['root', v => { v.review.root_state_id = id64('ds', 99) }],
@@ -785,7 +787,7 @@ test('fresh reinspection cannot silently rebind digest root P H administrator or
   finalPrivacy(w, await visible(ui))
 })
 
-test('authoritative parent flow host and native context are rechecked after inspection IO before controls or sign', async ($, on) => {
+test('authoritative parent flow host and native context are rechecked after inspection IO before controls or sign', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await finalEligible($, w); const normal = w.run
   const parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['parent', 'flow', 'host', 'root', 'native', 'surface'].entries()) {
@@ -806,7 +808,7 @@ test('authoritative parent flow host and native context are rechecked after insp
   expect(finalCalls(w, 'sign')).toHaveLength(0); finalPrivacy(w)
 })
 
-test('just recorded exact F on Review Sign and Check is lookup-only global recovery without inspection or signing', async ($, on) => {
+test('just recorded exact F on Review Sign and Check is lookup-only global recovery without inspection or signing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   for (const mode of ['review', 'sign', 'check']) {
     w.run = normal; w.requestState = 'needs_owner_finalization'
@@ -823,7 +825,7 @@ test('just recorded exact F on Review Sign and Check is lookup-only global recov
 })
 
 // Group3: independently closed public projection/result validation.
-test('closed inspection wrapper request mapping dates and binding corpus cannot install Sign', async ($, on) => {
+test('closed inspection wrapper request mapping dates and binding corpus cannot install Sign', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['top extra', v => { v.extra = RAW }], ['version', v => { v.version = true }], ['action', v => { v.next_action = 'sign_now' }],
@@ -842,7 +844,7 @@ test('closed inspection wrapper request mapping dates and binding corpus cannot 
   expect(finalCalls(w, 'sign')).toHaveLength(0); finalPrivacy(w, await visible(ui))
 })
 
-test('closed review effects canonical keys parent IDs and raw or decorated private terms are refused without echo', async ($, on) => {
+test('closed review effects canonical keys parent IDs and raw or decorated private terms are refused without echo', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['null', v => { v.review = null }], ['extra', v => { v.review.extra = RAW }], ['effect', v => { v.review.effects.commit_request = true }],
@@ -864,7 +866,7 @@ test('closed review effects canonical keys parent IDs and raw or decorated priva
   expect(finalCalls(w, 'sign')).toHaveLength(0); finalPrivacy(w, await visible(ui))
 })
 
-test('bare null extra malformed or wrong exact signing markers never confirm F', async ($, on) => {
+test('bare null extra malformed or wrong exact signing markers never confirm F', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['bare', v => { delete v.original_finalization }], ['null', v => { v.original_finalization = null }],
@@ -882,7 +884,7 @@ test('bare null extra malformed or wrong exact signing markers never confirm F',
   expect(finalCalls(w, 'sign')).toHaveLength(variants.length); finalPrivacy(w, await visible(ui))
 })
 
-test('success still binds approved original digest request keys dates selected prefix and private-free public terms', async ($, on) => {
+test('success still binds approved original digest request keys dates selected prefix and private-free public terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['unapproved', v => { v.owner.state = 'review'; v.owner.next_action = 'approve_owner_intent' }],
@@ -905,7 +907,7 @@ test('success still binds approved original digest request keys dates selected p
   expect(finalCalls(w, 'sign')).toHaveLength(variants.length); finalPrivacy(w, await visible(ui))
 })
 
-test('same-context later valid stages confirm exact retained F without claiming requester commit access or pane attribution', async ($, on) => {
+test('same-context later valid stages confirm exact retained F without claiming requester commit access or pane attribution', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   for (const state of ['needs_commit', 'finalizing', 'linked']) {
     w.run = normal; w.requestState = 'needs_owner_finalization'; await finalReview(ui, w)
@@ -922,7 +924,7 @@ test('same-context later valid stages confirm exact retained F without claiming 
 })
 
 // Group4: native timers use request/fixed terms, not the historical approval window.
-test('expired owner review window preserves Sign while exact request deadline removes controls without IO', async ($, on) => {
+test('expired owner review window preserves Sign while exact request deadline removes controls without IO', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requestCreated = NOW - 1_200_000; w.requestExpiry = NOW + 2_400_000
   const ui = await finalEligible($, w, { expires: NOW - 300_000 }); await finalReview(ui, w)
   expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ })).toBeDefined()
@@ -934,7 +936,7 @@ test('expired owner review window preserves Sign while exact request deadline re
   expect(await visible(ui)).toContain('Join request: publication recorded'); finalPrivacy(w, await visible(ui))
 })
 
-test('registered preflight delay crossing request deadline or future owner observation prevents sign dispatch', async ($, on) => {
+test('registered preflight delay crossing request deadline or future owner observation prevents sign dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w, { deadline: NOW + 1000 }), normal = w.run
   await finalReview(ui, w); const delayed = delaySignal(w, 1000)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === FINAL_INSPECT) await delayed.wait(); return value }
@@ -948,7 +950,7 @@ test('registered preflight delay crossing request deadline or future owner obser
   finalPrivacy(w, await visible(ui))
 })
 
-test('request expiry after actual dispatch can still confirm retained historical F', async ($, on) => {
+test('request expiry after actual dispatch can still confirm retained historical F', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w, { deadline: NOW + 1000 }); await finalReview(ui, w)
   const normal = w.run, delayed = delaySignal(w, 2000)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === FINAL_SIGN) {
@@ -960,7 +962,7 @@ test('request expiry after actual dispatch can still confirm retained historical
 })
 
 // Group5: unknown is never a hidden retry or a claim that B/D do not exist.
-test('denied nonzero raw and mismatched results stay unknown and Check only reads eligible or completed evidence', async ($, on) => {
+test('denied nonzero raw and mismatched results stay unknown and Check only reads eligible or completed evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   for (const [index, mode] of ['deny', 'timeout', 'raw', 'mismatch'].entries()) {
     w.run = normal; w.requestState = 'needs_owner_finalization'; await finalReview(ui, w)
@@ -994,7 +996,7 @@ test('denied nonzero raw and mismatched results stay unknown and Check only read
 })
 
 // Group6: synchronized late callbacks/timers and independent runtime invariants.
-test('Leave during preflight or signing clears authority and old result or timer cannot replace a newer review', async ($, on) => {
+test('Leave during preflight or signing clears authority and old result or timer cannot replace a newer review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w, { deadline: NOW + 2000 }), normal = w.run
   for (const op of ['lookup', 'sign']) {
     w.run = normal; w.requestState = 'needs_owner_finalization'; await finalReview(ui, w)
@@ -1021,7 +1023,7 @@ test('Leave during preflight or signing clears authority and old result or timer
   expect(finalCalls(w)).toHaveLength(at); finalPrivacy(w, await visible(ui))
 })
 
-test('Back Close Refresh root conversation host parent surface and end revoke dispatched callbacks without retraction', async ($, on) => {
+test('Back Close Refresh root conversation host parent surface and end revoke dispatched callbacks without retraction', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await finalEligible($, w); const normal = w.run
   const parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['back', 'close', 'refresh', 'root', 'native', 'host', 'parent', 'surface', 'end'].entries()) {
@@ -1047,7 +1049,7 @@ test('Back Close Refresh root conversation host parent surface and end revoke di
   expect(finalCalls(w, 'sign')).toHaveLength(9); finalPrivacy(w)
 })
 
-test('finalization navigation and Check preserve established message task lease and durable invitation without new tools or prompts', async ($, on) => {
+test('finalization navigation and Check preserve established message task lease and durable invitation without new tools or prompts', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w)
   await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, network(9), { state: 'issued' }); const issued = clone(w.invitation)

@@ -640,7 +640,7 @@ function progressPrivacy(w: World, shown = '', runtime = false, executable = 'pe
   }
 }
 
-test('publication entry outcome lookup Refresh and nonrequested reviews never implicitly check progress', async ($, on) => {
+test('publication entry outcome lookup Refresh and nonrequested reviews never implicitly check progress', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w)
   expect(await ui.find({ type: 'Button', text: /^Check join progress$/ })).toBeDefined()
   expect(await visible(ui)).toContain('Join request: publication recorded'); await noProgress(ui)
@@ -654,7 +654,7 @@ test('publication entry outcome lookup Refresh and nonrequested reviews never im
   expect(count(w, 'join.progress')).toBe(0); progressPrivacy(w, await visible(ui))
 })
 
-test('all ten recorded states show exact public progress consent stages and honest next-participant limits', async ($, on) => {
+test('all ten recorded states show exact public progress consent stages and honest next-participant limits', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run
   for (const state of Object.keys(mapping)) {
     const value = await progressResponse(w, state)
@@ -679,7 +679,7 @@ test('all ten recorded states show exact public progress consent stages and hone
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('explicit double Check clears old confirmation synchronously rechecks parent flow host and sends one exact5s private command', configured, async ($, on) => {
+test('explicit double Check clears old confirmation synchronously rechecks parent flow host and sends one exact5s private command', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); await press(ui, 'Check join progress')
   const normal = w.run
   w.run = async (kind, payload, e) => { if (kind === 'join.inspect') await w.clock.sleep(1000); return normal(kind, payload, e) }
@@ -696,7 +696,7 @@ test('explicit double Check clears old confirmation synchronously rechecks paren
   progressPrivacy(w, await visible(ui), false, configured.options.executable, configured.options.state)
 })
 
-test('malformed wrapper LINK_VIEW pins host-key hash mapping booleans stages bounds and private metadata cannot confirm progress', { timeoutMs: 15000 }, async ($, on) => {
+test('malformed wrapper LINK_VIEW pins host-key hash mapping booleans stages bounds and private metadata cannot confirm progress', { options: { show_each_step: 'true' }, timeoutMs: 15000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['extra', v => { v.private_provider = RAW }], ['host', v => { v.host_id = 'host_' + '9'.repeat(64) }],
@@ -726,7 +726,7 @@ test('malformed wrapper LINK_VIEW pins host-key hash mapping booleans stages bou
   }
 })
 
-test('maximum bounded attention and next remain data while only delivery_pending is a transport observation', async ($, on) => {
+test('maximum bounded attention and next remain data while only delivery_pending is a transport observation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run, value = await progressResponse(w)
   value.request.attention = ['delivery_pending', ...Array.from({ length: 31 }, (_, n) => 'UNTRUSTED_ATTENTION_' + n)]
   value.request.next = ['é'.repeat(512), ...Array.from({ length: 31 }, (_, n) => 'UNTRUSTED_NEXT_' + n)]
@@ -736,7 +736,7 @@ test('maximum bounded attention and next remain data while only delivery_pending
   expect(await visible(ui)).not.toContain('é'.repeat(512)); progressPrivacy(w, await visible(ui))
 })
 
-test('changed parent retained flow outcome host root conversation or surface prevents a captured Check', async ($, on) => {
+test('changed parent retained flow outcome host root conversation or surface prevents a captured Check', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), parent = clone(w.parent), normal = w.run
   for (const [index, mode] of ['parent', 'flow', 'outcome', 'host', 'root', 'native', 'surface'].entries()) {
     if (index) await currentProject(ui)
@@ -763,7 +763,7 @@ test('changed parent retained flow outcome host root conversation or surface pre
   progressPrivacy(w, await visible(ui))
 })
 
-test('denied or raw reads clear old progress preserve publication and require an explicit Check without automatic retry', async ($, on) => {
+test('denied or raw reads clear old progress preserve publication and require an explicit Check without automatic retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run
   for (const mode of ['denied', 'raw']) {
     w.run = normal; await press(ui, 'Check join progress'); expect(await visible(ui)).toContain('Join progress: pending')
@@ -775,7 +775,7 @@ test('denied or raw reads clear old progress preserve publication and require an
   }
 })
 
-test('Refresh Back Close and reopening discard confirmations without progress polling or loss of public outcome', async ($, on) => {
+test('Refresh Back Close and reopening discard confirmations without progress polling or loss of public outcome', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await published($, w); const retained = clone(w.joining)
   for (const mode of ['refresh', 'back', 'close']) {
     await press(ui, 'Check join progress'); const before = count(w, 'join.progress')
@@ -788,7 +788,7 @@ test('Refresh Back Close and reopening discard confirmations without progress po
   progressPrivacy(w, await visible(ui))
 })
 
-test('late old progress cannot replace a newer requested outcome confirmation after navigation', async ($, on) => {
+test('late old progress cannot replace a newer requested outcome confirmation after navigation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run; let first = true
   let signalOldDelayStarted!: () => void
   const oldDelayStarted = new Promise<void>(resolve => { signalOldDelayStarted = resolve })
@@ -812,7 +812,7 @@ test('late old progress cannot replace a newer requested outcome confirmation af
   progressPrivacy(w, await visible(ui))
 })
 
-test('historical requested review expiry keeps explicit Check and a snapshot never automatically becomes a live status', async ($, on) => {
+test('historical requested review expiry keeps explicit Check and a snapshot never automatically becomes a live status', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w)
   await w.clock.advance(900_001); await press(ui, 'Check join progress')
   expect(await visible(ui)).toContain('Join progress: pending')
@@ -822,7 +822,7 @@ test('historical requested review expiry keeps explicit Check and a snapshot nev
   expect(await visible(ui)).toMatch(/snapshot/i); progressPrivacy(w, await visible(ui))
 })
 
-test('root conversation host parent surface and session end clear pending progress authority without erasing durable outcomes', async ($, on) => {
+test('root conversation host parent surface and session end clear pending progress authority without erasing durable outcomes', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await published($, w); const parent = clone(w.parent), normal = w.run
   for (const [index, mode] of ['root', 'native', 'host', 'parent', 'surface', 'end'].entries()) {
     if (index) {
@@ -850,7 +850,7 @@ test('root conversation host parent surface and session end clear pending progre
   progressPrivacy(w)
 })
 
-test('explicit progress and pane navigation preserve established message task lease and durable inviter outcomes', async ($, on) => {
+test('explicit progress and pane navigation preserve established message task lease and durable inviter outcomes', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = [network()]
   const ui = await connected($, w); await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, w.networks[0], { state: 'issued' }); const issued = clone(w.invitation)
@@ -925,7 +925,7 @@ const kinds = (w: World, from: number) => {
   return { operations: slice.filter(kind => !rechecks.includes(kind)), rechecks: [...new Set(slice.filter(kind => rechecks.includes(kind)))].sort() }
 }
 
-test('automatic progress checks a waiting published request 5 seconds after it is shown and again 5 seconds after', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress checks a waiting published request 5 seconds after it is shown and again 5 seconds after', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
   await w.clock.settle(); expect(count(w, 'join.progress')).toBe(0)
   await pass(w, ui, 4900); expect(count(w, 'join.progress')).toBe(0)
@@ -942,7 +942,7 @@ test('automatic progress checks a waiting published request 5 seconds after it i
   progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress runs exactly the Check join progress operations and never prepares decides or reveals', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress runs exactly the Check join progress operations and never prepares decides or reveals', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
   let at = w.calls.length; await press(ui, 'Check join progress'); await w.clock.settle()
   const explicit = kinds(w, at); expect(explicit.operations.filter(kind => kind === 'join.progress')).toHaveLength(1)
@@ -954,7 +954,7 @@ test('automatic progress runs exactly the Check join progress operations and nev
   expect(w.joining.state).toBe('requested'); progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress keeps one check in flight and a press during an automatic check waits and runs once', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress keeps one check in flight and a press during an automatic check waits and runs once', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
   const normal = w.run; let active = 0, most = 0, delays = 0
   let signal!: () => void; const started = new Promise<void>(resolve => { signal = resolve })
@@ -975,7 +975,7 @@ test('automatic progress keeps one check in flight and a press during an automat
   progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress stops at an action due here and at terminal or blocked states', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress stops at an action due here and at terminal or blocked states', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); let state = 'needs_commit'; progressAs(w, () => state)
   for (const [index, current] of ['needs_commit', 'linked', 'cancelled', 'expired', 'blocked'].entries()) {
     if (index) {
@@ -992,7 +992,7 @@ test('automatic progress stops at an action due here and at terminal or blocked 
   progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress stops after 120 checks', { timeoutMs: 120000 }, async ($, on) => {
+test('automatic progress stops after 120 checks', { options: { show_each_step: 'true' }, timeoutMs: 120000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); progressAs(w, () => 'needs_administrator')
   await pass(w, ui, 605_000); await pass(w, ui, 60_000)
   expect(count(w, 'join.progress')).toBe(120)
@@ -1001,7 +1001,7 @@ test('automatic progress stops after 120 checks', { timeoutMs: 120000 }, async (
   progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress stops at a failed check keeping its text and the next press starts it again', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress stops at a failed check keeping its text and the next press starts it again', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w); let fail = true
   progressAs(w, () => fail ? { fixtureDeny: true } : 'needs_administrator')
   await pass(w, ui, 5000); expect(count(w, 'join.progress')).toBe(1)
@@ -1015,7 +1015,7 @@ test('automatic progress stops at a failed check keeping its text and the next p
   progressPrivacy(w, await visible(ui))
 })
 
-test('automatic progress stops on Close Back navigation Refresh and a project or conversation change', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress stops on Close Back navigation Refresh and a project or conversation change', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); let ui = await published($, w); progressAs(w, () => 'needs_administrator')
   for (const [index, mode] of ['close', 'back', 'navigation', 'refresh', 'root', 'native'].entries()) {
     if (index) {

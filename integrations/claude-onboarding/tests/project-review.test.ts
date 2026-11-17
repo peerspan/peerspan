@@ -189,7 +189,7 @@ async function expectedDecision(w: World, captured: any, choice: string) {
     integration: captured.review.integration, decision: choice })
 }
 
-test('initial, headless and unknown-argument entry remain observation-only until explicit Connect', async ($, on) => {
+test('initial, headless and unknown-argument entry remain observation-only until explicit Connect', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await start($)
   expect(w.calls).toEqual([])
@@ -227,7 +227,7 @@ test('headless summary never performs a private project lookup or preparation', 
   effects(w)
 })
 
-test('unavailable initial observations cannot start a private project flow', async ($, on) => {
+test('unavailable initial observations cannot start a private project flow', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.read = async () => ({ fixtureDeny: true })
   await start($)
@@ -239,7 +239,7 @@ test('unavailable initial observations cannot start a private project flow', asy
   effects(w)
 })
 
-test('editable defaults, input submission and agent paging do not prepare; explicit selection pins its ID', async ($, on) => {
+test('editable defaults, input submission and agent paging do not prepare; explicit selection pins its ID', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.agents = Array.from({ length: 12 }, (_, n) => registryAgent(n + 1, 'Name "' + (n + 1) + '"', 'Owner \\' + (n + 1)))
   const ui = await connect($, w)
@@ -275,7 +275,7 @@ test('editable defaults, input submission and agent paging do not prepare; expli
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('explicit new-agent draft uses literal configured argv and stdin only', configured, async ($, on) => {
+test('explicit new-agent draft uses literal configured argv and stdin only', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const ui = await connect($, w)
   await ui.input({ key: (await input(ui, 'New agent name')).key!, text: 'New "agent" $(literal)' })
@@ -291,7 +291,7 @@ test('explicit new-agent draft uses literal configured argv and stdin only', con
   effects(w, configured.options.executable, configured.options.state)
 })
 
-test('invalid root-derived defaults use project-agent and never choose an existing same-named agent', async ($, on) => {
+test('invalid root-derived defaults use project-agent and never choose an existing same-named agent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.agents = [registryAgent(1, 'project-agent')]
   await start($)
@@ -309,7 +309,7 @@ test('invalid root-derived defaults use project-agent and never choose an existi
   effects(w)
 })
 
-test('retained review resumes with full reversible terms, effects and private internal references', async ($, on) => {
+test('retained review resumes with full reversible terms, effects and private internal references', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const agent = registryAgent(1, 'Full-' + 'n'.repeat(90) + '"\\\u202e', 'Owner \\"東京"\u200b', ['descriptive', 'metadata "label"'])
   w.agents = [agent, registryAgent(2, 'Unrelated first default')]
@@ -341,7 +341,7 @@ test('retained review resumes with full reversible terms, effects and private in
   effects(w)
 })
 
-test('malformed, mismatched and unreviewed flow terms never expose decision controls', { timeoutMs: 15_000 }, async ($, on) => {
+test('malformed, mismatched and unreviewed flow terms never expose decision controls', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on)
   const valid = await fixtureFlow()
   const ui = await connect($, w)
@@ -384,7 +384,7 @@ test('malformed, mismatched and unreviewed flow terms never expose decision cont
   effects(w)
 })
 
-test('all private prefixes, including decorated ones, block an unambiguous human review', { timeoutMs: 15_000 }, async ($, on) => {
+test('all private prefixes, including decorated ones, block an unambiguous human review', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on)
   const ui = await connect($, w)
   for (const [index, prefix] of ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.',
@@ -407,7 +407,7 @@ test('all private prefixes, including decorated ones, block an unambiguous human
   effects(w)
 })
 
-test('private prefixes inside raw and decorated OSC payloads block name, owner and capability reviews', { timeoutMs: 15_000 }, async ($, on) => {
+test('private prefixes inside raw and decorated OSC payloads block name, owner and capability reviews', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on)
   const ui = await connect($, w)
   const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.',
@@ -454,7 +454,7 @@ test('private prefixes inside raw and decorated OSC payloads block name, owner a
 })
 
 for (const choice of ['approve', 'decline'] as const) {
-  test(`native ${choice} captures the exact review and checks trusted context before and after inspection`, async ($, on) => {
+  test(`native ${choice} captures the exact review and checks trusted context before and after inspection`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on)
     w.retained = await fixtureFlow()
     const captured = clone(w.retained)
@@ -482,7 +482,7 @@ for (const choice of ['approve', 'decline'] as const) {
   })
 }
 
-test('changed inspected terms, hash, state, host or native context prevent every owner decision', { timeoutMs: 15_000 }, async ($, on) => {
+test('changed inspected terms, hash, state, host or native context prevent every owner decision', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on)
   const valid = await fixtureFlow()
   w.retained = valid
@@ -521,7 +521,7 @@ test('changed inspected terms, hash, state, host or native context prevent every
   effects(w)
 })
 
-test('overlapping approval presses send one inspected exact decision', async ($, on) => {
+test('overlapping approval presses send one inspected exact decision', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const normal = w.read
@@ -539,7 +539,7 @@ test('overlapping approval presses send one inspected exact decision', async ($,
   effects(w)
 })
 
-test('failed lookup or preparation and a failed Refresh remove actionable reviews with controlled diagnostics', async ($, on) => {
+test('failed lookup or preparation and a failed Refresh remove actionable reviews with controlled diagnostics', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const normal = w.read
@@ -565,7 +565,7 @@ test('failed lookup or preparation and a failed Refresh remove actionable review
   effects(w)
 })
 
-test('lost decision response is outcome-unknown and Refresh resolves it by lookup without retry', async ($, on) => {
+test('lost decision response is outcome-unknown and Refresh resolves it by lookup without retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const normal = w.read
@@ -588,7 +588,7 @@ test('lost decision response is outcome-unknown and Refresh resolves it by looku
   effects(w)
 })
 
-test('failed inspection and mismatched decision results cannot report an attachment', async ($, on) => {
+test('failed inspection and mismatched decision results cannot report an attachment', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const valid = await fixtureFlow()
   w.retained = valid
@@ -622,7 +622,7 @@ test('failed inspection and mismatched decision results cannot report an attachm
   effects(w)
 })
 
-test('an already-sent old decision cannot replace the review of a different native context', async ($, on) => {
+test('an already-sent old decision cannot replace the review of a different native context', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const captured = clone(w.retained)
@@ -654,7 +654,7 @@ test('an already-sent old decision cannot replace the review of a different nati
   effects(w)
 })
 
-test('a pending old inspection cannot decide after Close and a newer displayed review', async ($, on) => {
+test('a pending old inspection cannot decide after Close and a newer displayed review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const old = await fixtureFlow()
   const newer = await fixtureFlow({ n: 2 })
@@ -682,7 +682,7 @@ test('a pending old inspection cannot decide after Close and a newer displayed r
 })
 
 for (const phase of ['lookup', 'prepare']) {
-test(`a late ${phase} response cannot replace a different native context after Close`, async ($, on) => {
+test(`a late ${phase} response cannot replace a different native context after Close`, { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const normal = w.read
   let delayed = true
@@ -715,7 +715,7 @@ test(`a late ${phase} response cannot replace a different native context after C
 })
 }
 
-test('fixed expiry disables controls and prevents a decision after a pending inspection reaches the deadline', async ($, on) => {
+test('fixed expiry disables controls and prevents a decision after a pending inspection reaches the deadline', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow({ expires: NOW + 1000 })
   const normal = w.read
@@ -733,7 +733,7 @@ test('fixed expiry disables controls and prevents a decision after a pending ins
   effects(w)
 })
 
-test('expiry during an already-sent decision requests Refresh without asserting that no commit occurred', async ($, on) => {
+test('expiry during an already-sent decision requests Refresh without asserting that no commit occurred', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow({ expires: NOW + 1000 })
   const normal = w.read
@@ -761,7 +761,7 @@ test('expiry during an already-sent decision requests Refresh without asserting 
   effects(w)
 })
 
-test('classic.CwdChanged immediately clears private terms and blocks pending callbacks and old expiry', async ($, on) => {
+test('classic.CwdChanged immediately clears private terms and blocks pending callbacks and old expiry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const old = await fixtureFlow({ expires: NOW + 1000 })
   w.retained = old
@@ -796,7 +796,7 @@ test('classic.CwdChanged immediately clears private terms and blocks pending cal
   effects(w)
 })
 
-test('old expiry timers cannot disable a newer review after Close and reopen', async ($, on) => {
+test('old expiry timers cannot disable a newer review after Close and reopen', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow({ expires: NOW + 1000 })
   const ui = await connect($, w)
@@ -813,7 +813,7 @@ test('old expiry timers cannot disable a newer review after Close and reopen', a
 })
 
 for (const state of ['declined', 'expired', 'invalidated']) {
-  test(`retained ${state} flow requires explicit replacement and subsequent agent choice`, async ($, on) => {
+  test(`retained ${state} flow requires explicit replacement and subsequent agent choice`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on)
     w.retained = await fixtureFlow({ state, expires: state === 'expired' ? NOW - 1000 : NOW + 900_000 })
     const old = clone(w.retained)
@@ -830,7 +830,7 @@ for (const state of ['declined', 'expired', 'invalidated']) {
   })
 }
 
-test('Back, Close and session.end clear private callback authority without deciding or canceling durable reviews', async ($, on) => {
+test('Back, Close and session.end clear private callback authority without deciding or canceling durable reviews', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const ui = await connect($, w)
@@ -848,7 +848,7 @@ test('Back, Close and session.end clear private callback authority without decid
   effects(w)
 })
 
-test('a conversation check after leaving a private review submits only its public challenge', async ($, on) => {
+test('a conversation check after leaving a private review submits only its public challenge', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.retained = await fixtureFlow()
   const flow = clone(w.retained)

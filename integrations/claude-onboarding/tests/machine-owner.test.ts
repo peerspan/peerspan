@@ -424,7 +424,7 @@ function safe(w: World, shown = '', runtime = false, executable = 'peerspan', st
 }
 
 // 1–2. Public selection never guesses the first incoming request/provider.
-test('machine-owner entry is attached-only, inert on startup and empty inventory has no mutation authority', async ($, on) => {
+test('machine-owner entry is attached-only, inert on startup and empty inventory has no mutation authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: false })
   await $.command.run({ command: 'peerspan', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
@@ -439,7 +439,7 @@ test('machine-owner entry is attached-only, inert on startup and empty inventory
   expect(calls(w)).toHaveLength(0); safe(w, await visible(ui))
 })
 
-test('machine inventory sorts twelve choices over ten-item pages and refuses unsupported or duplicate claims', async ($, on) => {
+test('machine inventory sorts twelve choices over ten-item pages and refuses unsupported or duplicate claims', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requests = Array.from({ length: 12 }, (_, i) => request(12 - i))
   let ui = await setup($, w); await begin(w, ui)
   expect(await choices(w, ui)).toHaveLength(10); expect(calls(w)).toHaveLength(0); await absent(ui)
@@ -456,7 +456,7 @@ test('machine inventory sorts twelve choices over ten-item pages and refuses uns
 })
 
 // 3–4. Person/device and machine labels remain separate public authority facts.
-test('selected original-person inspection exposes exact finite public authority without probing an unavailable signer', async ($, on) => {
+test('selected original-person inspection exposes exact finite public authority without probing an unavailable signer', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.providerKind = 'original_person'
   const ui = await selected($, w), i = await inspection(w, w.requests[0].request_id)
   await publicTerms(ui, i.review)
@@ -465,7 +465,7 @@ test('selected original-person inspection exposes exact finite public authority 
   await absent(ui, ['Approve machine consent', 'Sign machine owner offer']); safe(w, await visible(ui))
 })
 
-test('device15 fold and device7 separate-administrator inspections retain concrete D/key and the exact cap', async ($, on) => {
+test('device15 fold and device7 separate-administrator inspections retain concrete D/key and the exact cap', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const scopes of [15, 7]) {
     w.providerScopes = scopes; const ui = await selected($, w)
@@ -477,7 +477,7 @@ test('device15 fold and device7 separate-administrator inspections retain concre
 })
 
 // 5–6. Preparation and approval are separate exact actions, with fresh reads.
-test('Review machine consent prepares only the independently hashed displayed inspection and complete immutable terms', async ($, on) => {
+test('Review machine consent prepares only the independently hashed displayed inspection and complete immutable terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w), source = await inspection(w, w.requests[0].request_id)
   const before = calls(w).length; await press(ui, 'Review machine consent')
   expect(calls(w).slice(before).map(c => c.kind)).toEqual(['machine.lookup', 'machine.prepare'])
@@ -488,7 +488,7 @@ test('Review machine consent prepares only the independently hashed displayed in
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private machine state/$(literal)' },
 }
-test('Approve machine consent is single-flight, fresh-lookup bound and one configured private five-second command', configured, async ($, on) => {
+test('Approve machine consent is single-flight, fresh-lookup bound and one configured private five-second command', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), c = clone(w.consents[w.requests[0].request_id])
   await consentTerms(ui, c)
   const normal = w.run, delay = delayed(w), before = calls(w).length
@@ -505,7 +505,7 @@ test('Approve machine consent is single-flight, fresh-lookup bound and one confi
 })
 
 // 7–8. Only the finite initial signature set is actionable; later work is absent.
-test('explicit Sign rechecks consent and signing then records only the incomplete two-or-three initial slots', async ($, on) => {
+test('explicit Sign rechecks consent and signing then records only the incomplete two-or-three initial slots', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const scopes of [7, 15]) {
     w.providerScopes = scopes; w.consents = {}; w.counts = {}; const ui = await selected($, w, 'approved')
@@ -525,7 +525,7 @@ test('explicit Sign rechecks consent and signing then records only the incomplet
   expect(calls(w, 'sign')).toHaveLength(2)
 })
 
-test('a now-signed preflight reports global initial evidence without a second signature dispatch or attribution', async ($, on) => {
+test('a now-signed preflight reports global initial evidence without a second signature dispatch or attribution', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w, 'approved')
   w.counts[w.requests[0].request_id] = 3
   await press(ui, 'Sign machine owner offer'); await evidence(ui, 3, 3)
@@ -534,7 +534,7 @@ test('a now-signed preflight reports global initial evidence without a second si
 })
 
 // 9–10. Retained consent/signature evidence does not turn history into authority.
-test('expired cancelled and invalidated unapproved receipts stay view-only and Check never prepares a replacement', async ($, on) => {
+test('expired cancelled and invalidated unapproved receipts stay view-only and Check never prepares a replacement', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const state of ['expired', 'cancelled', 'invalidated']) {
     w.consents = {}; w.requests = [request()]
@@ -549,7 +549,7 @@ test('expired cancelled and invalidated unapproved receipts stay view-only and C
   }
 })
 
-test('signed expired history remains honest and another current project cannot adopt its retained approval', async ($, on) => {
+test('signed expired history remains honest and another current project cannot adopt its retained approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.requests = [request(1, 'cancelled', { created: NOW - 7_200_000, expires: NOW - 3_600_000 })]
   let ui = await selected($, w, 'approved', { created: NOW - 7_199_000 })
@@ -569,7 +569,7 @@ test('signed expired history remains honest and another current project cannot a
 })
 
 // 11–14. Rehashed invalid nested public terms still fail independently of hash checks.
-test('closed inspection rejects changed request context or project agent even with an internally recomputed digest', async ($, on) => {
+test('closed inspection rejects changed request context or project agent even with an internally recomputed digest', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['request', v => { v.inspection.review.host_public_key = GENESIS_KEY }],
@@ -589,7 +589,7 @@ test('closed inspection rejects changed request context or project agent even wi
   }
 })
 
-test('provider key root lease finite cap and fold are validated rather than inferred from a matching hash', async ($, on) => {
+test('provider key root lease finite cap and fold are validated rather than inferred from a matching hash', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   const variants: [string, (i: any) => void][] = [
     ['foreign device', i => { i.provider.device_public_key = i.device_public_key }],
@@ -609,7 +609,7 @@ test('provider key root lease finite cap and fold are validated rather than infe
   }
 })
 
-test('consent rejects wrong frozen digest effects receipt binding and unknown nested fields without approval', async ($, on) => {
+test('consent rejects wrong frozen digest effects receipt binding and unknown nested fields without approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['frozen digest', v => { v.consent.review.inspection_review_id = 'review_' + '9'.repeat(64) }],
@@ -630,7 +630,7 @@ test('consent rejects wrong frozen digest effects receipt binding and unknown ne
   }
 })
 
-test('signing requires exact counts IDs can-sign consistency and seven closed not-verified fields', async ($, on) => {
+test('signing requires exact counts IDs can-sign consistency and seven closed not-verified fields', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   const variants: [string, (s: any) => void][] = [
     ['count', s => { s.signature_count = 4 }],
@@ -651,7 +651,7 @@ test('signing requires exact counts IDs can-sign consistency and seven closed no
 })
 
 // 15–16. No provider bytes or regressing/future observation become human authority.
-test('private-prefixed control oversize and subprocess-error output stays unavailable with no external disclosure', async ($, on) => {
+test('private-prefixed control oversize and subprocess-error output stays unavailable with no external disclosure', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const fault of ['private', 'control', 'oversize', 'stderr']) {
     const ui = await setup($, w)
@@ -673,7 +673,7 @@ test('private-prefixed control oversize and subprocess-error output stays unavai
   expect(writes(w)).toHaveLength(0)
 })
 
-test('regressing observation and future or before-creation terms clear actionable consent without mutation', async ($, on) => {
+test('regressing observation and future or before-creation terms clear actionable consent without mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['regression', 'future', 'creation']) {
     w.consents = {}; const ui = await prepared($, w)
@@ -692,7 +692,7 @@ test('regressing observation and future or before-creation terms clear actionabl
 })
 
 // 17–18. Each mutation has original deadline authority before and during awaits.
-test('original signed deadline removes displayed actions and an in-flight sign cannot restore fresh authority', async ($, on) => {
+test('original signed deadline removes displayed actions and an in-flight sign cannot restore fresh authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   let ui: Pane
   for (const bound of ['request', 'receipt', 'stage', 'powers']) {
@@ -718,7 +718,7 @@ test('original signed deadline removes displayed actions and an in-flight sign c
   expect(calls(w, 'sign')).toHaveLength(1); safe(w, await visible(ui))
 })
 
-test('held fresh lookups cross original preparation approval and signing windows without dispatching a mutation', async ($, on) => {
+test('held fresh lookups cross original preparation approval and signing windows without dispatching a mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const op of ['prepare', 'approve', 'sign']) {
     const now = w.clock.now(); w.requests = [request(1, 'pending', { created: now - 60_000, expires: now + 1000 })]
@@ -733,7 +733,7 @@ test('held fresh lookups cross original preparation approval and signing windows
 })
 
 // 19–20. Delayed valid replies cannot overwrite changed authority/navigation.
-test('dispatched lookup rejects changed root native host parent and terminal before late preparation can publish a review', async ($, on) => {
+test('dispatched lookup rejects changed root native host parent and terminal before late preparation can publish a review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['root', 'native', 'host', 'parent', 'terminal']) {
     w.root = ROOT; w.native = NATIVE; w.host = HOST; w.surface = 'terminal'; w.surfaces = ['terminal']; w.consents = {}
@@ -751,7 +751,7 @@ test('dispatched lookup rejects changed root native host parent and terminal bef
   safe(w)
 })
 
-test('Leave Refresh Close and session-end invalidate late mutation replies and old timers cannot replace a new choice', async ($, on) => {
+test('Leave Refresh Close and session-end invalidate late mutation replies and old timers cannot replace a new choice', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['Leave', 'Refresh', 'Close', 'end']) {
     w.consents = {}; w.counts = {}; w.requests = [request(), request(2)]
@@ -777,7 +777,7 @@ test('Leave Refresh Close and session-end invalidate late mutation replies and o
 })
 
 // 21. A lost reply is never permission to repeat a mutation.
-test('lost prepare approve and sign recover retained evidence only through explicit pure Check', async ($, on) => {
+test('lost prepare approve and sign recover retained evidence only through explicit pure Check', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const op of ['prepare', 'approve', 'sign']) {
     w.consents = {}; w.counts = {}
@@ -804,7 +804,7 @@ test('lost prepare approve and sign recover retained evidence only through expli
 })
 
 // 22. Navigating this pane neither takes over other lanes nor stops a ready lease.
-test('machine-owner controls preserve authorized messages tasks and the separate new-computer and administrator lanes', async ($, on) => {
+test('machine-owner controls preserve authorized messages tasks and the separate new-computer and administrator lanes', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w)
   w.child = await adapterFlow(w.parent, { n: w.sequence, state: 'authorized' })
   await press(ui, 'Review adapter connection'); await press(ui, 'Connect adapter'); await w.clock.settle()
@@ -882,7 +882,7 @@ async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>
 // Host operations in order, plus the distinct recheck kinds; section52 does not pin recheck counts.
 const kinds = (w: World, from: number) => { const all = w.calls.slice(from).map(c => c.kind)
   return [...all.filter(k => k.startsWith('machine.')), ...[...new Set(all.filter(k => !k.startsWith('machine.')))].sort()] }
-test('automatic progress checks signed machine consent 5 seconds after shown and again with exactly the Check machine consent reads', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress checks signed machine consent 5 seconds after shown and again with exactly the Check machine consent reads', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.counts[w.requests[0].request_id] = 3
   const ui = await selected($, w, 'approved'); await evidence(ui, 3, 3); await absent(ui)
   const c = clone(w.consents[w.requests[0].request_id]), at = w.calls.length
@@ -904,7 +904,7 @@ test('automatic progress checks signed machine consent 5 seconds after shown and
   safe(w, shown)
 })
 
-test('automatic progress never checks or signs while Sign machine owner offer is due here', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress never checks or signs while Sign machine owner offer is due here', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await selected($, w, 'approved'), at = w.calls.length
   expect(await ui.find({ type: 'Button', text: /^Sign machine owner offer$/ })).toBeDefined()
   await pass(w, ui, 30_000)
@@ -913,7 +913,7 @@ test('automatic progress never checks or signs while Sign machine owner offer is
   safe(w, await visible(ui))
 })
 
-test('automatic progress stops at a failed machine consent check and the next press starts it again', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress stops at a failed machine consent check and the next press starts it again', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), normal = w.run; w.counts[w.requests[0].request_id] = 3
   const ui = await selected($, w, 'approved')
   w.run = async (kind, payload, e) => kind === 'machine.lookup' ? { fixtureDeny: true } : normal(kind, payload, e)

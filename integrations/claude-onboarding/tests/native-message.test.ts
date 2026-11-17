@@ -320,7 +320,7 @@ function privacy(w: World, uiText = '') {
   }
 }
 
-test('load entry Connect renewal and pane reopen never enable messages or register data tools', async ($, on) => {
+test('load entry Connect renewal and pane reopen never enable messages or register data tools', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   expect(w.calls).toEqual([]); expect(w.httpCalls).toEqual([])
@@ -339,7 +339,7 @@ test('load entry Connect renewal and pane reopen never enable messages or regist
   privacy(w, await text(fresh))
 })
 
-test('explicit double Enable registers only three narrow tools and submits one private fixed hello without awaiting a busy turn', async ($, on) => {
+test('explicit double Enable registers only three narrow tools and submits one private fixed hello without awaiting a busy turn', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   w.submit = async e => { await w.clock.sleep(10_000); return { text: e.text, origin: e.origin } }
   const button = await key(ui, 'Enable incoming messages')
@@ -364,7 +364,7 @@ test('explicit double Enable registers only three narrow tools and submits one p
   privacy(w, await text(ui))
 })
 
-test('only exact main-engine acknowledgment validates scoped ready; repeats are idempotent and local challenge stays separate', async ($, on) => {
+test('only exact main-engine acknowledgment validates scoped ready; repeats are idempotent and local challenge stays separate', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   await press(ui, 'Enable incoming messages'); await w.clock.settle(); const challenge = nonce(w)
   expect(claims(w)).toEqual([])
@@ -392,7 +392,7 @@ const pluginCaller = { name: 'untrusted-message-caller', register(on: On) {
     const answer = await $.tool.call(JSON.parse(e.args)); return { text: JSON.stringify(answer) }
   })
 } }
-test('wrong extra subagent plugin and cross-conversation ready calls cannot spend a scoped request', { plugins: [pluginCaller] }, async ($, on) => {
+test('wrong extra subagent plugin and cross-conversation ready calls cannot spend a scoped request', { options: { show_each_step: 'true' }, plugins: [pluginCaller] }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   await press(ui, 'Enable incoming messages'); await w.clock.settle(); const challenge = nonce(w)
   for (const args of [{ nonce: 'f'.repeat(32) }, { nonce: challenge, url: 'http://owner/private' },
@@ -406,7 +406,7 @@ test('wrong extra subagent plugin and cross-conversation ready calls cannot spen
   privacy(w, await text(ui))
 })
 
-test('failed or mismatched ready never verifies and saved host channel cannot replace the fresh challenge', async ($, on) => {
+test('failed or mismatched ready never verifies and saved host channel cannot replace the fresh challenge', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const normal = w.fetch
   for (const [index, mode] of ['saved-only', 'wrong-session', 'unverified', 'missing-time', 'denied'].entries()) {
     const before = w.prompts.length
@@ -430,7 +430,7 @@ test('failed or mismatched ready never verifies and saved host channel cannot re
   expect(w.tools.length).toBe(4); privacy(w, await text(ui))
 })
 
-test('hello drop throw and exact sixty-second timeout cancel authority without an automatic second model turn', async ($, on) => {
+test('hello drop throw and exact sixty-second timeout cancel authority without an automatic second model turn', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   for (const [index, mode] of ['drop', 'throw', 'timeout'].entries()) {
     const before = w.prompts.length
@@ -454,7 +454,7 @@ test('hello drop throw and exact sixty-second timeout cancel authority without a
   privacy(w, await text(ui))
 })
 
-test('a valid acknowledgment is stronger than its delayed hello refusal', async ($, on) => {
+test('a valid acknowledgment is stronger than its delayed hello refusal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   w.submit = async () => { await w.clock.sleep(2000); return { drop: RAW } }
   await press(ui, 'Enable incoming messages'); await w.clock.settle(); const challenge = nonce(w)
@@ -465,7 +465,7 @@ test('a valid acknowledgment is stronger than its delayed hello refusal', async 
   expect(w.prompts.length).toBe(1); privacy(w, await text(ui))
 })
 
-test('valid message citations become reversible external-data prompts and only matching forwarded acceptance counts submission', async ($, on) => {
+test('valid message citations become reversible external-data prompts and only matching forwarded acceptance counts submission', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   const grant = handoff(w, 1), policy = handoff(w, 2), self = handoff(w, 3)
   delete (policy.request as any).grant_id; (policy.request as any).policy = { person_id: PERSON, version: 7 }; policy.redelivered = true
@@ -494,7 +494,7 @@ test('valid message citations become reversible external-data prompts and only m
   privacy(w, await text(ui))
 })
 
-test('cross-bound malformed nested bounded expired and already-forwarded handoffs stop before prompt or acknowledgment', { timeoutMs: 15_000 }, async ($, on) => {
+test('cross-bound malformed nested bounded expired and already-forwarded handoffs stop before prompt or acknowledgment', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   const changes = [
     (h: any) => { h.delivery.session_id = id('session', 99) }, (h: any) => { h.delivery.adapter_id = id('adapter', 99) },
@@ -517,7 +517,7 @@ test('cross-bound malformed nested bounded expired and already-forwarded handoff
   privacy(w, await text(ui))
 })
 
-test('a busy message submission and forwarded acknowledgment serialize polling while the lease renews independently', async ($, on) => {
+test('a busy message submission and forwarded acknowledgment serialize polling while the lease renews independently', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const first = handoff(w, 1), second = handoff(w, 2)
   const normal = w.fetch
   w.messages = [first, second]
@@ -537,7 +537,7 @@ test('a busy message submission and forwarded acknowledgment serialize polling w
   privacy(w, await text(ui))
 })
 
-test('claim submission and forwarded uncertainty stop only the attempt without automatic reclaim or replay', { timeoutMs: 15_000 }, async ($, on) => {
+test('claim submission and forwarded uncertainty stop only the attempt without automatic reclaim or replay', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const normalFetch = w.fetch
   for (const [index, mode] of ['claim-denied', 'submission-drop', 'submission-throw', 'submission-timeout', 'forward-denied', 'forward-malformed'].entries()) {
     const message = handoff(w, index + 1); w.messages = [message]
@@ -578,7 +578,7 @@ test('claim submission and forwarded uncertainty stop only the attempt without a
   privacy(w, await text(ui))
 })
 
-test('seen and stripped replies count unique model receipts including already-seen and earlier-held messages', async ($, on) => {
+test('seen and stripped replies count unique model receipts including already-seen and earlier-held messages', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const first = handoff(w, 1)
   w.messages = [first]; await enable($, w, ui)
   const firstId = first.delivery.id
@@ -608,7 +608,7 @@ test('seen and stripped replies count unique model receipts including already-se
   privacy(w, await text(ui))
 })
 
-test('only strict same-runtime main-engine tools can write and UTF-8 reply bounds are enforced before HTTP', { plugins: [pluginCaller] }, async ($, on) => {
+test('only strict same-runtime main-engine tools can write and UTF-8 reply bounds are enforced before HTTP', { options: { show_each_step: 'true' }, plugins: [pluginCaller] }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const held = handoff(w, 1); w.held[held.delivery.id] = held
   denied(await call($, SEEN, { delivery_id: held.delivery.id }))
   await enable($, w, ui)
@@ -635,7 +635,7 @@ test('only strict same-runtime main-engine tools can write and UTF-8 reply bound
   privacy(w, await text(ui))
 })
 
-test('overlapping model writes are refused while one is pending and exact completed results alone update counters', async ($, on) => {
+test('overlapping model writes are refused while one is pending and exact completed results alone update counters', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const held = handoff(w, 1); w.held[held.delivery.id] = held
   await enable($, w, ui); const normal = w.fetch
   w.fetch = async e => { const value = await normal(e); if (pathOf(e).endsWith('/seen')) await w.clock.sleep(1000); return value }
@@ -651,7 +651,7 @@ test('overlapping model writes are refused while one is pending and exact comple
   privacy(w, await text(ui))
 })
 
-test('malformed host-bound write results and uncertain writes stay controlled without automatic retry or stopping the ready attempt', async ($, on) => {
+test('malformed host-bound write results and uncertain writes stay controlled without automatic retry or stopping the ready attempt', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const held = handoff(w, 1); w.held[held.delivery.id] = held
   await enable($, w, ui); const normal = w.fetch
   for (const mode of ['wrong-host', 'wrong-session', 'wrong-origin', 'extra', 'denied', 'wrong-seen']) {
@@ -687,7 +687,7 @@ test('malformed host-bound write results and uncertain writes stay controlled wi
   privacy(w, await text(ui))
 })
 
-test('enabled messages survive Back and Close without another hello; Stop cancels both data and lease authority', async ($, on) => {
+test('enabled messages survive Back and Close without another hello; Stop cancels both data and lease authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const challenge = await enable($, w, ui)
   await press(ui, 'Back to Peerspan'); await press(ui, 'Close'); await ui.unmount()
   w.messages.push(handoff(w, 1)); await w.clock.advance(1000)
@@ -706,7 +706,7 @@ test('enabled messages survive Back and Close without another hello; Stop cancel
   privacy(w, await text(fresh))
 })
 
-test('late old hello refusal and its timer cannot cancel a newly connected verified attempt', async ($, on) => {
+test('late old hello refusal and its timer cannot cancel a newly connected verified attempt', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   let first = true
   w.submit = async e => { if (first) { first = false; await w.clock.sleep(2000); return { drop: RAW } }
@@ -725,7 +725,7 @@ test('late old hello refusal and its timer cannot cancel a newly connected verif
 })
 
 for (const phase of ['claim', 'submission']) {
-  test(`late old ${phase} cannot submit or mark forwarded after Stop and explicit reconnect`, async ($, on) => {
+  test(`late old ${phase} cannot submit or mark forwarded after Stop and explicit reconnect`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); const ui = await connected($, w); const message = handoff(w, 1)
     w.messages = [message]; const normal = w.fetch; let held = true
     w.fetch = async e => { const value = await normal(e)
@@ -746,7 +746,7 @@ for (const phase of ['claim', 'submission']) {
   })
 }
 
-test('root surface scope lease expiry and session end revoke message tools and all future data work', { timeoutMs: 15_000 }, async ($, on) => {
+test('root surface scope lease expiry and session end revoke message tools and all future data work', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); let ui = await connected($, w); const normalRun = w.run
   for (const [index, mode] of ['root', 'surface', 'scope', 'lease', 'end'].entries()) {
     if (index > 0) {
@@ -778,7 +778,7 @@ test('root surface scope lease expiry and session end revoke message tools and a
   privacy(w)
 })
 
-test('equivalent RFC3339 deadline offsets preserve handoff and receipt semantics while elapsed offsets are refused', async ($, on) => {
+test('equivalent RFC3339 deadline offsets preserve handoff and receipt semantics while elapsed offsets are refused', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w)
   const instant = w.clock.now() + 60_000
   const deadlines = [stamp(instant), stamp(instant).replace('Z', '+00:00'),

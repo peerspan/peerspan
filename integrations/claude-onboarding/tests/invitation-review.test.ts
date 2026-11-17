@@ -450,7 +450,7 @@ function safe(w: World, uiText = '', reveal = false, runtime = false, executable
   }
 }
 
-test('load headless entry Refresh model arguments and unattached projects never begin an invitation', async ($, on) => {
+test('load headless entry Refresh model arguments and unattached projects never begin an invitation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   for (const args of ['invite someone', '--approve-invitation', CODE]) await $.command.run({ command: 'peerspan', args })
@@ -468,7 +468,7 @@ test('load headless entry Refresh model arguments and unattached projects never 
   expect(invitationCalls(w)).toEqual([]); safe(w)
 })
 
-test('attached explicit entry checks current parent and context then performs lookup before a fresh network choice', async ($, on) => {
+test('attached explicit entry checks current parent and context then performs lookup before a fresh network choice', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   expect(invitationCalls(w)).toEqual([])
   const at = w.trace.length; await begin(w, ui)
@@ -482,7 +482,7 @@ test('attached explicit entry checks current parent and context then performs lo
   safe(w, await visible(ui))
 })
 
-test('empty networks require existing administration and duplicate names remain distinct explicit ten-per-page choices', async ($, on) => {
+test('empty networks require existing administration and duplicate names remain distinct explicit ten-per-page choices', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, null, { networks: [] }); await begin(w, ui)
   expect(await visible(ui)).toMatch(/network/i); expect(await visible(ui)).toMatch(/creat|administration/i)
   expect(count(w, 'invitation.prepare')).toBe(0); await noInvitationAuthority(ui)
@@ -507,7 +507,7 @@ test('empty networks require existing administration and duplicate names remain 
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('draft validation trims Unicode whitespace and only explicit Review sends literal configured argv and private stdin', configured, async ($, on) => {
+test('draft validation trims Unicode whitespace and only explicit Review sends literal configured argv and private stdin', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await begin(w, ui); await selectNetwork(ui, w.networks[0])
   for (const [label, pin] of [['', '-'], ['   ', '-'], ['bad\nlabel', '-'], ['é'.repeat(65), '-'],
     ['valid', 'not-base64'], ['valid', KEY.slice(0, -1)], ['valid', 'AAAAAAAA=']]) {
@@ -536,7 +536,7 @@ test('draft validation trims Unicode whitespace and only explicit Review sends l
   safe(w, shown, false, false, configured.options.executable, configured.options.state)
 })
 
-test('malformed duplicate network IDs and private metadata cannot become network choices or review authority', async ($, on) => {
+test('malformed duplicate network IDs and private metadata cannot become network choices or review authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, mode] of ['invalid-id', 'duplicate-id', 'private-name'].entries()) {
     if (index) await back(ui)
@@ -551,7 +551,7 @@ test('malformed duplicate network IDs and private metadata cannot become network
   expect(count(w, 'invitation.prepare')).toBe(0); safe(w, await visible(ui))
 })
 
-test('lookup and exact review shape binding effects and private-looking hints are validated before decision controls', async ($, on) => {
+test('lookup and exact review shape binding effects and private-looking hints are validated before decision controls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   const normal = w.run
   const changes: [string, (flow: any) => void][] = [
@@ -580,7 +580,7 @@ test('lookup and exact review shape binding effects and private-looking hints ar
   safe(w, await visible(ui))
 })
 
-test('a prepared response must retain the chosen network normalized label and pin without replacing them', async ($, on) => {
+test('a prepared response must retain the chosen network normalized label and pin without replacing them', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const normal = w.run
   for (const [index, mode] of ['network', 'member', 'pin'].entries()) {
     if (index) await back(ui)
@@ -601,7 +601,7 @@ test('a prepared response must retain the chosen network normalized label and pi
   safe(w, await visible(ui))
 })
 
-test('exact double approve or decline reinspects parent and invitation and sends one captured decision without revealing', async ($, on) => {
+test('exact double approve or decline reinspects parent and invitation and sends one captured decision without revealing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'review'); const normal = w.run
   for (const [index, choice] of ['approve', 'decline'].entries()) {
     if (index) { await back(ui); w.invitation = await invitationFlow(w.parent, w.networks[0], { n: 31 }) }
@@ -628,7 +628,7 @@ test('exact double approve or decline reinspects parent and invitation and sends
   safe(w, await visible(ui))
 })
 
-test('changed parent review root host terminal or elapsed deadline cannot send the captured decision', async ($, on) => {
+test('changed parent review root host terminal or elapsed deadline cannot send the captured decision', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const originalParent = clone(w.parent)
   for (const [index, mode] of ['parent', 'review', 'root', 'host', 'terminal', 'deadline'].entries()) {
     if (index) {
@@ -652,7 +652,7 @@ test('changed parent review root host terminal or elapsed deadline cannot send t
   safe(w, await visible(ui))
 })
 
-test('lost committed decision is unknown until read-only Refresh recovers its retained result without another mint', async ($, on) => {
+test('lost committed decision is unknown until read-only Refresh recovers its retained result without another mint', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'review'); await begin(w, ui); const normal = w.run
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); return kind === 'invitation.decide' ? { fixtureDeny: true } : value }
   await press(ui, 'Approve invitation')
@@ -664,7 +664,7 @@ test('lost committed decision is unknown until read-only Refresh recovers its re
   expect(count(w, 'invitation.handoff')).toBe(0); safe(w, await visible(ui))
 })
 
-test('retained terminal outcomes resume before another explicit proposal and capture exact latest replacement flow', async ($, on) => {
+test('retained terminal outcomes resume before another explicit proposal and capture exact latest replacement flow', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, state] of ['issued', 'declined', 'expired', 'invalidated'].entries()) {
     if (index) await back(ui)
@@ -681,7 +681,7 @@ test('retained terminal outcomes resume before another explicit proposal and cap
   safe(w, await visible(ui))
 })
 
-test('issued-only explicit reveal reinspects captured bindings and shows the complete original code only in its terminal drawing', async ($, on) => {
+test('issued-only explicit reveal reinspects captured bindings and shows the complete original code only in its terminal drawing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'issued'); await begin(w, ui)
   expect(await visible(ui)).not.toContain(CODE)
   expect(await visible(ui)).toMatch(/privat/i); expect(await visible(ui)).toMatch(/(?:not|never|don.t).*agent.*conversation|do not paste/i)
@@ -699,7 +699,7 @@ test('issued-only explicit reveal reinspects captured bindings and shows the com
   await press(ui, 'Hide private invitation'); safe(w, await visible(ui))
 })
 
-test('private handoff version references expiry unknown fields and bounded code syntax must validate before any reveal', async ($, on) => {
+test('private handoff version references expiry unknown fields and bounded code syntax must validate before any reveal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'issued'); await begin(w, ui); const normal = w.run
   const changes: [string, (value: any) => void][] = [
     ['version', v => { v.version = 2 }], ['flow', v => { v.flow_id = id('flow', 99) }],
@@ -734,7 +734,7 @@ async function returnToInvitation($: Engine, w: World, ui?: Pane) {
   await begin(w, current); return current
 }
 
-test('Hide Refresh Back and Close clear private text and recovery always looks up rather than preparing or deciding', async ($, on) => {
+test('Hide Refresh Back and Close clear private text and recovery always looks up rather than preparing or deciding', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w, 'issued'); await begin(w, ui)
   await press(ui, 'Reveal private invitation'); await press(ui, 'Hide private invitation')
   expect(await visible(ui)).not.toContain(CODE)
@@ -754,7 +754,7 @@ test('Hide Refresh Back and Close clear private text and recovery always looks u
   expect(count(w, 'invitation.handoff')).toBe(4); safe(w, await visible(ui))
 })
 
-test('denied malformed or raw private process results remain controlled and never appear in errors or transcript', async ($, on) => {
+test('denied malformed or raw private process results remain controlled and never appear in errors or transcript', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'issued'); await begin(w, ui); const normal = w.run
   for (const mode of ['denied', 'raw']) {
     w.run = async (kind, payload, e) => kind === 'invitation.handoff'
@@ -767,7 +767,7 @@ test('denied malformed or raw private process results remain controlled and neve
   safe(w, await visible(ui))
 })
 
-test('a late old reveal cannot publish private data or clear a newly opened invitation view', async ($, on) => {
+test('a late old reveal cannot publish private data or clear a newly opened invitation view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w, 'issued'); await begin(w, ui)
   const normal = w.run; let first = true
   let signalOldHandoffStarted!: () => void
@@ -791,7 +791,7 @@ test('a late old reveal cannot publish private data or clear a newly opened invi
   await press(ui, 'Hide private invitation'); safe(w, await visible(ui))
 })
 
-test('revealed issued material uses its invitation deadline after review expiry and obsolete timers cannot hide a newer code', async ($, on) => {
+test('revealed issued material uses its invitation deadline after review expiry and obsolete timers cannot hide a newer code', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const ui = await setup($, w, 'issued', { expires: NOW - 2_697_000, invitationExpires: NOW + 3000 })
   await begin(w, ui); await press(ui, 'Reveal private invitation')
@@ -809,7 +809,7 @@ test('revealed issued material uses its invitation deadline after review expiry 
   safe(w, await visible(ui))
 })
 
-test('root conversation host terminal loss and session end hide code and prevent a pending response from restoring it', async ($, on) => {
+test('root conversation host terminal loss and session end hide code and prevent a pending response from restoring it', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w, 'issued'); const normal = w.run
   for (const [index, mode] of ['root', 'native', 'host', 'terminal', 'end'].entries()) {
     if (index) {
@@ -844,7 +844,7 @@ test('root conversation host terminal loss and session end hide code and prevent
   safe(w)
 })
 
-test('invitation navigation and private reveal preserve established message task and lease runtimes without additional model work', async ($, on) => {
+test('invitation navigation and private reveal preserve established message task and lease runtimes without additional model work', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = [network()]
   let ui = await connected($, w); await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, w.networks[0], { state: 'issued' })
@@ -862,7 +862,7 @@ test('invitation navigation and private reveal preserve established message task
   safe(w, await visible(ui), false, true)
 })
 
-test('an old pending decision inspection cannot approve a different view after Back and a new retained review', async ($, on) => {
+test('an old pending decision inspection cannot approve a different view after Back and a new retained review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w, 'review'); await begin(w, ui)
   const original = clone(w.invitation), normal = w.run; let held = true
   w.run = async (kind, payload, e) => {

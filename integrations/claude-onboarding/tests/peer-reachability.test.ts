@@ -512,7 +512,7 @@ const MACHINE_KEYS = ['WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmY=', 'yaP4aq5GX
 
 // 1. Only the explicit configured outbound action dispatches section38.
 test('entry consent Finish local status details and explicit choice are outbound-inert until exact private15s Check',
-  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private outbound state/$(literal)' } } as TestOptions, async ($, on) => {
+  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private outbound state/$(literal)', show_each_step: 'true' } } as TestOptions, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   expect(await button(ui, 'Check a machine connection')).toBeUndefined(); expect(outboundCalls(w)).toEqual([])
   await inspectPerson(ui, w); w.expectedMutations = [PREPARE, APPROVE, SIGN, APPLY]
@@ -529,7 +529,7 @@ test('entry consent Finish local status details and explicit choice are outbound
 })
 
 // 2. No cardinality permits an implicit target, and every picker action is local.
-test('one many and empty remote rosters require explicit full-ID quoted machine choice with ten-item paging and self exclusion', async ($, on) => {
+test('one many and empty remote rosters require explicit full-ID quoted machine choice with ten-item paging and self exclusion', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await openStatus($, w)
   let at = w.calls.length; await press(ui, 'Check a machine connection')
   expect(await shown(ui)).toContain('Choose a remote machine'); expect(await machineButtons(ui)).toHaveLength(1)
@@ -560,7 +560,7 @@ test('one many and empty remote rosters require explicit full-ID quoted machine 
 })
 
 // 3. Outbound authenticated exchange is not a permission or incoming/model proof.
-test('authenticated200 without adapter or authorization displays only exact outbound selected-key evidence', async ($, on) => {
+test('authenticated200 without adapter or authorization displays only exact outbound selected-key evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w)
   expect(w.statusConnections).toEqual([]); expect(w.statusAuthorizations).toEqual([])
   await press(ui, 'Check outbound connection'); await outboundTerms(ui, w, 200)
@@ -572,7 +572,7 @@ test('authenticated200 without adapter or authorization displays only exact outb
 })
 
 // 4. Every complete authenticated error status is transport evidence; null is honest.
-test('403 404 and500 are authenticated responses while a valid negative is neither unavailable nor authorization', async ($, on) => {
+test('403 404 and500 are authenticated responses while a valid negative is neither unavailable nor authorization', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w)
   for (const status of [403, 404, 500, null]) {
     w.outboundStatus = status; w.outboundTag = status === null ? 'not_verified' : 'authenticated_response'
@@ -583,7 +583,7 @@ test('403 404 and500 are authenticated responses while a valid negative is neith
 })
 
 // 5. Current complete public terms stay inspectable and details remain local.
-test('outbound details preserve complete signed and enforced policy action order and public finite references without consent footer', async ($, on) => {
+test('outbound details preserve complete signed and enforced policy action order and public finite references without consent footer', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.ruleActions = ['task.submit', 'message.append', 'task.submit']
   const ui = await machinePane($, w)
   const body = baseline(w); w.enforced = { rules: clone(body.rules.slice(0, 2)), capability_rules: clone(body.capability_rules), trusted_hosts: clone(body.trusted_hosts) }
@@ -603,7 +603,7 @@ test('outbound details preserve complete signed and enforced policy action order
 })
 
 // 6. A supported current-drawing press cannot start another in-flight operation.
-test('recheck clears previous facts immediately and shares one genuinely dispatched delayed command with no automatic retry', async ($, on) => {
+test('recheck clears previous facts immediately and shares one genuinely dispatched delayed command with no automatic retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w), normal = w.read
   await press(ui, 'Check outbound connection'); await outboundTerms(ui, w); await outboundDetails(ui)
   const delayed = delaySignal(w), at = outboundCalls(w).length
@@ -621,7 +621,7 @@ test('recheck clears previous facts immediately and shares one genuinely dispatc
 })
 
 // 7. Compact closed-result corpus exercises independent wrapper and evidence gates.
-test('closed wrapper version direction flags and unsafe HTTP status refuse without fabricated negative success', async ($, on) => {
+test('closed wrapper version direction flags and unsafe HTTP status refuse without fabricated negative success', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w), normal = w.read
   const variants: [string, (v: any) => void][] = [
     ['extra', v => { v.extra = true }], ['version', v => { v.version = '1' }],
@@ -636,7 +636,7 @@ test('closed wrapper version direction flags and unsafe HTTP status refuse witho
 })
 
 // 8. Metadata can become fresh; identity/authority/context cannot silently rebind.
-test('exact target key digest and nested parent reject while current changed labels and policy for the same key replace old terms', async ($, on) => {
+test('exact target key digest and nested parent reject while current changed labels and policy for the same key replace old terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w), normal = w.read
   const variants: [string, (v: any) => void | Promise<void>][] = [
     ['other-target', v => { v.reachability.peer_host_id = HOST }],
@@ -666,7 +666,7 @@ test('exact target key digest and nested parent reject while current changed lab
 })
 
 // 9. Raw/decorated aggregate metadata and oversized JSON stay behind private IO.
-test('plain and decorated private metadata controls and oversized public response never become outbound evidence', async ($, on) => {
+test('plain and decorated private metadata controls and oversized public response never become outbound evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w), normal = w.read
   const variants: [string, (v: any) => void | Promise<void>][] = [
     ['private', async v => { v.inspection.review.participant.hosts[0].member = 'token_SHORTPEER'
@@ -685,7 +685,7 @@ test('plain and decorated private metadata controls and oversized public respons
 })
 
 // 10. Roster membership replaces old lease/grant facts without extending any fact.
-test('captured roster ignores cleared old adapter grant timers and result deadlines never extend original30s or returned finite bounds', async ($, on) => {
+test('captured roster ignores cleared old adapter grant timers and result deadlines never extend original30s or returned finite bounds', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow()
   w.statusConnections = [{ ...statusConnection(w, 'ready'), lease_expires_at: stamp(NOW + 2000) }]
   w.statusAuthorizations = [{ ...grant(), expires_at: stamp(NOW + 2000) }]
@@ -723,7 +723,7 @@ test('captured roster ignores cleared old adapter grant timers and result deadli
 })
 
 // 11. Real async boundaries are synchronized before advancing across roster expiry.
-test('original roster deadline during actual preflight prevents send and delayed outbound response cannot resurrect elapsed selection', async ($, on) => {
+test('original roster deadline during actual preflight prevents send and delayed outbound response cannot resurrect elapsed selection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read
   for (const phase of ['project.inspect', OUT]) {
     w.read = normal; w.statusObserved = w.clock.now() - 29_000
@@ -740,7 +740,7 @@ test('original roster deadline during actual preflight prevents send and delayed
 })
 
 // 12. Supported navigation replaces generations without pretending to invoke old closures.
-test('changing choice clears facts and old result plus roster timer cannot replace a fresh local status and different selected machine', async ($, on) => {
+test('changing choice clears facts and old result plus roster timer cannot replace a fresh local status and different selected machine', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.members.push(member(PERSON, OWNER, 30, 'Second "machine"'))
   let ui = await machinePane($, w)
   w.personEnd = w.clock.now() + 2000; await press(ui, 'Check outbound connection'); await outboundTerms(ui, w)
@@ -766,7 +766,7 @@ test('changing choice clears facts and old result plus roster timer cannot repla
 })
 
 // 13. Current authoritative pins and native context are rechecked around real IO.
-test('root native host network context and authoritative parent changes at registered preflight or IO discard old evidence', async ($, on) => {
+test('root native host network context and authoritative parent changes at registered preflight or IO discard old evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read
   for (const mode of ['preflight-root', 'io-native', 'io-host', 'io-network', 'post-io-parent']) {
     w.read = normal; w.root = ROOT; w.native = NATIVE; w.host = HOST; w.selected = network(); w.networks = [clone(w.selected)]
@@ -793,7 +793,7 @@ test('root native host network context and authoritative parent changes at regis
 })
 
 // 14. No persistence or automatically selected target survives navigation/reentry.
-test('Leave Back Close Refresh end and lost terminal during dispatched work invalidate late callbacks and fresh entry has no target', async ($, on) => {
+test('Leave Back Close Refresh end and lost terminal during dispatched work invalidate late callbacks and fresh entry has no target', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read
   for (const mode of ['leave', 'back', 'close', 'refresh', 'end', 'surface']) {
     w.read = normal; w.surface = 'terminal'; w.surfaces = ['terminal']; w.parent = await parentFlow()
@@ -819,7 +819,7 @@ test('Leave Back Close Refresh end and lost terminal during dispatched work inva
 })
 
 // 15. Uncertainty and local-read recovery never imply an automatic outbound action.
-test('denied timeout raw and missing replies clear old facts and only explicit checks recover or return through local status', async ($, on) => {
+test('denied timeout raw and missing replies clear old facts and only explicit checks recover or return through local status', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await machinePane($, w), normal = w.read
   await press(ui, 'Check outbound connection'); await outboundTerms(ui, w)
   for (const fault of [{ fixtureDeny: true }, { fixtureExit: true }, { fixtureRaw: RAW }, null]) {
@@ -837,7 +837,7 @@ test('denied timeout raw and missing replies clear old facts and only explicit c
 })
 
 // 16. An existing authorized runtime is separate from this optional observation.
-test('authorized lease survives choice positive negative unavailable details and Leave without new tools prompts or direct peer transport', async ($, on) => {
+test('authorized lease survives choice positive negative unavailable details and Leave without new tools prompts or direct peer transport', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   await press(ui, 'Review adapter connection'); await press(ui, 'Approve adapter'); await press(ui, 'Connect adapter')
   expect(w.http).toHaveLength(1); await press(ui, /^Back to project$/)

@@ -310,7 +310,9 @@ async function setup($: Engine, w: World, options: any = {}) {
   w.parent = options.parent ?? await parentFlow({ agent: { id: id('agent', 1), name: 'Agent "東京"', owner: 'Owner \\é', capabilities: ['capability "metadata"'] } })
   if (!w.started) await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
   const ui = await enter($, w)
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Review incoming connections$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   return ui
 }
@@ -385,7 +387,7 @@ async function absent(ui: Pane, names: string[], label = '') {
 }
 const actions = ['Fetch incoming proofs', 'Review administrator consent', 'Approve administrator consent']
 
-test('admission entry remains inert on initial headless Refresh and model paths', async ($, on) => {
+test('admission entry remains inert on initial headless Refresh and model paths', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: false })
   await $.command.run({ command: 'peerspan', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
@@ -400,7 +402,7 @@ test('admission entry remains inert on initial headless Refresh and model paths'
   safe(w, await text(ui))
 })
 
-test('only attached entry accepts a bounded unique inventory and sorts valid unsorted request IDs', async ($, on) => {
+test('only attached entry accepts a bounded unique inventory and sorts valid unsorted request IDs', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   let ui = await setup($, w, { parent: await parentFlow({ state: 'review' }) })
   expect(await ui.find({ type: 'Button', text: /^Review incoming connections$/ })).toBeUndefined()
@@ -419,7 +421,7 @@ test('only attached entry accepts a bounded unique inventory and sorts valid uns
   safe(w)
 })
 
-test('empty requester renewal migration and incomplete claims never become incoming choices', async ($, on) => {
+test('empty requester renewal migration and incomplete claims never become incoming choices', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const rows of [[], [request(1, 'pending', { fields: { role: 'requester' } }),
     request(2, 'pending', { fields: { mode: 'renew' } }),
@@ -432,7 +434,7 @@ test('empty requester renewal migration and incomplete claims never become incom
   safe(w)
 })
 
-test('duplicate public identities remain twelve explicit ordinal choices over ten-item pages', async ($, on) => {
+test('duplicate public identities remain twelve explicit ordinal choices over ten-item pages', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requests = Array.from({ length: 12 }, (_, index) => request(12 - index, 'pending'))
   const ui = await setup($, w); await begin(w, ui)
   const first = await choices(w, ui); expect(first).toHaveLength(10); expect(calls(w)).toHaveLength(0)

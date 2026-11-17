@@ -231,7 +231,7 @@ function privacy(w: World, uiText = '') {
   }
 }
 
-test('initial, headless and unknown-argument entry cannot start adapter preparation or a runtime', async ($, on) => {
+test('initial, headless and unknown-argument entry cannot start adapter preparation or a runtime', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
@@ -250,7 +250,7 @@ test('initial, headless and unknown-argument entry cannot start adapter preparat
   privacy(w, await text(ui))
 })
 
-test('only attached projects offer adapter review; desktop rendering stays private even alongside terminal', async ($, on) => {
+test('only attached projects offer adapter review; desktop rendering stays private even alongside terminal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   w.parent = await parentFlow({ state: 'review' })
   const ui = await open($, w, false)
@@ -273,7 +273,7 @@ test('only attached projects offer adapter review; desktop rendering stays priva
   privacy(w, shown)
 })
 
-test('explicit Review inspects parent before lookup/prepare; active Refresh never prepares an empty result', async ($, on) => {
+test('explicit Review inspects parent before lookup/prepare; active Refresh never prepares an empty result', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow()
   const ui = await open($, w)
   const kinds = w.calls.map(call => call.kind)
@@ -292,7 +292,7 @@ test('explicit Review inspects parent before lookup/prepare; active Refresh neve
   privacy(w, await text(ui))
 })
 
-test('retained adapter review shows complete reversible terms, fixed lifetime and every effect without references', async ($, on) => {
+test('retained adapter review shows complete reversible terms, fixed lifetime and every effect without references', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   const agent = { id: id('agent', 1), name: 'Full-' + 'n'.repeat(90) + '"\\\u202e',
     owner: 'Owner "東京"\\\u200b', capabilities: ['metadata "one"', 'second descriptive label'] }
@@ -318,7 +318,7 @@ test('retained adapter review shows complete reversible terms, fixed lifetime an
   privacy(w, shown)
 })
 
-test('malformed hidden changed or private-looking adapter terms cannot offer an owner decision', { timeoutMs: 15_000 }, async ($, on) => {
+test('malformed hidden changed or private-looking adapter terms cannot offer an owner decision', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); const valid = await adapterFlow(w.parent)
   w.child = valid; const ui = await open($, w)
   for (const mutate of [
@@ -346,7 +346,7 @@ test('malformed hidden changed or private-looking adapter terms cannot offer an 
 })
 
 for (const state of ['declined', 'expired', 'invalidated']) {
-  test(`retained ${state} requires exact explicit adapter replacement and fresh consent`, async ($, on) => {
+  test(`retained ${state} requires exact explicit adapter replacement and fresh consent`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); w.parent = await parentFlow()
     w.child = await adapterFlow(w.parent, { state, expires: state === 'expired' ? NOW - 1000 : NOW + 900_000 })
     const captured = clone(w.child); const ui = await open($, w)
@@ -360,7 +360,7 @@ for (const state of ['declined', 'expired', 'invalidated']) {
 }
 
 for (const choice of ['approve', 'decline']) {
-  test(`exact ${choice} inspects both captured reviews and rechecks native context without retrieving or connecting`, async ($, on) => {
+  test(`exact ${choice} inspects both captured reviews and rechecks native context without retrieving or connecting`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent)
     const captured = clone(w.child); const ui = await open($, w); const before = w.trace.length
     await press(ui, choice === 'approve' ? 'Approve adapter' : 'Decline adapter')
@@ -380,7 +380,7 @@ for (const choice of ['approve', 'decline']) {
   })
 }
 
-test('double approval queues one exact decision and lost approval is resolved read-only without retry', async ($, on) => {
+test('double approval queues one exact decision and lost approval is resolved read-only without retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent)
   const normal = w.run
   w.run = async (kind, payload, e) => {
@@ -402,7 +402,7 @@ test('double approval queues one exact decision and lost approval is resolved re
   privacy(w, await text(ui))
 })
 
-test('changed parent child terms hashes scope host or native context prevent owner decisions', { timeoutMs: 15_000 }, async ($, on) => {
+test('changed parent child terms hashes scope host or native context prevent owner decisions', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); const parent = clone(w.parent)
   const child = await adapterFlow(parent); w.child = child; const normal = w.run
   for (const mode of ['parent-review', 'parent-hash', 'child-review', 'child-hash', 'scope', 'host', 'context-before', 'context-after', 'read-failure']) {
@@ -430,7 +430,7 @@ test('changed parent child terms hashes scope host or native context prevent own
   privacy(w)
 })
 
-test('adapter review deadline blocks a pending inspection and late callbacks cannot approve a reopened view', async ($, on) => {
+test('adapter review deadline blocks a pending inspection and late callbacks cannot approve a reopened view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { expires: NOW + 1000 })
   const normal = w.run
   w.run = async (kind, payload, e) => {
@@ -454,7 +454,7 @@ test('adapter review deadline blocks a pending inspection and late callbacks can
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('only explicit Connect retrieves exact private transport and sends bounded Unix-scoped HTTP', configured, async ($, on) => {
+test('only explicit Connect retrieves exact private transport and sends bounded Unix-scoped HTTP', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const captured = clone(w.child); const ui = await open($, w)
   expect(count(w, 'adapter.transport')).toBe(0); expect(w.httpCalls).toEqual([])
@@ -473,7 +473,7 @@ test('only explicit Connect retrieves exact private transport and sends bounded 
   privacy(w, await text(ui))
 })
 
-test('malformed private material and unsupported Unix socket paths never reach HTTP', { timeoutMs: 15_000 }, async ($, on) => {
+test('malformed private material and unsupported Unix socket paths never reach HTTP', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const normal = w.run; const ui = await open($, w)
   const changes = [
@@ -494,7 +494,7 @@ test('malformed private material and unsupported Unix socket paths never reach H
   privacy(w, await text(ui))
 })
 
-test('ineligible inspections or context changes before transport and after retrieval cannot connect', { timeoutMs: 15_000 }, async ($, on) => {
+test('ineligible inspections or context changes before transport and after retrieval cannot connect', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); const parent = await parentFlow(); const child = await adapterFlow(parent, { state: 'authorized' })
   const normal = w.run
   for (const mode of ['parent-state', 'child-state', 'child-hash', 'parent-scope', 'context-before', 'context-after-inspect', 'context-after-transport']) {
@@ -519,7 +519,7 @@ test('ineligible inspections or context changes before transport and after retri
   privacy(w)
 })
 
-test('denied failed malformed and mismatched scoped responses never report connected or retry', { timeoutMs: 15_000 }, async ($, on) => {
+test('denied failed malformed and mismatched scoped responses never report connected or retry', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const ui = await open($, w)
   const mutations = [
@@ -548,7 +548,7 @@ test('denied failed malformed and mismatched scoped responses never report conne
   privacy(w, await text(ui))
 })
 
-test('a saved verified channel never becomes native incoming proof and healthy renewal is single-flight', async ($, on) => {
+test('a saved verified channel never becomes native incoming proof and healthy renewal is single-flight', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   let responses = 0
   w.fetch = async () => {
@@ -576,7 +576,7 @@ test('a saved verified channel never becomes native incoming proof and healthy r
   privacy(w, await text(ui))
 })
 
-test('double Connect queues once; its five-second deadline discards late HTTP and old timers after explicit reconnect', async ($, on) => {
+test('double Connect queues once; its five-second deadline discards late HTTP and old timers after explicit reconnect', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const normal = w.fetch; let requests = 0
   w.fetch = async e => { const response = clone(await normal(e)); if (++requests === 1) await w.clock.sleep(6000); return response }
@@ -602,7 +602,7 @@ test('double Connect queues once; its five-second deadline discards late HTTP an
 })
 
 for (const leave of ['Close', 'Back to Peerspan']) {
-  test(`${leave} cancels a pending initial connection and its late response cannot create renewal`, async ($, on) => {
+  test(`${leave} cancels a pending initial connection and its late response cannot create renewal`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
     const normal = w.fetch
     let signalConnectStarted!: () => void
@@ -623,7 +623,7 @@ for (const leave of ['Close', 'Back to Peerspan']) {
   })
 }
 
-test('an established runtime survives Back and pane Close but explicit Stop forgets it without host mutation', async ($, on) => {
+test('an established runtime survives Back and pane Close but explicit Stop forgets it without host mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const ui = await open($, w); await press(ui, 'Connect adapter')
   await press(ui, 'Back to Peerspan'); await w.clock.advance(5000)
@@ -640,7 +640,7 @@ test('an established runtime survives Back and pane Close but explicit Stop forg
   privacy(w, await text(fresh))
 })
 
-test('session end root change terminal loss and changed parent child scope or host stop renewal', { timeoutMs: 15_000 }, async ($, on) => {
+test('session end root change terminal loss and changed parent child scope or host stop renewal', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); const parent = await parentFlow(); const child = await adapterFlow(parent, { state: 'authorized' })
   for (const mode of ['root-event', 'root-without-event', 'conversation', 'terminal-loss', 'parent', 'child', 'scope', 'host', 'revocation', 'session-end']) {
     w.parent = clone(parent); w.child = clone(child); w.root = ROOT; w.native = NATIVE; w.surfaces = ['terminal']; w.surface = 'terminal'
@@ -671,7 +671,7 @@ test('session end root change terminal loss and changed parent child scope or ho
   privacy(w)
 })
 
-test('credential deadline and last accepted lease deadline independently clear connected status', async ($, on) => {
+test('credential deadline and last accepted lease deadline independently clear connected status', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow()
   w.child = await adapterFlow(w.parent, { state: 'authorized', expires: NOW + 6000 - 85_500_000, credentialExpires: NOW + 6000 })
   const ui = await open($, w); await press(ui, 'Connect adapter')
@@ -682,7 +682,7 @@ test('credential deadline and last accepted lease deadline independently clear c
   privacy(w, await text(ui))
 })
 
-test('lease expiry while inspection is pending stops old runtime and cannot replace a newer connection', async ($, on) => {
+test('lease expiry while inspection is pending stops old runtime and cannot replace a newer connection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const normalRun = w.run; const normalFetch = w.fetch
   w.fetch = async () => { const value = connection(w.child, w.clock.now(), { ready: true, lease: NOW + 7000 })
@@ -703,7 +703,7 @@ test('lease expiry while inspection is pending stops old runtime and cannot repl
   privacy(w, await text(ui))
 })
 
-test('a failed established renewal stops without retry even while the old accepted lease remains valid', async ($, on) => {
+test('a failed established renewal stops without retry even while the old accepted lease remains valid', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const ui = await open($, w); await press(ui, 'Connect adapter')
   w.fetch = async () => ({ fixtureDeny: true })
@@ -714,7 +714,7 @@ test('a failed established renewal stops without retry even while the old accept
   privacy(w, await text(ui))
 })
 
-test('a changed native conversation while HTTP is pending cannot become connected from its late response', async ($, on) => {
+test('a changed native conversation while HTTP is pending cannot become connected from its late response', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   const normal = w.fetch
   w.fetch = async e => { const value = clone(await normal(e)); await w.clock.sleep(1000); return value }
@@ -727,7 +727,7 @@ test('a changed native conversation while HTTP is pending cannot become connecte
   privacy(w, await text(ui))
 })
 
-test('a late already-sent adapter decision cannot replace a newer human review after Close', async ($, on) => {
+test('a late already-sent adapter decision cannot replace a newer human review after Close', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent)
   const normal = w.run
   w.run = async (kind, payload, e) => { const response = clone(await normal(kind, payload, e))
@@ -746,7 +746,7 @@ test('a late already-sent adapter decision cannot replace a newer human review a
 })
 
 for (const phase of ['adapter.lookup', 'adapter.prepare', 'adapter.transport']) {
-  test(`a late ${phase} after Close cannot replace a different native context or start scoped HTTP`, async ($, on) => {
+  test(`a late ${phase} after Close cannot replace a different native context or start scoped HTTP`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); w.parent = await parentFlow()
     if (phase === 'adapter.transport') w.child = await adapterFlow(w.parent, { state: 'authorized' })
     const normal = w.run; let delayed = true
