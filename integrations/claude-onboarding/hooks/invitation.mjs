@@ -75,7 +75,11 @@ export async function flow(v, parent, host) {
   if (!exact(v, 'version flow_id state review_id review invitation next_action') || v.version !== 1 ||
       !id(v.flow_id, 'flow', 32) || !id(v.review_id, 'review') || parent.state !== 'attached') throw new Error('Unavailable invitation review');
   const r = v.review;
-  if (!exact(r, 'version kind flow_id host_id context agent network inviter_host_public_key member expected_person_public_key transport expires_at invitation_expires_at effects') ||
+  // Section55: an optional pending agent-access grant for the invitation's own agent.
+  const access = Object.hasOwn(r, 'agent_access');
+  if (!exact(r, 'version kind flow_id host_id context agent network inviter_host_public_key member expected_person_public_key transport expires_at invitation_expires_at effects' + (access ? ' agent_access' : '')) ||
+      (access && !same(r.agent_access, { policy_scope: 'owner_agent_name', agent_id: r.agent?.id, agent_name: r.agent?.name,
+        actions: ['message.append', 'task.submit'], max_message_bytes: 65536, max_artifact_bytes: 0, allow_disconnected: false, policy_hours: 24 })) ||
       r.version !== 1 || r.kind !== 'create_contact_invitation' || r.flow_id !== v.flow_id || r.host_id !== host || !id(host, 'host') ||
       !same(r.context, context(parent)) || !same(r.agent, parent.review.agent) ||
       !exact(r.network, 'id name context_id genesis_root_public_key') || !id(r.network.id, 'net') || !label(r.network.name) ||
@@ -84,7 +88,8 @@ export async function flow(v, parent, host) {
       !transport(r.transport) || !time(r.expires_at) || !time(r.invitation_expires_at) ||
       Date.parse(r.invitation_expires_at) - Date.parse(r.expires_at) !== 2_700_000 ||
       !same(r.effects, { create_contact_invitation: true, receive_join_requests: true, grant_membership: false,
-        grant_agent_access: false, approve_machine: false, share_files: false, share_conversation: false, capability_calls: false })) {
+        grant_agent_access: false, approve_machine: false, share_files: false, share_conversation: false, capability_calls: false,
+        ...(access ? { grant_agent_access_after_admission: true } : {}) })) {
     throw new Error('Unavailable invitation review');
   }
   const actions = { review: 'review', issued: 'share_private_invitation', declined: 'restart_review', expired: 'restart_review', invalidated: 'restart_review' };
@@ -125,10 +130,43 @@ export function reviewLines(v) {
     `Bootstrap addresses: ${addresses(r.transport.bootstrap_addresses)}`, `QUIC addresses: ${addresses(r.transport.quic_addresses)}`,
     `Relays: ${hints(r.transport.relays)}`, `Helpers: ${hints(r.transport.helpers)}`,
     `Review expires: ${r.expires_at}`, `Invitation expires: ${r.invitation_expires_at}`,
-    'Create one private contact invitation', 'Receive join requests', 'Membership grants: none', 'Agent access grants: none',
+    'Create one private contact invitation', 'Receive join requests', 'Membership grants: none',
+    ...(r.agent_access ? [accessWords(r.member, r.agent.name), 'Agent access is granted only after you admit their exact join request.']
+      : ['Agent access grants: none']),
     'Machine approval: none', 'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
     'Peer reachability and model receipt: not verified'].join('\n');
 }
 
 // Shared pure public-term validation; no private transport or native effects.
 export { key as publicKey, endpoint as publicEndpoint, label as publicLabel, freeze, canonical };
+
+/** Section55's words for the pending grant. */
+export function accessWords(member, agent) {
+  return `When ${quoted(member)} is admitted, they can send messages and tasks to ${quoted(agent)} on all your machines (up to 64 KiB per message, no files), renewed daily until you remove it.`;
+}
+const GRANT_STATES = ['waiting_for_request', 'waiting_for_admission', 'waiting_for_owner', 'granted', 'cancelled', 'expired', 'stopped'];
+/** A section55 grant view for the captured issued invitation. */
+export function grant(raw, captured) {
+  const v = JSON.parse(raw), r = captured.review;
+  if (!exact(v, 'invitation_id flow_id network_id member agent state requests person_id created_at expires_at outcome') ||
+      v.invitation_id !== captured.invitation?.invitation_id || v.flow_id !== captured.flow_id || v.network_id !== r.network.id ||
+      v.member !== r.member || !same(v.agent, { id: r.agent_access?.agent_id, name: r.agent_access?.agent_name }) ||
+      !GRANT_STATES.includes(v.state) || !Array.isArray(v.requests) || v.requests.length > 16 ||
+      !(v.person_id === null || typeof v.person_id === 'string') ||
+      (v.outcome === null ? ['granted', 'cancelled', 'expired', 'stopped'].includes(v.state)
+        : typeof v.outcome !== 'object' || v.outcome.state !== v.state || !time(v.outcome.at))) throw new Error('Unavailable invitation grant');
+  return freeze(v);
+}
+export function grantLines(v) {
+  const who = quoted(v.member);
+  const words = {
+    waiting_for_request: `Access for ${who}: waiting for their request`,
+    waiting_for_admission: `Access for ${who}: waiting for admission`,
+    waiting_for_owner: `Access for ${who}: admitted; waiting for your signature`,
+    granted: `Access for ${who}: granted (policy version ${v.outcome?.policy_version ?? 'unknown'})`,
+    cancelled: `Access for ${who}: cancelled`,
+    expired: `Access for ${who}: ended without admission (${v.outcome?.reason ?? 'expired'})`,
+    stopped: `Access for ${who}: stopped (${v.outcome?.reason ?? 'changed'}). Use Review agent access instead.`,
+  };
+  return words[v.state];
+}

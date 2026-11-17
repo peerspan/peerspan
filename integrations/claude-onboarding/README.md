@@ -133,6 +133,18 @@ Approval creates one contact-only introduction; it adds no membership, agent
 access, machine approval, files, conversation sharing or capability permission.
 It does not send the invitation or demonstrate connectivity.
 
+Unless `show_each_step=true`, the draft also shows **Let MEMBER reach AGENT**,
+on by default. With it on, the review states that once you admit MEMBER's exact
+join request they can send messages and tasks to this conversation's agent on
+all your machines (up to 64 KiB per message, no files), renewed daily until you
+remove it, and approval records that pending grant with the invitation. Nothing
+is granted before that admission. The issued view then shows the grant's state
+and refreshes itself while open. A device key on this host signs the grant
+automatically; with an SSH person key it shows **Grant access to MEMBER**, one
+press that signs through your ssh-agent or key file. **Cancel access** ends a
+pending grant and leaves the invitation usable. The CLI is `peerspan onboarding
+invitation grant list|inspect|complete|cancel`.
+
 On an issued invitation, **Reveal private invitation** privately retrieves the
 original code and shows it in this terminal pane. Select/copy it through your
 terminal and share privately with the intended person. **Do not paste it into
