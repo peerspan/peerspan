@@ -6176,7 +6176,7 @@ mod tests {
                 .is_err()
         );
         drop(store);
-        let reopened = Store::open(&path).unwrap();
+        let reopened = Store::reopen(&path).unwrap();
         assert_eq!(reopened.networks().unwrap(), vec![network]);
         let kinds: Vec<_> = reopened
             .events(0, 100)
@@ -8148,7 +8148,7 @@ mod tests {
         assert_eq!(stored["root_seed"], pending.root_seed);
         // The coordinator accepted it, then this host crashed before committing.
         drop(store);
-        let store = Store::open(&path).unwrap();
+        let store = Store::reopen(&path).unwrap();
         let accepted = wire(
             &network,
             vec![own.clone()],
@@ -8295,6 +8295,6 @@ mod tests {
             .unwrap()
             .execute_batch("PRAGMA user_version = 37;")
             .unwrap();
-        assert!(Store::open(&path).is_err());
+        assert!(Store::reopen(&path).is_err());
     }
 }

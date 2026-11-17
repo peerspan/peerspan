@@ -2764,7 +2764,7 @@ mod tests {
         );
         assert!(store.blocked(&store.connection().unwrap(), &host).unwrap());
         drop(store);
-        let store = Store::open(&path).unwrap();
+        let store = Store::reopen(&path).unwrap();
         let kinds: Vec<String> = store
             .access_blocks()
             .unwrap()
