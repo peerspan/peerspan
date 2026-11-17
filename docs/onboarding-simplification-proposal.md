@@ -115,6 +115,12 @@ The owner chose the recommendation on all six on 2026-11-16.
 11. **One incoming request (P2).** **Chosen (2026-11-17):** a sole incoming request opens directly; several keep the list.
 
 All four are specified in [section 53 of the guided session contract](guided-session-contract.md#53-merged-reviews-for-joining-and-admitting-p1-p2).
+12. **Tasks need messages (P4).** **Chosen (2026-11-17):** incoming tasks can be chosen only with incoming messages, since the host hands tasks only to a channel verified by the messages' ready handshake.
+13. **Both off (P4).** **Chosen (2026-11-17):** with neither checked, the press records the attachment and adapter authorization but does not connect.
+14. **Stop incoming messages (P4).** **Chosen (2026-11-17):** added; it also stops tasks and keeps the adapter connected.
+15. **Reconnect after a reload or restart (P4).** **Chosen (2026-11-17):** the Connect this conversation press replaces an invalidated attachment or adapter flow and reconnects a retained authorization, checked against the screen, never on entry.
+
+Decisions 12–15 are specified in [section 54 of the guided session contract](guided-session-contract.md#54-one-consent-to-connect-a-conversation-p4).
 
 ## Cost and order
 
