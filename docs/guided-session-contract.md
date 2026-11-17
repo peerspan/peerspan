@@ -10717,7 +10717,8 @@ there with section5's refusal. **Decline** stays a separate action.
 ### Turning them off
 
 **Stop incoming tasks** (section8) is unchanged. **Stop incoming messages**
-stops section7's message delivery and unregisters its message tools, and also
+stops section7's message delivery and makes its message tools refuse every call
+(the plugin interface cannot unregister a tool), and also
 stops incoming tasks, which need it. The adapter stays connected. Enabling
 messages again is section7's explicit **Enable incoming messages**, with its
 model turn. **Stop adapter** is unchanged.

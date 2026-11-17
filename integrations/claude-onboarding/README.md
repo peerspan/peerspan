@@ -65,9 +65,33 @@ adapter evidence. It starts no daemon and changes no setup or permissions. A
 missing or incompatible host is shown as unavailable. The command returns a
 short read-only summary where no terminal pane is available.
 
-## Connect this project
+## Connect this conversation
 
-With the host running, press **Connect this project**. Peerspan looks up the
+With the host running, press **Connect this conversation**. One screen shows the
+project, this conversation, the agent (a new one with an editable name and owner,
+or an existing one you pick from the list), what the attachment and the 24-hour,
+non-renewable adapter credential do, and two settings, both on by default:
+**Incoming messages** (enabling them starts one model turn now to verify this
+conversation, and each message can start a turn) and **Incoming tasks** (each
+task can start a turn; available only with messages). Nothing is prepared until
+you press.
+
+The press attaches the project, authorizes and connects the adapter, then enables
+what is on, checking each prepared review against the screen. If anything
+differs or an outcome is unknown, it stops at that step and shows that step's
+own control. With both settings off it records the attachment and authorization
+but does not connect. **Stop incoming messages** stops messages and tasks and
+keeps the adapter connected. After a plugin reload the same press reconnects.
+After a host restart it reattaches the same agent, and if that agent's earlier
+credential is still live it stops at the adapter step: revoke it with `peerspan
+adapter revoke ADAPTER_ID` (see `peerspan adapter list`) or wait for it to end,
+then press again.
+
+Set the plugin option `show_each_step=true` to use the separate steps below.
+
+## Connect this project (show_each_step)
+
+With the host running and `show_each_step=true`, press **Connect this project**. Peerspan looks up the
 current native project and conversation. An existing review or outcome resumes
 before a new choice is offered.
 

@@ -504,6 +504,68 @@ async function decideProject($, previous, epoch, decision) {
   } catch { projectFailure($, running, epoch, sent); }
 }
 
+// Connect this conversation (section54): one review, one press.
+function connectTerms(previous, existing = null) {
+  const messages = previous.p4Messages !== false, tasks = messages && previous.p4Tasks !== false;
+  return ['Connect this conversation',
+    `Project: ${quoted(previous.context.project_root)}`, 'Conversation: current conversation',
+    existing ? `Agent: existing agent ${existing.label.replace(/^Review agent /, '')} (${existing.id}). Already-authorized held work may resume and start model turns at once.`
+      : 'Agent: a new agent with the name below, or choose an existing agent.',
+    'Attachment: records this conversation as a local session of that agent. Registers the agent if new. Grants no network membership or access.',
+    'The attachment review ends 15 minutes after it is prepared during the press.',
+    'Adapter: a scoped credential for this conversation, ending about 24 hours after it is prepared during the press, not renewable, held only in this pane\'s memory.',
+    `Incoming messages: ${messages ? 'on' : 'off'}. Enabling them starts one model turn now to verify this conversation; each message can start a model turn, under this conversation's normal model allowance.`,
+    `Incoming tasks: ${tasks ? 'on' : 'off'}${messages ? '' : ' (needs incoming messages)'}. Each task can start a model turn under the normal allowance; tasks add no local tool or file permission.`,
+    messages || tasks ? 'The press attaches, authorizes and connects the adapter, then enables what is on.'
+      : 'With both off, the press records the attachment and adapter authorization but does not connect.',
+    'Each step is checked against these terms; any difference stops with that step\'s own control.'].join('\n');
+}
+function connectToggle($, previous, epoch, key) {
+  if (project !== previous || previous.busy || epoch !== generation) return;
+  const value = previous[key] !== false;
+  project = { ...previous, [key]: !value };
+  $.ui.invalidate('ui.render');
+}
+async function mergedConnect($, previous, epoch, choice) {
+  if (steps()) return;
+  const messages = previous.p4Messages !== false, tasks = messages && previous.p4Tasks !== false;
+  const nav = autoNavigation, pressed = await $.clock.now();
+  const stopped = () => epoch !== generation || autoNavigation !== nav;
+  if (previous.stage === 'choose') {
+    await prepareProject($, previous, epoch, choice);
+    if (stopped() || project.stage !== 'review' || Date.parse(project.flow.review.expires_at) <= pressed) return;
+    await decideProject($, project, epoch, 'approve');
+  }
+  if (stopped() || project.stage !== 'attached' || runtime) return;
+  if (adapter.stage === 'inactive' || adapter.stage === 'empty') await openAdapter($, adapter, epoch, true);
+  else if (['declined', 'expired', 'invalidated'].includes(adapter.stage)) await replaceAdapter($, adapter, epoch);
+  if (stopped()) return;
+  if (adapter.stage === 'unavailable') {
+    adapter = { ...adapter, message: 'Adapter: not authorized. If this agent still holds a live credential from an earlier connection, the host keeps it until it ends; find it with `peerspan adapter list` and revoke it with `peerspan adapter revoke ADAPTER_ID`, or wait for it to end, then press Connect this conversation again.' };
+    $.ui.invalidate('ui.render');
+    return;
+  }
+  if (adapter.stage === 'review') {
+    const r = adapter.flow.review;
+    if (r.renewable !== false || Date.parse(r.credential_expires_at) <= pressed) return;
+    await decideAdapter($, adapter, epoch, 'approve');
+  }
+  if (stopped() || adapter.stage !== 'authorized' || !(messages || tasks)) return;
+  await connectAdapter($, adapter, epoch);
+  const active = runtime;
+  if (stopped() || active?.phase !== 'connected' || !messages) return;
+  active.p4Tasks = tasks;
+  await enableMessages($, active, epoch);
+}
+function stopMessages($, active, epoch) {
+  if (runtime !== active || epoch !== generation || !active.messages) return;
+  const attempt = active.messages;
+  attempt.deadline?.cancel();
+  attempt.poll?.cancel();
+  attempt.state = 'stopped';
+  stopTasks(active);
+  $.ui.invalidate('ui.render');
+}
 function clearAdapter() {
   if (runtime?.phase === 'connecting') stopRuntime('Adapter: stopped before connection was confirmed.');
   adapterExpiry?.cancel();
@@ -645,6 +707,7 @@ async function readyMessages($, event, next) {
     attempt.state = 'ready';
     $.ui.invalidate('ui.render');
     void pollMessages($, active, attempt);
+    if (active.p4Tasks && !steps()) { active.p4Tasks = false; void enableTasks($, active, attempt, generation); }
     return { result: JSON.stringify({ ready: true }) };
   } catch {
     if (checking) messageFailure($, active, attempt);
@@ -3588,7 +3651,7 @@ function adapterControls($, { Text, Button }, epoch) {
   const previous = adapter;
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.busy) return [Text({ children: ['Adapter: working…'] })];
-  if (previous.stage === 'inactive') return [button('adapter-review', 'Review adapter connection', () => openAdapter($, previous, epoch, true))];
+  if (previous.stage === 'inactive') return steps() || runtime ? [button('adapter-review', 'Review adapter connection', () => openAdapter($, previous, epoch, true))] : [];
   const back = button('adapter-back', 'Back to project', () => {
     if (adapter === previous && epoch === generation) { clearAdapter(); $.ui.invalidate('ui.render'); }
   });
@@ -3608,7 +3671,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const previous = project;
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.busy) return [Text({ children: ['Project: working…'] })];
-  if (previous.stage === 'inactive') return hostId ? [button('project-connect', 'Connect this project', () => openProject($, previous, epoch))] : [];
+  if (previous.stage === 'inactive') return hostId ? [button('project-connect', steps() ? 'Connect this project' : 'Connect this conversation', () => openProject($, previous, epoch))] : [];
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
@@ -3616,6 +3679,41 @@ function projectControls($, { Text, Button, Input }, epoch) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
+  if (previous.stage === 'choose' && !steps()) {
+    const page = previous.page ?? 0, messages = previous.p4Messages !== false;
+    return [Text({ children: [connectTerms(previous)] }),
+      Input({ key: 'project-new-name', label: 'New agent name', value: previous.name,
+        onInput: value => projectDraft($, previous, epoch, 'name', value),
+        onSubmit: value => projectDraft($, previous, epoch, 'name', value) }),
+      Input({ key: 'project-owner', label: 'Owner label', value: previous.owner,
+        onInput: value => projectDraft($, previous, epoch, 'owner', value),
+        onSubmit: value => projectDraft($, previous, epoch, 'owner', value) }),
+      button('connect-messages', `Incoming messages: ${messages ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Messages')),
+      ...(messages ? [button('connect-tasks', `Incoming tasks: ${previous.p4Tasks !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Tasks'))] : []),
+      button('project-new-review', 'Connect this conversation', () => mergedConnect($, previous, epoch,
+        { kind: 'new', name: previous.name, owner: previous.owner })),
+      ...previous.agents.slice(page * 10, page * 10 + 10).map(a => button(`project-agent-${a.id}`, choiceLabel(a).replace(/^Review agent/, 'Connect with agent'),
+        () => mergedConnect($, previous, epoch, { kind: 'existing', id: a.id }))),
+      ...(page > 0 ? [button('project-prev', 'Previous agents', () => projectPage($, previous, epoch, page - 1))] : []),
+      ...(previous.agents.length > page * 10 + 10 ? [button('project-next', 'More agents', () => projectPage($, previous, epoch, page + 1))] : []), back];
+  }
+  if (!steps() && previous.stage === 'attached' && !runtime && adapter.stage === 'inactive') {
+    // After a plugin reload: the attachment remains; one press reconnects (section54).
+    return [Text({ children: [connectTerms(previous)] }),
+      button('connect-messages', `Incoming messages: ${previous.p4Messages !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Messages')),
+      ...(previous.p4Messages !== false ? [button('connect-tasks', `Incoming tasks: ${previous.p4Tasks !== false ? 'on' : 'off'}`, () => connectToggle($, previous, epoch, 'p4Tasks'))] : []),
+      button('project-reconnect', 'Connect this conversation', () => mergedConnect($, previous, epoch, null)), back];
+  }
+  if (!steps() && ['declined', 'expired', 'invalidated'].includes(previous.stage) && previous.flow) {
+    // After a host restart: the earlier agent, by its ID, as an existing agent (section54).
+    const earlier = previous.agents?.find(a => a.id === previous.flow.review.agent.id) ?? null;
+    return [Text({ children: [connectTerms(previous, earlier ? { id: earlier.id, label: choiceLabel(earlier) } : null)] }),
+      ...(earlier ? [button('project-reconnect-existing', choiceLabel(earlier).replace(/^Review agent/, 'Connect with existing agent'), () => {
+        replaceProject($, previous, epoch);
+        return mergedConnect($, project, epoch, { kind: 'existing', id: earlier.id });
+      })] : []),
+      button('project-replace', 'Choose another agent', () => replaceProject($, previous, epoch)), back];
+  }
   if (previous.stage === 'choose') {
     const page = previous.page ?? 0;
     return [Text({ children: ['Project: choose an agent'] }),
@@ -3722,8 +3820,12 @@ export function register(on, configured = {}) {
       ...accessControls($, { Text, Button }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
-        Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',
+        Button({ key: 'message-enable', label: runtime.messages && runtime.messages.state !== 'stopped' ? 'Retry incoming messages' : 'Enable incoming messages',
           onPress: () => enableMessages($, displayedRuntime, epoch) }),
+      ] : []),
+      ...(runtime?.phase === 'connected' && !steps() && ['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
+        Text({ children: ['Stopping incoming messages also stops incoming tasks; the adapter stays connected.'] }),
+        Button({ key: 'message-stop', label: 'Stop incoming messages', onPress: () => stopMessages($, displayedRuntime, epoch) }),
       ] : []),
       ...(runtime?.phase === 'connected' && runtime.messages?.state === 'ready' ?
         ['starting', 'enabled'].includes(runtime.tasks?.state) ? [
