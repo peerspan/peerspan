@@ -313,6 +313,7 @@ Sources checked against the installed Claude Code 2.1.303:
 
 ## 3. Exact local project review (GU-01c / GU-02b)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 This slice supplies a concrete owner-local review flow for recording a project
 and its existing native conversation against a local agent. It does not yet
 wire the native pane to this flow. Its outcome is **attachment metadata**, not
@@ -570,6 +571,7 @@ a new owner decision or a completed four-step flow.
 
 ## 4. Native project selection and human review (GU-02c / GU-03b)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 This slice connects the terminal pane from section2 to the exact local project
 review in section3. It records metadata for the current native conversation;
 adapter setup, network admission and sharing remain later reviewed steps.
@@ -758,6 +760,7 @@ implementation choices; no additional owner decision is attributed here.
 
 ## 5. Exact local adapter authorization (GU-01d / GU-02d)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 This host slice follows an approved section3 project attachment. It prepares an
 exact, durable review before issuing one credential for that same session.
 It does not connect an adapter, submit model input, grant inbound access, start
@@ -999,6 +1002,7 @@ implementation choices under GU-OWN1/2, not additional owner confirmations.
 
 ## 6. Native credential review and scoped lease (GU-02e / GU-03c)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 This slice connects section5 to native human controls and a real credential-
 scoped local lease. It does not claim complete incoming delivery: it registers
 no new model tool, sends no adapter hello/model prompt, calls no ready/work
@@ -1214,6 +1218,7 @@ unbounded retries. No extra owner confirmation is attributed here.
 
 ## 7. Native incoming messages and exact model acknowledgment (GU-03d)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 This extends section6 with an explicitly enabled message path. Keep its lease,
 exact review, stop, context and privacy boundaries. Section6's no-ready/work/
 new-tool assertions continue to hold until the new explicit enable action.
@@ -1427,6 +1432,7 @@ This is an implementation choice under GU-OWN1/2, not another owner decision.
 
 ## 8. Native assigned tasks and cancellation (GU-03e)
 
+Section54 merges this section's presses into one consent unless `show_each_step` is set.
 Extend section7 with explicitly enabled assigned tasks, cancellation notices and
 task lifecycle reporting. This slice uses existing scoped task routes and adds
 no API, schema, credential scope, membership or access grant. Outgoing task
@@ -10599,7 +10605,7 @@ as today.
 
 The plugin option `show_each_step` (default `false`, set with `claude plugin
 install … --config "show_each_step=true"`) restores the per-stage controls of
-sections13–29 for one release. With it set, this section's merged reviews,
+sections13–29 (and, under section54, sections4 and 6–8) for one release. With it set, this section's merged reviews,
 automatic finalization and automatic prepare do not apply. Section52 still does.
 
 ### Changes to earlier sections
@@ -10637,6 +10643,130 @@ A separate contract-only author adds native cases for this section:
   prepared once when due; one press approves; there is no approval without a
   press.
 - **`show_each_step=true`** restores the per-stage controls.
+
+## 54. One consent to connect a conversation (P4)
+
+Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
+decisions 1, 3 and 6) and 2026-11-17 (the four answers below). One pane approval
+covers project attachment, adapter authorization and connection, and incoming
+messages and tasks, when all their terms are on one screen. Changed terms still
+need a new review. This adds no host route, schema or signer. Every backend step
+keeps its own section's bindings, rechecks, bounds, privacy and failure rules.
+
+The 2026-11-17 answers:
+- **Tasks need messages.** The host hands tasks only to a channel verified
+  through section7's ready handshake, so incoming tasks can be chosen only with
+  incoming messages.
+- **Nothing to deliver, nothing connected.** With both unchecked, the press
+  records the attachment and the adapter authorization but does not connect.
+- **Stop incoming messages** is added.
+- **The press also reconnects** after a plugin reload or host restart.
+
+### The Connect this conversation review
+
+**Connect this conversation** (the entry that was **Connect this project**)
+looks up the current project and conversation as section4 does, and shows one
+review. It never prepares, approves or connects on entry, Refresh or reload. The
+review shows:
+- the project root and the current conversation;
+- the agent: a new agent with an editable name (default the root's basename)
+  and owner label, or an existing agent chosen from section4's explicit list,
+  never by name or list order. For an existing agent it says that
+  already-authorized held work may resume and start model turns at once;
+- section3's attachment effects and a review ending 15 minutes after the press;
+- section5's adapter effects: a scoped credential ending 24 hours after
+  connecting, not renewable, held only in this pane's memory;
+- **Incoming messages** (checked by default), beside section7's words: enabling
+  them starts one model turn now to verify this conversation, and each message
+  can start a model turn, under this conversation's normal model allowance;
+- **Incoming tasks** (checked by default; available only while Incoming messages
+  is checked), beside section8's words: each task can start a model turn under
+  the normal allowance, and tasks add no local tool or file permission.
+
+### The press
+
+**Connect this conversation** runs in order, each step with its own section's
+rechecks:
+1. section3's attachment prepare, then a check of the prepared review against
+   the screen: project root, conversation, new or existing agent, name and owner
+   (or the chosen agent's metadata from lookup), capabilities, section3's
+   effects, and an expiry within 15 minutes of the press;
+2. section3's approve, then a check that the attachment is recorded for that
+   agent and session;
+3. section5's adapter prepare, then a check against the screen: the same agent,
+   session and context, section5's effects, not renewable, a credential ending
+   within 24 hours of the press, and the resumption wording for an existing
+   agent;
+4. section5's approve, then a check that it is authorized;
+5. if either checkbox is checked, section6's Connect, then the lease validation;
+6. if Incoming messages is checked, section7's enable, whose ready handshake
+   completes after the model's turn;
+7. if Incoming tasks is checked, section8's enable, once step 6 is ready.
+
+Any refusal, difference or unknown outcome stops the sequence at that step.
+Earlier steps, once recorded, stay recorded. The view shows the outcome and
+offers that step's existing control (for example **Review adapter connection**,
+**Connect adapter** or **Retry incoming messages**). No step repeats by itself.
+A conflicting live adapter for an existing agent appears only at step 3; it stops
+there with section5's refusal. **Decline** stays a separate action.
+
+### Turning them off
+
+**Stop incoming tasks** (section8) is unchanged. **Stop incoming messages**
+stops section7's message delivery and unregisters its message tools, and also
+stops incoming tasks, which need it. The adapter stays connected. Enabling
+messages again is section7's explicit **Enable incoming messages**, with its
+model turn. **Stop adapter** is unchanged.
+
+### After a reload or restart
+
+The runtime, lease and enabled paths live in the pane's memory, and a host
+restart invalidates the attachment (section3). Afterwards, **Connect this
+conversation** shows the same review, and its press replaces an invalidated
+attachment or adapter flow (`replace_flow_id`, sections3 and 5), and reconnects
+a still-authorized adapter instead of preparing a new one, each checked against
+the screen as above. It never does this on entry, Refresh or reload.
+
+### Show each step
+
+With `show_each_step` set (section53), the per-step controls of sections4 and
+6–8 return as well, and this section does not apply.
+
+### Changes to earlier sections
+
+Where this section applies, it replaces these rules:
+- section4: **Review new agent**, **Review agent NAME** and **Approve
+  attachment** become part of the press, and **Review a replacement** may be
+  run by the press after a reload or restart;
+- section5: the discarded "folding credential issuance into the metadata
+  approval" no longer holds for this press;
+- section6: **Approve adapter** and **Connect adapter** may run as part of the
+  press, which may also reconnect a retained authorization;
+- section7: **Enable incoming messages** may run as part of the press, so its
+  discarded "automatic model turns" choice no longer holds for it; **Stop
+  incoming messages** is added;
+- section8: **Enable incoming tasks** may run as part of the press after
+  messages are ready, so its discarded "enabling tasks on message ready" choice
+  no longer holds for it.
+
+### Verification
+
+A separate contract-only author adds native cases for this section:
+- **Screen:** every listed term and both disclosures. Tasks are unavailable while
+  Messages is unchecked. Nothing is prepared on entry, Refresh or reload.
+- **Press, success:** exactly attachment prepare, approve, adapter prepare,
+  approve, Connect, the message enable with its handshake, and the task enable,
+  in order.
+- **Press, failure:** a difference in each checked term stops at its step and
+  offers that step's control. An unknown outcome at each step stops, and nothing
+  repeats. An existing agent with a live adapter elsewhere stops at step 3.
+- **Choices:** messages only enables no tasks. Both off records the attachment and
+  authorization without connecting.
+- **Stop incoming messages** stops messages and tasks, and keeps the adapter
+  connected.
+- **After a host restart,** the press replaces the invalidated flow and connects
+  again.
+- **`show_each_step=true`** restores the per-step controls.
 
 ## Implementation choices
 
