@@ -2210,6 +2210,7 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const secret = ['choose', 'create_review', 'machine_identity', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
+    mergedNote: extra.mergedNote ?? null,
     ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired,
     commitExpired, commitCanApprove, commitCanComplete, commitCanPrepare,
     machineRequesterCanPrepare, machineRequesterCanApprove, machineRequesterCanComplete, machineRequesterExpired };
@@ -2463,10 +2464,13 @@ async function mergedJoin($, previous, epoch) {
   if (stopped(cur)) return;
   await readOwner($, cur, epoch, true);
   cur = joining;
-  if (stopped(cur) || cur.ownerError || cur.owner?.owner?.state !== 'review' || cur.ownerExpired) return;
-  const r = cur.owner.owner.review;
-  if (r.person_public_key !== chosen || !same(cur.owner.request.completed, ['request_created'])) {
-    joining = { ...cur, ownerError: 'The prepared owner review differs from the Join review. Nothing was approved; review owner powers below.' };
+  if (stopped(cur)) return;
+  const r = cur.owner?.owner?.review;
+  if (cur.ownerError || cur.owner?.owner?.state !== 'review' || cur.ownerExpired ||
+      r.person_public_key !== chosen || !same(cur.owner.request.completed, ['request_created'])) {
+    // Publication stays recorded; the owner step is offered by itself.
+    joining = { ...cur, busy: false, owner: null, ownerError: null, ownerOperation: false,
+      mergedNote: 'Join request published. The owner review could not be confirmed against the Join review, so nothing was approved. Review owner powers to continue.' };
     $.ui.invalidate('ui.render');
     return;
   }
@@ -2479,13 +2483,21 @@ async function mergedJoin($, previous, epoch) {
 // finalization the approved owner consent covers, prepare a due requester
 // commit, or else check owner consent.
 function finalizationDue(cur) {
-  return cur.finalizationCanReview && cur.owner?.owner?.state === 'approved' && !cur.ownerError && !cur.ownerExpired;
+  return cur.finalizationCanReview && cur.owner?.owner?.state === 'approved' && !cur.ownerError && !cur.ownerExpired &&
+    cur.mergedFinalizationStopped !== cur.flow?.flow_id;
 }
 async function mergedFinalize($, epoch) {
-  await readFinalization($, joining, epoch);
+  const before = joining;
+  await readFinalization($, before, epoch);
   const cur = joining;
-  if (epoch !== generation || !cur.finalizationActive || cur.finalizationError || cur.finalizationExpired ||
-      !cur.finalizationCanSign || !cur.finalization) return;
+  if (epoch !== generation || cur.flow?.flow_id !== before.flow?.flow_id) return;
+  if (!cur.finalizationActive || cur.finalizationError || cur.finalizationExpired || !cur.finalizationCanSign || !cur.finalization) {
+    // Not covered automatically: offer the explicit review, and do not try again by itself.
+    joining = { ...before, busy: false, mergedFinalizationStopped: before.flow?.flow_id,
+      mergedNote: 'Original finalization was not signed automatically. Review original finalization to inspect and sign it.' };
+    $.ui.invalidate('ui.render');
+    return;
+  }
   await signFinalization($, cur, epoch);
 }
 async function joinAdvance($, epoch) {
@@ -2877,6 +2889,7 @@ function leaveOwner($, previous, epoch) {
   joiningExpiry?.cancel(); joiningExpiry = null;
   joining = { ...previous, owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
     ownerCanSign: false, ownerSignExpired: false, originalSignature: false, busy: false, expiryAuthority: null,
+    mergedFinalizationStopped: null, mergedNote: null,
     finalization: null, finalizationActive: false, finalizationError: null, finalizationCanReview: false,
     finalizationCanSign: false, finalizationExpired: false,
     requester: null, commitActive: false, commitOperation: false, commitError: null, commitExpired: false,
@@ -2903,8 +2916,9 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     autoButton(Button, 'finalization-check', 'Check original finalization', `finalization:${previous.flow?.flow_id}`, () => readFinalization($, previous, epoch), () => readFinalization($, joining, epoch)),
     button('finalization-leave', 'Leave finalization review', () => leaveOwner($, previous, epoch)),
   ];
-  if (!previous.owner && !previous.ownerError) return [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))];
-  return [
+  const note = previous.mergedNote && !steps() ? [Text({ children: [previous.mergedNote] })] : [];
+  if (!previous.owner && !previous.ownerError) return [...note, button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))];
+  return [...note,
     ...(previous.owner ? [Text({ children: [ownerReviewLines(previous.owner, previous.parent, previous.ownerExpired, previous.originalSignature)] })] : []),
     ...(previous.ownerError ? [Text({ children: [previous.ownerError] })] : []),
     ...(previous.owner?.owner?.state === 'review' && !previous.ownerExpired ? [

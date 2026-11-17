@@ -10527,8 +10527,9 @@ for the participant. Choosing an identity (**Review identity KEY**) prepares the
 section12 join review as today and shows the **Join** review. It shows:
 - the complete section13 join review: invitation, network, inviter, member,
   chosen person key, its expiry and effects;
-- the owner terms known before publication: this host's key and host ID, `a new
-  device key for this machine, shown after publication`, scopes 7 in words, a
+- the owner terms known before publication: this host's ID (its public key is
+  named in the request after publication), `a new device key for this machine,
+  shown after publication`, scopes 7 in words, a
   lifetime ending 7 days after publication, an owner review ending within 15
   minutes and within the request's window;
 - every section16 effect, including that the owner approval also signs this
