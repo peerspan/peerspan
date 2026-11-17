@@ -10989,9 +10989,10 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | --- | --- | --- | --- |
 | `host_unavailable` | a read failed | `nobody` | "Peerspan isn't running here. Start it, then ask again." |
 | `connect_conversation` | this conversation's project has no current attachment, or it is attached but this conversation has no live adapter connection in this session (section54, for example after a plugin reload), unless its last Connect this conversation press in this session chose neither messages nor tasks | `you` | "Open Peerspan and review Connect this conversation." |
-| `review_join` | an own new-person request is `pending`, or any own request is `needs_selection` | `you` | "Open Peerspan and review Join." |
+| `review_join` | an own request known to be a new-person request is `pending`, or any own request is `needs_selection` | `you` | "Open Peerspan and review Join." |
+| `check_request` | an own request whose kind is unknown is `pending` or `needs_owner_finalization` | `you` | "Open Peerspan to see what your join request needs next." |
 | `commit` | an own request is `needs_commit` | `you` | "Open Peerspan and review Commit." |
-| `finalize` | an own new-person request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
+| `finalize` | an own request known to be a new-person request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
 | `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
 | `approve_computer` | an incoming second-computer request is `pending` here (section41) | `you` | "Your other computer is asking to join. Open Peerspan and review it." |
 | `admit` | an incoming new-person request is `needs_administrator` and section20's inspection succeeds for it | `you` | "Someone is waiting to be admitted. If you administer this network from this computer, open Peerspan and review Admit; otherwise its administrator admits them." |
@@ -11000,7 +11001,13 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `waiting` | any own or incoming request is in another non-final state | `other_side` | "Waiting for the other person. Peerspan shows progress when it is open." |
 | `nothing_due` | otherwise | `nobody` | "Nothing is waiting in Peerspan." |
 
-"Own" and "incoming" are the observation's requester and approver roles; a
+"Own" and "incoming" are the observation's requester and approver roles. An own
+request's kind is known only from this session's pane state: a request the pane's
+Join flow (sections12 and 53) or machine-request lane (section40) handled in this
+session. The durable reads cannot tell them apart (both publish as section12
+does, and section40's lane is cleared on reload), so after a reload an own
+`pending` or `needs_owner_finalization` request selects `check_request` rather
+than a guess. A
 second-computer request maps the same way, except that on the new computer its
 `pending` and `needs_owner_finalization` stages belong to the existing computer
 (sections 41, 45 and 52) and select `waiting`; likewise an incoming
@@ -11047,6 +11054,7 @@ A separate contract-only author adds native cases:
   `peerspan_next_step`, and existing tool-list assertions move to it;
 - each `due` value from a fake host, in priority order, with its exact words;
 - a cancelled request replaced by a later or linked one selects nothing;
+- after a reload, an own `pending` request selects `check_request`;
 - a read failure gives `host_unavailable`;
 - a subagent call and a call during a delivered peer-message or task turn are
   denied and read nothing;
