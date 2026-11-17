@@ -10966,7 +10966,10 @@ running call's result.
 
 One call makes only read-only lookups, each within the existing 5-second process
 bound: the current project's attachment lookup (section4), the `peerspan
-onboarding` observation (section1), the invitation grant list (section55) and,
+onboarding` observation (section1), the invitation grant list (section55),
+with a current attachment section41's read-only machine lookup for at most two
+incoming requests (the observation cannot tell an incoming second computer from a
+new person; a request the lookup refuses is a new person's), and,
 when an incoming new-person request is `needs_administrator` and this
 conversation's project has a current attachment, section20's read-only
 admission inspection. No read-only route reports whether this computer holds the
@@ -11015,7 +11018,8 @@ second-computer request in `needs_administrator`, which a separate administrator
 admits (section41). Only an own request's latest attempt
 for its network counts: a cancelled or expired request that a later request for
 the same network replaced, or that the network has since been joined through,
-is history and selects nothing. `finalize` stays due while the request is in
+is history and selects nothing. "Joined through" means the observation lists that
+network among this host's networks. `finalize` stays due while the request is in
 that state, since the open pane signs it automatically only when section53's
 terms match (and never with `show_each_step`). With `show_each_step` set, the words
 name the same entry, and the pane shows its per-step control.
@@ -11028,8 +11032,9 @@ holds only these fixed values, so a private value never appears.
 With `open:true`, on a terminal surface only:
 - if the pane is closed, the tool opens it as **/peerspan** does, asking for
   focus, which Claude Code may decline while the composer is busy. The pane opens
-  on its overview with the due entry control first (for example **Join a
-  network** above the others, with "Next: …"). Opening prepares, looks up or
+  on its overview with a "Next: …" line and **Connect this conversation** first:
+  the overview's entry through which every review is reached (the others, such as
+  **Join a network**, appear once the project is open). Opening prepares, looks up or
   presses nothing beyond what **/peerspan** entry already reads;
 - if the pane is open, the tool does not change it, and `pane` is
   `already_open`; the pane's overview shows the same "Next: …" line on **Back to

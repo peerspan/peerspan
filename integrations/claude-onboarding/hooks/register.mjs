@@ -282,7 +282,8 @@ async function nextDue($) {
     const was = latest.get(r.network_id);
     if (!was || String(r.created_at) > String(was.created_at)) latest.set(r.network_id, r);
   }
-  if ([...latest.values()].some(r => ['cancelled', 'expired'].includes(r.state) &&
+  const joined = new Set(observed.networks.map(n => n?.id));
+  if ([...latest.values()].some(r => ['cancelled', 'expired'].includes(r.state) && !joined.has(r.network_id) &&
       !own.some(o => o.network_id === r.network_id && o.state === 'linked'))) return 'review_replacement';
   for (const r of incoming.filter(r => r.state === 'pending')) if (await classify(r) === 'computer') return 'approve_computer';
   for (const r of incoming.filter(r => r.state === 'needs_administrator' && r.mode === 'new')) {
@@ -308,20 +309,26 @@ async function nextStep($, e, next) {
   nextFlight ??= nextDue($).finally(() => { nextFlight = null; });
   const due = await nextFlight;
   const [who, words] = NEXT[due];
-  nextHint = NEXT_ENTRY[due] ? { due, words, entry: NEXT_ENTRY[due] } : null;
-  let pane = 'not_opened';
+  let pane = 'not_opened', open = paneOpen;
+  try { open = (await $.ui.panes()).some(p => p?.id === 'peerspan'); } catch { /* keep the tracked state */ }
+  const hint = NEXT_ENTRY[due] ? { due, words, entry: NEXT_ENTRY[due] } : null;
   if (e.open === true) {
     const surfaces = await $.session.surfaces();
     const now = await $.clock.now();
     if (!surfaces.includes('terminal')) pane = 'not_opened';
-    else if (paneOpen) pane = 'already_open';
+    else if (open) pane = 'already_open';
     else if (now - lastOpenAt >= 5000) {
-      lastOpenAt = now;
+      // Entry reads as /peerspan does; the time and hint are set after it,
+      // since it may reset session state on a first call.
       await refresh($);
+      lastOpenAt = now;
+      nextHint = hint;
       await $.ui.open({ id: 'peerspan', title: 'Peerspan', focus: true, closeOnEscape: true });
       pane = 'opened';
     }
   }
+  // An open pane is never changed: its hint waits for the person's next press.
+  if (pane !== 'opened' && !(open && nextHint && !nextHint.deferred)) nextHint = hint && (open ? { ...hint, deferred: true } : hint);
   $.ui.invalidate('ui.render');
   const result = { version: 1, due, who, words, pane };
   if (privateValue(JSON.stringify(result))) return { deny: 'Peerspan next step unavailable.' };
@@ -4064,7 +4071,10 @@ export function register(on, configured = {}) {
     const Button = props => {
       const element = PlainButton({ ...props, onPress: (...args) => {
         if (![...autoButtons.values()].some(c => c.buttonKey === props.key)) autoNavigate();
+        // A hint held for an open pane shows from the person's next press on
+        // (Back to Peerspan); pressing the due entry itself ends it.
         if (nextHint && props.key === nextHint.entry) nextHint = null;
+        else if (nextHint?.deferred) nextHint = { ...nextHint, deferred: false };
         return props.onPress?.(...args);
       } });
       keyed.set(props.key, element);
@@ -4117,7 +4127,9 @@ export function register(on, configured = {}) {
     ];
     autoEnd();
     // Section56: on the overview, the due entry comes first with a Next line.
-    const entry = nextHint && keyed.get(nextHint.entry);
+    // An entry that appears only once the project is open comes after
+    // Connect this conversation, which is then put first.
+    const entry = nextHint && !nextHint.deferred && (keyed.get(nextHint.entry) ?? keyed.get('project-connect'));
     if (entry && children.includes(entry)) {
       children.splice(children.indexOf(entry), 1);
       children.splice(1, 0, Text({ children: [`Next: ${nextHint.words}`] }), entry);
