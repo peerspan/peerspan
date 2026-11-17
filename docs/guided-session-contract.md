@@ -10673,9 +10673,11 @@ review shows:
   and owner label, or an existing agent chosen from section4's explicit list,
   never by name or list order. For an existing agent it says that
   already-authorized held work may resume and start model turns at once;
-- section3's attachment effects and a review ending 15 minutes after the press;
-- section5's adapter effects: a scoped credential ending 24 hours after
-  connecting, not renewable, held only in this pane's memory;
+- section3's attachment effects and a review that ends 15 minutes after it is
+  prepared during the press;
+- section5's adapter effects: a scoped credential ending about 24 hours after
+  it is prepared during the press, not renewable, held only in this pane's
+  memory;
 - **Incoming messages** (checked by default), beside section7's words: enabling
   them starts one model turn now to verify this conversation, and each message
   can start a model turn, under this conversation's normal model allowance;
@@ -10690,13 +10692,14 @@ rechecks:
 1. section3's attachment prepare, then a check of the prepared review against
    the screen: project root, conversation, new or existing agent, name and owner
    (or the chosen agent's metadata from lookup), capabilities, section3's
-   effects, and an expiry within 15 minutes of the press;
+   effects, and an expiry that section3 sets from the review's own preparation
+   time (at most 15 minutes after it) and that is still after the press;
 2. section3's approve, then a check that the attachment is recorded for that
    agent and session;
 3. section5's adapter prepare, then a check against the screen: the same agent,
-   session and context, section5's effects, not renewable, a credential ending
-   within 24 hours of the press, and the resumption wording for an existing
-   agent;
+   session and context, section5's effects, not renewable, a credential end
+   that section5 sets from the adapter review's own preparation time and that
+   is after the press, and the resumption wording for an existing agent;
 4. section5's approve, then a check that it is authorized;
 5. if either checkbox is checked, section6's Connect, then the lease validation;
 6. if Incoming messages is checked, section7's enable, whose ready handshake
