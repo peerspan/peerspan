@@ -2308,6 +2308,7 @@ a second pairing protocol and retrying an old approval into a new request.
 
 ## 13. Native joining with an existing local original identity
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This slice connects the section12 backend to an explicit human terminal flow.
 It supports original person keys already on this machine: the normal generated
 person file and Ed25519 identities available from its SSH agent. It neither
@@ -2924,6 +2925,7 @@ native approval/signing remains the next slice.
 
 ## 17. Native exact owner consent
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This slice supplies the human-only native review/approval for section16. It uses
 only its existing owner CLI plus existing project/join inspection and observation.
 The subsequent local-signing slice will collect the exact original signature;
@@ -3241,6 +3243,7 @@ resume loops and historical consent as proof of original possession/readiness.
 
 ## 19. Native bounded original owner-offer signing
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This human-only native slice calls section18's bounded CLI after section17's
 exact owner consent. No Rust/API/schema/key-discovery/signature implementation,
 new model tool, prompt, storage journal or automatic ceremony work.
@@ -3926,6 +3929,7 @@ learning, arrival-order choice, half-retained failed results or a new schema.
 
 ## 23. Native incoming proof progress and exact administrator consent
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This frontend composes sections20–22 in the existing terminal conversation.
 No Rust/API/schema, manual code import, key access, new protocol engine or model
 tool. It handles retained incoming new-original requests only. Root consent
@@ -4423,6 +4427,7 @@ committed before its one corrected full run against the same frozen binary.
 
 ## 26. Native bounded original finalization
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This human-only native slice composes the pure section24 inspection and bounded
 section25 CLI after exact approved original consent. No Rust/API/schema change,
 key inventory/selection, signing bytes, model tool/turn, persistence journal,
@@ -5186,6 +5191,7 @@ application as a ready connection.
 
 ## 29. Native requester consent and completion
 
+Section53 merges this section's presses into fewer reviews unless `show_each_step` is set.
 This human-only native slice composes sections27/28 after original finalization.
 It changes no Rust/API/schema/protocol, key inventory/provider selection, model
 tool/prompt/turn, frontend storage or adapter/message/task/lease behavior. Separate
@@ -10396,6 +10402,7 @@ establishes #35 readiness; the final candidate needs its own checks and review.
 
 ## 52. Automatic progress in the native pane (P3)
 
+Section53 extends what may follow an automatic check.
 Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
 decision 2; and, for the inviter's wait, the same day's answer to automatic
 incoming-proof fetching). While a participant waits on another, the open pane
@@ -10491,6 +10498,144 @@ A separate contract-only author adds native cases for this section:
   an unavailable fetch keeps checking;
 - the waiting text and `Checking automatically.` are shown, and every Check
   control stays.
+
+## 53. Merged reviews for joining and admitting (P1, P2)
+
+Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
+decisions 1 and 6) and 2026-11-17 (the four answers below). One pane approval
+may cover several protocol consents when all their terms are on one screen.
+Changed terms still need a new review. This adds no host route, schema, signer
+or model tool. Every backend step keeps its own section's bindings, rechecks,
+bounds, privacy and failure rules. Only who presses, and when, changes.
+
+The 2026-11-17 answers:
+- **Join before publication.** A machine's device key and its request's creation
+  time exist only after publication. The Join screen states them in words, and the
+  one press checks the prepared owner review against the screen before approving.
+- **Finalization.** The owner approval covers the original finalization signature
+  (spec 8.2 preapproval, 8.3), signed without a press when its terms match.
+- **Prepare when due.** The open pane prepares the requester commit and the
+  administrator consent when they become due. Preparing is not consent
+  (sections21, 27).
+- **One incoming request** opens directly; several keep the list.
+
+### Join (joining person)
+
+Entry, invitation entry and inspection, the identity list and explicit new
+identity creation (sections11–14) are unchanged. A new identity is never chosen
+for the participant. Choosing an identity (**Review identity KEY**) prepares the
+section12 join review as today and shows the **Join** review. It shows:
+- the complete section13 join review: invitation, network, inviter, member,
+  chosen person key, its expiry and effects;
+- the owner terms known before publication: this host's key and host ID, `a new
+  device key for this machine, shown after publication`, scopes 7 in words, a
+  lifetime ending 7 days after publication, an owner review ending within 15
+  minutes and within the request's window;
+- every section16 effect, including that the owner approval also signs this
+  machine's original finalization later, and that a single owner offer is
+  selected after signing.
+
+**Join** runs in order, each step with its own section's rechecks:
+1. section13's approve decision (publication);
+2. section16's owner prepare;
+3. it checks the prepared owner review against the screen: kind and effects equal
+   section16's; network and member equal the join review; the person key is the
+   chosen key; the host key is this host's; the request ID is the published
+   request's; the device key is this request's device key from its LINK_VIEW;
+   scopes are 7; `not_after` is the request's `created_at` plus 7 days; the expiry
+   is within its bounds; and only `request_created` is recorded;
+4. section16's owner approve;
+5. section18's original owner-offer signing.
+
+Any refusal, difference or unknown outcome stops the sequence at that step.
+Publication, once recorded, stays recorded. The view shows the recorded outcome
+and offers that step's existing control (**Review owner powers** or **Sign
+original owner offer**) with a fresh display. No step repeats by itself. The
+invitation code stays only in volatile memory until the decision and is dropped
+after it, as section13 requires. **Decline join request** stays a separate
+action. Reopening resumes from durable lookups, never from an earlier press.
+
+### Original finalization without a press
+
+While section52 checks progress for a joining person whose owner consent is
+approved, and finalization becomes due (the administrator offer is retained), the
+pane runs section24's inspection. It then runs section25's signing without a
+press when all of these hold:
+- the inspection verifies;
+- its profile 7, binding scope 2, fixed `not_after`, person, host and device
+  keys, network and member equal the approved section16 owner review;
+- the owner consent is `approved`;
+- the request window, `not_after` and the stage inactivity limit have not passed.
+
+It falls back to the explicit **Review original finalization** of section26 when
+the inspection refuses (`finalization_inspection_unavailable`, for example
+parents that cannot cover the fixed end), when any term differs, when an outcome
+is unknown, when B/D signatures are only partly present (section25), or when the
+pane is not open while the stage is live.
+
+### Commit (joining person)
+
+When the requester commit becomes due (section27 eligible), the open pane runs
+section27's prepare once for that request, without a press. It shows the exact
+section29 review with one **Commit** button, which runs section27's approve and
+then section28's completion. An unknown outcome stops there; recovery is by
+lookup, as today. Approve is never repeated, and Complete runs only after a
+verified approval. **Leave requester review** stays.
+
+### Admit (inviter)
+
+**Review incoming connections** with exactly one retained incoming request opens
+it directly; with several, the list stays. Section52's fetch and checks run as
+today. When the administrator review becomes due (both proofs verified,
+`needs_administrator`), the open pane runs section20's inspection and section21's
+prepare once, without a press. It shows the exact section23 review with one
+**Admit NAME** button, where NAME is the member, which runs section21's approve.
+An unknown outcome stops there, with lookup recovery. A prepared intent is never
+replaced (section21); a changed root, P/H, parent or tuple needs a new review,
+as today.
+
+### Show each step
+
+The plugin option `show_each_step` (default `false`, set with `claude plugin
+install … --config "show_each_step=true"`) restores the per-stage controls of
+sections13–29 for one release. With it set, this section's merged reviews,
+automatic finalization and automatic prepare do not apply. Section52 still does.
+
+### Changes to earlier sections
+
+Where this section applies, it replaces these rules:
+- section13: Approve join request may be dispatched by **Join**;
+- sections17 and 19: owner approve and owner-offer signing may run as part of
+  **Join**, so their "discarded: combined approval and signing" choices no longer
+  hold for it;
+- section23: the administrator review is prepared when due, a sole request is
+  opened directly, and approve is **Admit NAME**;
+- section26: finalization is signed without a press, as above;
+- section29: the requester commit is prepared when due, and **Commit** approves
+  then completes;
+- section52: an automatic check may now be followed by this section's prepare,
+  finalization signature and outcome display. It still never approves, declines
+  or completes by itself.
+
+### Verification
+
+A separate contract-only author adds native cases for this section:
+- **Join, success:** the screen shows every listed term; one press runs exactly
+  publication, owner prepare, owner approve and signing, in order.
+- **Join, failure:** a difference in each checked owner term stops after
+  publication, without approval, and offers Review owner powers. An unknown
+  publication, approval or signing outcome stops and offers its existing
+  control, and nothing repeats.
+- **Join, code:** the invitation code is gone after the decision.
+- **Finalization:** signed without a press when everything matches. It falls back
+  to Review original finalization on an inspection refusal, a differing term, an
+  unknown outcome or partial B/D.
+- **Commit:** prepared once when due, never twice; one press approves then
+  completes; an unknown approval never completes.
+- **Admit:** a sole request opens directly and several show the list; it is
+  prepared once when due; one press approves; there is no approval without a
+  press.
+- **`show_each_step=true`** restores the per-stage controls.
 
 ## Implementation choices
 
