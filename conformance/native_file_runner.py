@@ -24,12 +24,12 @@ import time
 
 EXPECTED_FILES = frozenset('tests/' + name + '.test.ts' for name in (
     'access-completion', 'access-review', 'adapter-review', 'admission-review', 'connect-conversation',
-    'invitation-preview', 'invitation-review', 'join-progress', 'join-review',
+    'invitation-access', 'invitation-preview', 'invitation-review', 'join-progress', 'join-review',
     'machine-owner', 'machine-request', 'machine-requester', 'native-entry',
     'native-message', 'native-task', 'new-identity', 'owner-finalization',
     'owner-review', 'owner-signing', 'peer-reachability', 'project-review',
     'readiness', 'requester-commit'))
-EXPECTED_CASES = 504
+EXPECTED_CASES = 514
 GATE_SECONDS = 600
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 # A case result line of the public CLI: `(fail) NAME [12.34ms]`.
@@ -187,7 +187,7 @@ def candidate_files(repo, plugin, deadline):
     snapshot = tree(plugin)
     need(tracked and set(snapshot) == tracked, 'unknown_or_missing_candidate_resource')
     tests = {name for name in snapshot if test_file(name)}
-    need(tests == EXPECTED_FILES and len(tests) == 23, 'candidate_test_discovery_mismatch')
+    need(tests == EXPECTED_FILES and len(tests) == 24, 'candidate_test_discovery_mismatch')
     need('.claude-plugin/plugin.json' in snapshot and 'hooks/hooks.json' in snapshot,
          'required_plugin_resources_missing')
     return relative, snapshot
@@ -211,7 +211,7 @@ def run(cli, plugin, work, receipt_path):
     began = time.monotonic()
     deadline = began + GATE_SECONDS - 2  # Reserve process cleanup/receipt writing.
     repo = Path(__file__).resolve().parents[1]
-    receipt = dict(version=1, outcome='input_refused', expected_files=23, expected_cases=EXPECTED_CASES,
+    receipt = dict(version=1, outcome='input_refused', expected_files=24, expected_cases=EXPECTED_CASES,
                    gate_seconds=GATE_SECONDS, files=[], sources={}, elapsed_ms=0)
     try:
         need(not work.exists(), 'work_directory_not_fresh')
@@ -273,7 +273,7 @@ def run(cli, plugin, work, receipt_path):
         complete = [item for item in receipt['files'] if item['cases'] is not None]
         receipt['counts'] = {field: sum(item[field] for item in complete)
                              for field in ('cases', 'passed', 'failed', 'skipped', 'todo')}
-        passed = len(receipt['files']) == len(complete) == 23 and receipt['counts']['cases'] == EXPECTED_CASES
+        passed = len(receipt['files']) == len(complete) == 24 and receipt['counts']['cases'] == EXPECTED_CASES
         passed = passed and all(item['outcome'] == 'passed' and item['exit_code'] == 0 for item in receipt['files'])
         receipt['outcome'] = 'passed' if passed and time.monotonic() < deadline else 'failed'
     except Refused as error:
