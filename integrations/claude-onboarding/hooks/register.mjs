@@ -196,7 +196,140 @@ function clearCheck() {
   check = { state: 'unverified' };
 }
 
+// Section56: peerspan_next_step, the one read-only model tool. It reports a
+// fixed due value and sentence and may open a closed pane at that entry.
+const NEXT = {
+  host_unavailable: ['nobody', "Peerspan isn't running here. Start it, then ask again."],
+  connect_conversation: ['you', 'Open Peerspan and review Connect this conversation.'],
+  review_join: ['you', 'Open Peerspan and review Join.'],
+  check_request: ['you', 'Open Peerspan to see what your join request needs next.'],
+  commit: ['you', 'Open Peerspan and review Commit.'],
+  finalize: ['you', 'Open Peerspan to finish your approval.'],
+  review_replacement: ['you', 'Your join request ended. Open Peerspan to review a new one.'],
+  approve_computer: ['you', 'Your other computer is asking to join. Open Peerspan and review it.'],
+  admit: ['you', 'Someone is waiting to be admitted. If you administer this network from this computer, open Peerspan and review Admit; otherwise its administrator admits them.'],
+  grant_access: ['you', 'A person you invited was admitted. Open Peerspan and review Grant access.'],
+  inspect_status: ['you', 'Something needs your attention. Open Peerspan to see it.'],
+  waiting: ['other_side', 'Waiting for the other person. Peerspan shows progress when it is open.'],
+  nothing_due: ['nobody', 'Nothing is waiting in Peerspan.'],
+};
+// The overview entry each due value puts first.
+const NEXT_ENTRY = {
+  connect_conversation: 'project-connect', review_join: 'join-open', check_request: 'join-open', commit: 'join-open',
+  finalize: 'join-open', review_replacement: 'join-open', inspect_status: 'join-open', approve_computer: 'machine-owner-open',
+  admit: 'admission-open', grant_access: 'invitation-open',
+};
+let nextHint = null, nextFlight = null, paneOpen = false, lastOpenAt = -Infinity;
+// Turns the pane started to deliver a peer message or task: the tool is
+// refused from such a prompt's submission until that turn ends.
+let deliveryPending = 0, deliveryTurn = null;
+// Own request kinds known from this session's pane state.
+const ownKinds = new Map();
+// The last Connect this conversation press in this session chose neither path.
+let connectChoseNone = false;
+function noteOwnKind() {
+  const id = joining?.flow?.outcome?.request_id;
+  if (typeof id === 'string') ownKinds.set(id, joining.machine ? 'computer' : 'person');
+}
+const FINAL = ['linked', 'cancelled', 'expired'];
+async function nextRead($, args, payload) {
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), ...args],
+    { timeoutMs: 5000, ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
+  if (result.exitCode !== 0) throw new Error('Unavailable');
+  return result.stdout;
+}
+async function nextDue($) {
+  if (typeof options.executable !== 'string' || !options.executable || typeof options.state !== 'string') return 'host_unavailable';
+  noteOwnKind();
+  let observed, host, flow;
+  try {
+    const raw = await nextRead($, ['onboarding']);
+    observation(raw);
+    observed = JSON.parse(raw);
+    host = observed.host_id;
+    const context = await projectContext($);
+    flow = parseProjectLookup(await nextRead($, ['onboarding', 'project', 'lookup', '--stdin'], context), context, host).flow;
+  } catch { return 'host_unavailable'; }
+  const attached = flow?.state === 'attached' ? flow : null;
+  const live = runtime?.phase === 'connected' && runtime.parent?.flow_id === attached?.flow_id;
+  if (!attached || (!live && !connectChoseNone)) return 'connect_conversation';
+  const requests = observed.requests.filter(r => r && typeof r.request_id === 'string' && typeof r.state === 'string');
+  const own = requests.filter(r => r.role === 'requester');
+  const incoming = requests.filter(r => r.role === 'approver');
+  const kind = r => ownKinds.get(r.request_id) ?? 'unknown';
+  if (own.some(r => r.state === 'needs_selection' || (r.state === 'pending' && kind(r) === 'person'))) return 'review_join';
+  if (own.some(r => ['pending', 'needs_owner_finalization'].includes(r.state) && kind(r) === 'unknown')) return 'check_request';
+  if (own.some(r => r.state === 'needs_commit')) return 'commit';
+  // Incoming requests that need classifying: section41's read-only machine
+  // lookup tells an own-person second computer; at most two are read.
+  const context = adapterContext(attached);
+  const classified = new Map();
+  const classify = async r => {
+    if (classified.has(r.request_id)) return classified.get(r.request_id);
+    if (classified.size >= 2) return 'unknown';
+    let value = 'person';
+    try { await nextRead($, ['onboarding', 'machine', 'lookup', '--stdin'], { context, request_id: r.request_id }); value = 'computer'; }
+    catch { value = 'person'; }
+    classified.set(r.request_id, value);
+    return value;
+  };
+  const ownFinal = own.some(r => r.state === 'needs_owner_finalization' && kind(r) === 'person');
+  let incomingFinal = false;
+  for (const r of incoming.filter(r => r.state === 'needs_owner_finalization')) if (await classify(r) === 'computer') { incomingFinal = true; break; }
+  if (ownFinal || incomingFinal) return 'finalize';
+  const latest = new Map();
+  for (const r of own) {
+    const was = latest.get(r.network_id);
+    if (!was || String(r.created_at) > String(was.created_at)) latest.set(r.network_id, r);
+  }
+  if ([...latest.values()].some(r => ['cancelled', 'expired'].includes(r.state) &&
+      !own.some(o => o.network_id === r.network_id && o.state === 'linked'))) return 'review_replacement';
+  for (const r of incoming.filter(r => r.state === 'pending')) if (await classify(r) === 'computer') return 'approve_computer';
+  for (const r of incoming.filter(r => r.state === 'needs_administrator' && r.mode === 'new')) {
+    if (await classify(r) !== 'person') continue;
+    try { await nextRead($, ['onboarding', 'admission', 'inspect', '--stdin'], { context, request_id: r.request_id }); return 'admit'; }
+    catch { /* not admissible here */ }
+  }
+  try {
+    const grants = JSON.parse(await nextRead($, ['onboarding', 'invitation', 'grant', 'list']));
+    if (Array.isArray(grants?.grants) && grants.grants.some(g => g?.state === 'waiting_for_owner')) return 'grant_access';
+  } catch { return 'host_unavailable'; }
+  if (own.some(r => r.state === 'blocked')) return 'inspect_status';
+  const history = r => FINAL.includes(r.state) || r.state === 'blocked';
+  if (requests.some(r => !history(r))) return 'waiting';
+  return 'nothing_due';
+}
+async function nextStep($, e, next) {
+  if (!modelOrigin(e, next)) return { deny: 'peerspan_next_step is available only to the main model.' };
+  if (deliveryTurn !== null || deliveryPending > 0) return { deny: 'peerspan_next_step is not available while a delivered Peerspan message or task is being handled.' };
+  if (!(e.open === undefined || typeof e.open === 'boolean')) {
+    return { deny: 'peerspan_next_step takes only an optional boolean open.' };
+  }
+  nextFlight ??= nextDue($).finally(() => { nextFlight = null; });
+  const due = await nextFlight;
+  const [who, words] = NEXT[due];
+  nextHint = NEXT_ENTRY[due] ? { due, words, entry: NEXT_ENTRY[due] } : null;
+  let pane = 'not_opened';
+  if (e.open === true) {
+    const surfaces = await $.session.surfaces();
+    const now = await $.clock.now();
+    if (!surfaces.includes('terminal')) pane = 'not_opened';
+    else if (paneOpen) pane = 'already_open';
+    else if (now - lastOpenAt >= 5000) {
+      lastOpenAt = now;
+      await refresh($);
+      await $.ui.open({ id: 'peerspan', title: 'Peerspan', focus: true, closeOnEscape: true });
+      pane = 'opened';
+    }
+  }
+  $.ui.invalidate('ui.render');
+  const result = { version: 1, due, who, words, pane };
+  if (privateValue(JSON.stringify(result))) return { deny: 'Peerspan next step unavailable.' };
+  return { result: JSON.stringify(result) };
+}
 function clearSession() {
+  nextHint = null; nextFlight = null; paneOpen = false; lastOpenAt = -Infinity;
+  deliveryPending = 0; deliveryTurn = null; ownKinds.clear(); connectChoseNone = false;
   stopRuntime(null);
   generation++;
   hostId = null;
@@ -545,6 +678,7 @@ async function mergedConnect($, previous, epoch, choice, earlier = null) {
   const messages = previous.p4Messages !== false, tasks = messages && previous.p4Tasks !== false;
   const nav = autoNavigation, pressed = await $.clock.now();
   const stopped = () => epoch !== generation || autoNavigation !== nav;
+  connectChoseNone = !(messages || tasks);
   if (previous.stage === 'choose') {
     await prepareProject($, previous, epoch, choice);
     if (stopped() || project.stage !== 'review') return;
@@ -758,6 +892,7 @@ async function pollMessages($, active, attempt) {
         const timeout = new Promise((_, reject) => {
           deadline = $.clock.after(5000, () => reject(new Error('Unknown prompt outcome')));
         });
+        deliveryPending++;
         accepted = await Promise.race([$.prompt.submit({ text: messagePrompt(value) }), timeout]);
       } finally { deadline?.cancel(); }
       if (!await messageCurrent($, active, attempt, true)) return;
@@ -855,6 +990,7 @@ async function submitTask($, active, attempt, text) {
     const timeout = new Promise((_, reject) => {
       deadline = $.clock.after(5000, () => reject(new Error('Unknown task submission outcome')));
     });
+    deliveryPending++;
     const accepted = await Promise.race([$.prompt.submit({ text }), timeout]);
     if (!await taskCurrent($, active, attempt)) return false;
     if (accepted?.drop || typeof accepted?.text !== 'string') throw new Error('Unavailable task submission');
@@ -3868,6 +4004,11 @@ export function register(on, configured = {}) {
       inputSchema: { type: 'object', properties: { probe_id: { type: 'string' } },
         required: ['probe_id'], additionalProperties: false },
     });
+    await $.tool.register({
+      name: 'peerspan_next_step',
+      description: 'Say which Peerspan review is due for this person, in fixed words, and optionally open the Peerspan pane at it. It reads only: it never prepares, approves or enters codes. The person reviews and approves in the pane.',
+      inputSchema: { type: 'object', properties: { open: { type: 'boolean' } }, additionalProperties: false },
+    });
     await $.command.register({ name: 'peerspan', description: 'Connect this project and inspect Peerspan', immediate: true });
     return next(e);
   });
@@ -3883,6 +4024,8 @@ export function register(on, configured = {}) {
     if (e.requestId !== 'peerspan') return next(e);
     if (e.surface !== 'terminal') { clearMachineOwner(); clearAccess(); clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
     const epoch = generation;
+    paneOpen = true;
+    noteOwnKind();
     if (machineOwning.stage !== 'inactive') {
       const captured = machineOwning;
       try { if (!await machineOwnerCurrent($, captured, epoch) && machineOwning === captured) clearMachineOwner(); }
@@ -3917,10 +4060,16 @@ export function register(on, configured = {}) {
     const displayedReady = runtime?.messages;
     const displayedTasks = runtime?.tasks;
     const { Box, Text, Button: PlainButton, Input } = $.ui.resolve(e);
-    const Button = props => PlainButton({ ...props, onPress: (...args) => {
-      if (![...autoButtons.values()].some(c => c.buttonKey === props.key)) autoNavigate();
-      return props.onPress?.(...args);
-    } });
+    const keyed = new Map();
+    const Button = props => {
+      const element = PlainButton({ ...props, onPress: (...args) => {
+        if (![...autoButtons.values()].some(c => c.buttonKey === props.key)) autoNavigate();
+        if (nextHint && props.key === nextHint.entry) nextHint = null;
+        return props.onPress?.(...args);
+      } });
+      keyed.set(props.key, element);
+      return element;
+    };
     autoBegin();
     const children = [
       Text({ children: [summary()] }),
@@ -3967,6 +4116,12 @@ export function register(on, configured = {}) {
       Button({ key: 'close', label: 'Close', onPress: () => close($) }),
     ];
     autoEnd();
+    // Section56: on the overview, the due entry comes first with a Next line.
+    const entry = nextHint && keyed.get(nextHint.entry);
+    if (entry && children.includes(entry)) {
+      children.splice(children.indexOf(entry), 1);
+      children.splice(1, 0, Text({ children: [`Next: ${nextHint.words}`] }), entry);
+    }
     return Box({ flexDirection: 'column', children });
   });
   on('tool.call', { tool: 'mcp__peerspan__delivery_acknowledge' }, async ($, e, next) => {
@@ -3984,6 +4139,20 @@ export function register(on, configured = {}) {
     $.ui.invalidate('ui.render');
     return { result: JSON.stringify({ state: 'verified' }) };
   }).catch(() => ({ deny: 'Conversation check unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__peerspan_next_step' }, ($, e, next) => nextStep($, e, next)
+    .catch(() => ({ deny: 'Peerspan next step unavailable.' })));
+  on('turn.start', async ($, e, next) => {
+    if (deliveryPending > 0) { deliveryPending--; deliveryTurn = e.turnId ?? true; }
+    return next(e);
+  });
+  on('turn.complete', async ($, e, next) => {
+    if (deliveryTurn !== null && (e.turnId === undefined || e.turnId === deliveryTurn || deliveryTurn === true)) deliveryTurn = null;
+    return next(e);
+  });
+  on('turn.abort', async ($, e, next) => {
+    if (deliveryTurn !== null && (e.turnId === undefined || e.turnId === deliveryTurn || deliveryTurn === true)) deliveryTurn = null;
+    return next(e);
+  });
   on('tool.call', { tool: 'mcp__peerspan__adapter_ready' }, ($, e, next) => readyMessages($, e, next))
     .catch(() => ({ deny: 'Message delivery check unavailable.' }));
   on('tool.call', { tool: 'mcp__peerspan__message_seen' }, ($, e, next) => messageWrite($, e, next, 'seen'))
@@ -4001,6 +4170,7 @@ export function register(on, configured = {}) {
   on('tool.call', { tool: 'mcp__peerspan__task_cancelled' }, ($, e, next) => taskWrite($, e, next, 'cancelled'))
     .catch(() => ({ deny: 'Task cancellation unavailable.' }));
   on('ui.close', { id: 'peerspan' }, async ($, e, next) => {
+    paneOpen = false;
     if (runtime?.phase === 'connecting') stopRuntime('Adapter: stopped before connection was confirmed.');
     generation++;
     clearProject();
