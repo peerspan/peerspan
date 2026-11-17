@@ -10969,7 +10969,10 @@ bound: the current project's attachment lookup (section4), the `peerspan
 onboarding` observation (section1), the invitation grant list (section55) and,
 when an incoming new-person request is `needs_administrator` and this
 conversation's project has a current attachment, section20's read-only
-admission inspection. The reads follow the table's order and stop at the first
+admission inspection. No read-only route reports whether this computer holds the
+network's current root, which section21 requires, so `admit` cannot establish
+local administrator authority; its words say so, and the pane's own Admit review
+refuses on a computer without the root (section21). The reads follow the table's order and stop at the first
 `due` that applies; without an attachment, `connect_conversation` applies before
 any admission inspection is needed.
 If the host is unavailable or a read fails, it returns `due:"host_unavailable"`.
@@ -10991,7 +10994,7 @@ The tool returns exactly `{version:1,due,who,words,pane}` as text JSON:
 | `finalize` | an own new-person request, or an incoming second-computer request, is `needs_owner_finalization` | `you` | "Open Peerspan to finish your approval." |
 | `review_replacement` | the latest own request for a network is `cancelled` or `expired` | `you` | "Your join request ended. Open Peerspan to review a new one." |
 | `approve_computer` | an incoming second-computer request is `pending` here (section41) | `you` | "Your other computer is asking to join. Open Peerspan and review it." |
-| `admit` | an incoming new-person request is `needs_administrator` and section20's inspection lists it as admissible by this host | `you` | "Someone is waiting to be admitted. Open Peerspan and review Admit." |
+| `admit` | an incoming new-person request is `needs_administrator` and section20's inspection succeeds for it | `you` | "Someone is waiting to be admitted. If you administer this network from this computer, open Peerspan and review Admit; otherwise its administrator admits them." |
 | `grant_access` | an invitation grant is `waiting_for_owner` | `you` | "A person you invited was admitted. Open Peerspan and review Grant access." |
 | `inspect_status` | an own request is `blocked` | `you` | "Something needs your attention. Open Peerspan to see it." |
 | `waiting` | any own or incoming request is in another non-final state | `other_side` | "Waiting for the other person. Peerspan shows progress when it is open." |
