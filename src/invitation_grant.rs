@@ -377,10 +377,11 @@ fn recheck(store: &Store, conn: &Connection, grant: &Grant) -> Result<Option<&'s
     Ok(None)
 }
 
-/// Section31's same-key merge of the grant's profile rule.
-fn merge(grant: &Grant, content: &mut crate::policy::Content) {
+/// Section31's same-key merge of the grant's profile rule. Returns whether
+/// the profile rule was appended rather than merged into a same-key rule.
+fn merge(grant: &Grant, content: &mut crate::policy::Content) -> bool {
     let Some(principal) = grant.principal() else {
-        return;
+        return false;
     };
     let rule = Rule {
         agent: grant.agent_name.clone(),
@@ -394,8 +395,10 @@ fn merge(grant: &Grant, content: &mut crate::policy::Content) {
         if !same.principals.contains(&principal) {
             same.principals.push(principal);
         }
+        false
     } else {
         content.rules.push(rule);
+        true
     }
 }
 
@@ -447,9 +450,43 @@ fn sign(store: &Store, id: &str, explicit: bool) -> Result<Attempt, Error> {
         tx.commit()?;
         grant
     };
-    let outcome = sign_content(store, &grant.network_id, explicit, |_, content| {
-        merge(&grant, content)
-    })
+    // A newly appended profile rule, the last one, keeps section31's
+    // explicit raw `max_artifact_bytes:0`.
+    let appended = std::cell::Cell::new(false);
+    // Retained rules keep the explicit field presence of the stored body
+    // (section31); merging only appends a principal or a last rule, so the
+    // retained rules keep their positions.
+    let adjust = |raw: &mut Value, baseline: Option<&Value>| {
+        let Some(rules) = raw["rules"].as_array_mut() else {
+            return;
+        };
+        let before = baseline
+            .and_then(|b| b["rules"].as_array())
+            .map_or(0, Vec::len);
+        if let Some(old) = baseline.and_then(|b| b["rules"].as_array()) {
+            for (rule, old) in rules.iter_mut().zip(old) {
+                if let Some(bound) = old.get("max_artifact_bytes")
+                    && rule.get("max_artifact_bytes").is_none()
+                {
+                    rule["max_artifact_bytes"] = bound.clone();
+                }
+            }
+        }
+        if appended.get()
+            && rules.len() > before
+            && let Some(rule) = rules.last_mut()
+            && rule.get("max_artifact_bytes").is_none()
+        {
+            rule["max_artifact_bytes"] = json!(0);
+        }
+    };
+    let outcome = sign_content(
+        store,
+        &grant.network_id,
+        explicit,
+        Some(&adjust),
+        |_, content| appended.set(merge(&grant, content)),
+    )
     .map_err(crate::decentralized::product::model)?;
     let mut conn = store.connection()?;
     let tx = conn.transaction()?;

@@ -267,6 +267,17 @@ pub(super) fn cap(
     Ok(())
 }
 pub(super) fn payload(p: &Projection, provider: &Resolved, body: PolicyBody) -> Result<Value> {
+    payload_adjusted(p, provider, body, None)
+}
+/// As [`payload`], with `adjust` applied to the body's raw JSON before it is
+/// encoded (guided session contract section55: an appended profile rule keeps
+/// section31's explicit `max_artifact_bytes:0`).
+pub(super) fn payload_adjusted(
+    p: &Projection,
+    provider: &Resolved,
+    body: PolicyBody,
+    adjust: Option<&dyn Fn(&mut Value)>,
+) -> Result<Value> {
     let person = text(&provider.actor, "person_public_key")?;
     let person_stream = vec!["person".into(), person.into()];
     let (person_lease, _) = p.current_statement(&person_stream)?;
@@ -303,7 +314,14 @@ pub(super) fn payload(p: &Projection, provider: &Resolved, body: PolicyBody) -> 
     body.version = next;
     body.issued_at = p.decision_time.clone();
     body.valid_until = until.clone();
-    let encoded = serde_json::to_vec(&body).map_err(|_| Error::new("internal"))?;
+    let encoded = match adjust {
+        None => serde_json::to_vec(&body).map_err(|_| Error::new("internal"))?,
+        Some(adjust) => {
+            let mut raw = serde_json::to_value(&body).map_err(|_| Error::new("internal"))?;
+            adjust(&mut raw);
+            serde_json::to_vec(&raw).map_err(|_| Error::new("internal"))?
+        }
+    };
     Ok(
         json!({"root_state_id":p.root_state_id()?,"operation_id":"-","sequence":next,"predecessors":row.heads,"resolves":[],"issuer":{"kind":if provider.provider.kind=="device"{"device"}else{"person"},"person_public_key":person},"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":p.decision_time,"not_before":p.decision_time,"not_after":until,"body_base64":encode(&encoded)}),
     )
