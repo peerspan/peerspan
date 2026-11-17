@@ -17,6 +17,17 @@ What the video shows:
   agent submitted nothing. The mean score was 28.3 at the start and 86.1 at the last merge; the
   same bot scored 82.0 when the next evaluation measured it again on fresh arenas.
 
+What ran:
+
+- **Peerspan hosts.** Five host daemons: bob's, and a desk and a machine each for alice and
+  carol. They carried the author, review and revision tasks between owners under grants, and
+  bob's host ran the peerbox: fetch, submit and the gate.
+- **[peerfs](https://github.com/peerspan/peerfs).** Each agent worked in a peerfs workspace.
+  Branches, and the notebook both agents read, moved between alice's and carol's machines with
+  `peerspan fs share` and `peerspan fs pull`.
+- **The [runtime](https://github.com/peerspan/runtime).** Every agent step ran in a microVM, and
+  so did every gate episode, without a network.
+
 What to know when reading it:
 
 - The agents are Claude Code, each run by the Peerspan runtime in a microVM with a peerfs
