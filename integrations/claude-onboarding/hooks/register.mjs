@@ -3464,7 +3464,10 @@ async function refreshGrant($, epoch) {
   } finally { mine.busy = false; }
   if (invitationGrant !== mine) return;
   mine.poll?.cancel();
-  mine.poll = GRANT_ENDED.includes(mine.view?.state) ? null : $.clock.after(5000, () => refreshGrant($, epoch));
+  // Section52: no automatic check once the flow has ended or while an
+  // action is due here.
+  mine.poll = GRANT_ENDED.includes(mine.view?.state) || mine.view?.state === 'waiting_for_owner'
+    ? null : $.clock.after(5000, () => refreshGrant($, epoch));
   $.ui.invalidate('ui.render');
 }
 async function grantAction($, epoch, which) {
@@ -3473,6 +3476,8 @@ async function grantAction($, epoch, which) {
   if (which === 'complete' && mine.view.state !== 'waiting_for_owner') return;
   if (which === 'cancel' && GRANT_ENDED.includes(mine.view.state)) return;
   mine.busy = true;
+  mine.poll?.cancel();
+  mine.poll = null;
   $.ui.invalidate('ui.render');
   try {
     const raw = await invitationRun($, ['grant', which, mine.id]);

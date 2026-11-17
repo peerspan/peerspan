@@ -11,6 +11,10 @@ use super::{actions, codec::*, controls, edits, provider::Resolved, renewal, sto
 use crate::{persons::PersonSigner, policy::PeerboxRule, store::Store};
 use serde_json::{Value, json};
 
+/// An adjustment of the next policy body's raw JSON, given the stored
+/// body's raw JSON (none for a first policy).
+pub(crate) type Adjust<'a> = &'a dyn Fn(&mut Value, Option<&Value>);
+
 /// What signing a peerbox rule change came to.
 pub(crate) enum Signing {
     /// A new policy version holds the change.
@@ -74,6 +78,7 @@ pub(crate) fn sign_peerbox_rules(
             network,
             How::Automatic,
             &|_| true,
+            None,
             |host, content| change(host, &mut content.peerbox_rules),
         )? {
             Core::Done(_) => Signing::Done,
@@ -102,6 +107,7 @@ pub(crate) fn sign_content(
     store: &Store,
     network: &str,
     explicit: bool,
+    adjust: Option<Adjust<'_>>,
     change: impl FnOnce(&str, &mut crate::policy::Content),
 ) -> Result<ContentSigning> {
     let how = if explicit {
@@ -109,12 +115,14 @@ pub(crate) fn sign_content(
     } else {
         How::Automatic
     };
-    Ok(match core(store, network, how, &|_| true, change)? {
-        Core::Done(v) => ContentSigning::Signed(v),
-        Core::Unchanged(v) => ContentSigning::Unchanged(v),
-        Core::Changed => ContentSigning::Unchanged(0),
-        Core::NeedsOwner => ContentSigning::NeedsOwner,
-    })
+    Ok(
+        match core(store, network, how, &|_| true, adjust, change)? {
+            Core::Done(v) => ContentSigning::Signed(v),
+            Core::Unchanged(v) => ContentSigning::Unchanged(v),
+            Core::Changed => ContentSigning::Unchanged(0),
+            Core::NeedsOwner => ContentSigning::NeedsOwner,
+        },
+    )
 }
 
 /// Whether the network's provider for the owner signs a policy version on
@@ -149,7 +157,7 @@ pub(crate) fn sign_proposal_share(
         ProposalSigner::Key(key) => How::Key(key),
     };
     Ok(
-        match core(store, network, how, reviewed, |host, content| {
+        match core(store, network, how, reviewed, None, |host, content| {
             change(host, &mut content.peerbox_rules)
         })? {
             Core::Done(v) => ProposalSigning::Signed(v),
@@ -227,6 +235,7 @@ fn core(
     network: &str,
     how: How<'_>,
     reviewed: &dyn Fn(&[PeerboxRule]) -> bool,
+    adjust: Option<Adjust<'_>>,
     change: impl FnOnce(&str, &mut crate::policy::Content),
 ) -> Result<Core> {
     let host = store.identity().id;
@@ -249,7 +258,13 @@ fn core(
             !rows.iter().any(|e| e.state == "unsettled"),
             "state_conflict",
         )?;
-        let current = renewal::head(&p, &person)?.map(edits::policy).transpose()?;
+        let head = renewal::head(&p, &person)?;
+        // The stored body's raw JSON, for an adjustment that keeps explicit
+        // optional fields the typed body drops.
+        let baseline = head
+            .map(|s| super::statement::access_body(&s.payload).map(Value::Object))
+            .transpose()?;
+        let current = head.map(edits::policy).transpose()?;
         let current_version = current.as_ref().map_or(0, |b| b.version);
         let mut body = current.unwrap_or_else(|| crate::policy::PolicyBody {
             format: Some(2),
@@ -289,7 +304,13 @@ fn core(
             .ok_or_else(|| Error::new("version_exhausted"))?;
         body.set_content(content);
         body.edits = Some(body.edits_with(&host, seq));
-        let payload = renewal::payload(&p, &provider, body)?;
+        let adjust = adjust.map(|f| move |raw: &mut Value| f(raw, baseline.as_ref()));
+        let payload = renewal::payload_adjusted(
+            &p,
+            &provider,
+            body,
+            adjust.as_ref().map(|f| f as &dyn Fn(&mut Value)),
+        )?;
         let version = payload
             .get("sequence")
             .and_then(Value::as_u64)

@@ -10864,6 +10864,9 @@ granting it is applied, the grant becomes `granted`, recording the policy
 version and the time; it is never signed twice. Before signing, the host rechecks
 that the agent, the person and their membership are unchanged; a difference
 stops the grant with a reason, and the owner uses section34's review instead.
+The grant names its agent by the reviewed agent ID and name: it is changed only
+when no agent with that ID and name is registered on this host. Attaching the
+project or conversation to another agent later does not change the grant.
 
 ### Lifetime and owner controls
 
@@ -10928,7 +10931,8 @@ A separate contract-only author adds:
   after the admission activation; automatic signing with a device provider and
   the waiting state with an SSH key; `complete` and `cancel`; each ending rule;
   each terminal record, and a repeated `complete` after `granted`;
-  an already-member admission binds nothing; a changed agent stops the grant;
+  an already-member admission binds nothing; re-attaching the project to
+  another agent does not stop the grant, which still grants its reviewed agent;
 - native cases for the setting, its words, the waiting views and **Grant access
   to MEMBER**;
 - `conformance/slim/peerbox_invites.py` stays passing if the pending-share code
