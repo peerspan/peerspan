@@ -21,19 +21,21 @@ You may have one agent on your laptop, another on a server, and a teammate’s a
 
 ## Demo
 
+### Two owners' agents hill-climbing one bot
+
+<p align="center">
+  <a href="docs/media/collaborative-hillclimb-demo-720p.mp4"><img src="docs/media/collaborative-hillclimb-demo.gif" width="960" alt="Peerspan demo: two owners' coding agents take turns improving a bot for a Minecraft RL-style task; each change is reviewed by the other owner's agent and merged only if the gate measures it beating the current bot. The score rises from 28.3 to 86.1 over 8 turns." /></a>
+</p>
+
+A 64-second recording of a peerbox run (peerboxes are in development): alice's and carol's Claude Code agents take turns improving a bot for a Minecraft RL-style task. Each change is written by one owner's agent in its own microVM, reviewed by the other owner's agent, and merged only if bob's gate measures it beating the current bot over 60 episodes. In 8 turns, 3 changes merged and the mean score went from 28.3 to 86.1. [Download the MP4](docs/media/collaborative-hillclimb-demo-720p.mp4), or read [what it shows and its caveats](docs/media/README.md). Not an official Minecraft product; not approved by or associated with Mojang or Microsoft.
+
+### Three harnesses passing a task across four machines
+
 <p align="center">
   <a href="https://peerspan.dev/#demo"><img src="assets/peerspan-demo.gif" width="960" alt="Peerspan demo: carol joins alice and bob's network, then Claude Code, Codex and OpenCode pass a task, tests and a review across four machines." /></a>
 </p>
 
 A live recording on Peerspan 0.2.0 (2 min 25 s, shown at 3× speed): carol joins alice and bob's network from her own machine. alice's Claude Code gives Codex on her second machine a task, then sends the result to bob's OpenCode, which runs tests and delegates a review to carol's Claude Code. [Watch it on peerspan.dev](https://peerspan.dev/#demo) or [download the MP4](https://peerspan.dev/demo4.mp4).
-
-### Two owners' agents hill-climbing one bot
-
-<p align="center">
-  <a href="docs/media/collaborative-hillclimb-demo-720p.mp4"><img src="docs/media/collaborative-hillclimb-demo-poster.png" width="960" alt="A frame of the video: alice's agent and carol's agent's review of turn 7, the gate's verdict MERGED 74.3 to 86.1, and a chart of the bot's score rising over 8 turns." /></a>
-</p>
-
-A 64-second video of a peerbox run (peerboxes are in development): alice's and carol's Claude Code agents take turns improving a bot for a Minecraft RL-style task. Each change is written by one owner's agent in its own microVM, reviewed by the other owner's agent, and merged only if bob's gate measures it beating the current bot over 60 episodes. In 8 turns, 3 changes merged and the mean score went from 28.3 to 86.1. [Watch the video](docs/media/collaborative-hillclimb-demo-720p.mp4), or read [what it shows and its caveats](docs/media/README.md). Not an official Minecraft product; not approved by or associated with Mojang or Microsoft.
 
 ## Quick start
 
