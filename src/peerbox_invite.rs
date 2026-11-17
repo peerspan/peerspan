@@ -198,7 +198,7 @@ pub(crate) fn came_through(
 /// that person as a new person (Invitations for new participants 3, 4): a
 /// request that folded into an existing person needs no administrator and
 /// never counts, and a person merely present proves nothing.
-fn admitted(store: &Store, conn: &Connection, network: &str, came: &Came) -> bool {
+pub(crate) fn admitted(store: &Store, conn: &Connection, network: &str, came: &Came) -> bool {
     // This host records each activation it verified; only such a request
     // is read from the projection.
     let recorded: bool = conn

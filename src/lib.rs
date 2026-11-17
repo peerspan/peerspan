@@ -34,6 +34,7 @@ pub mod disco;
 pub mod gh;
 pub mod helper;
 pub mod http_client;
+pub mod invitation_grant;
 pub mod link_runtime;
 pub mod linking;
 pub mod live_delivery;

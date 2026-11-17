@@ -212,6 +212,17 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
             text(p, "expected_person_public_key")?,
         )
         .map_err(|_| Error::new("internal"))?;
+        // Likewise an invitation's pending agent-access grant (guided
+        // session contract section55).
+        crate::invitation_grant::came_through(
+            store,
+            &tx,
+            &invite.id,
+            &code.request_id,
+            text(p, "expected_network_id")?,
+            text(p, "expected_person_public_key")?,
+        )
+        .map_err(|_| Error::new("internal"))?;
     }
     match requests::load(&tx, &code.request_id) {
         Ok(_) => {

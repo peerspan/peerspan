@@ -56,6 +56,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::onboarding_incoming::local_routes())
         .merge(crate::onboarding_adapter::local_routes())
         .merge(crate::onboarding_invitation::local_routes())
+        .merge(crate::invitation_grant::local_routes())
         .merge(crate::onboarding_join::local_routes())
         .merge(crate::directory::local_routes())
         .merge(crate::agent_lookup::local_routes())

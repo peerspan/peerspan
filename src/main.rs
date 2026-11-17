@@ -1416,6 +1416,8 @@ async fn run_daemon(
     let peerbox_tasks = peerspan_host::peerbox_task::worker(store.clone(), peer_shutdown.clone());
     let peerbox_invites =
         peerspan_host::peerbox_invite::worker(store.clone(), peer_shutdown.clone());
+    let invitation_grants =
+        peerspan_host::invitation_grant::worker(store.clone(), peer_shutdown.clone());
     let peerbox_proposals =
         peerspan_host::peerbox_proposals::worker(store.clone(), peer_shutdown.clone());
     let peerbox_gates =
@@ -1466,6 +1468,10 @@ async fn run_daemon(
         },
         async {
             peerbox_invites.await;
+            Ok(())
+        },
+        async {
+            invitation_grants.await;
             Ok(())
         },
         async {

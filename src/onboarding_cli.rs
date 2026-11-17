@@ -343,6 +343,22 @@ pub enum InvitationCommand {
         #[arg(long, required = true)]
         stdin: bool,
     },
+    /// Pending agent-access grants recorded with invitations (section55)
+    Grant {
+        #[command(subcommand)]
+        command: GrantCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum GrantCommand {
+    /// List grants with their states
+    List,
+    /// Inspect one grant by invitation ID
+    Inspect { invitation_id: String },
+    /// Sign and apply a grant waiting for the owner, through the ssh-agent or key file
+    Complete { invitation_id: String },
+    /// Cancel a grant that has not ended; the invitation itself stays usable
+    Cancel { invitation_id: String },
 }
 #[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
@@ -778,6 +794,30 @@ async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Resul
     if let InvitationCommand::Inspect { flow_id } = command {
         return local.get(format!("{base}/{}", encoded(flow_id))).await;
     }
+    if let InvitationCommand::Grant { command } = command {
+        let grants = "/v1/onboarding/invitation-grants";
+        return match command {
+            GrantCommand::List => local.get(grants.into()).await,
+            GrantCommand::Inspect { invitation_id } => {
+                local
+                    .get(format!("{grants}/{}", encoded(invitation_id)))
+                    .await
+            }
+            GrantCommand::Complete { invitation_id } => {
+                local
+                    .post(
+                        format!("{grants}/{}/complete", encoded(invitation_id)),
+                        serde_json::json!({}),
+                    )
+                    .await
+            }
+            GrantCommand::Cancel { invitation_id } => {
+                local
+                    .delete(format!("{grants}/{}", encoded(invitation_id)))
+                    .await
+            }
+        };
+    }
     let mut value = invitation_input(command)?;
     let invalid = |_| anyhow::anyhow!("invalid invitation review input");
     match command {
@@ -819,7 +859,7 @@ async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Resul
                 .post(format!("{base}/{}/{operation}", encoded(&id)), value)
                 .await
         }
-        InvitationCommand::Inspect { .. } => unreachable!(),
+        InvitationCommand::Inspect { .. } | InvitationCommand::Grant { .. } => unreachable!(),
     }
 }
 
@@ -838,15 +878,27 @@ fn invitation_input(command: &InvitationCommand) -> Result<Value> {
             // This preliminary value chooses only the optional field set. The
             // original bytes still cross the strict duplicate-key decoder.
             let shape: Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-            if shape.get("replace_flow_id").is_some() {
-                "context network_id member expected_person_public_key replace_flow_id"
-            } else {
-                "context network_id member expected_person_public_key"
+            match (
+                shape.get("replace_flow_id").is_some(),
+                shape.get("agent_access").is_some(),
+            ) {
+                (true, true) => {
+                    "context network_id member expected_person_public_key replace_flow_id agent_access"
+                }
+                (true, false) => {
+                    "context network_id member expected_person_public_key replace_flow_id"
+                }
+                (false, true) => {
+                    "context network_id member expected_person_public_key agent_access"
+                }
+                (false, false) => "context network_id member expected_person_public_key",
             }
         }
         InvitationCommand::Decide { .. } => "flow_id context review_id decision",
         InvitationCommand::Handoff { .. } => "flow_id context review_id",
-        InvitationCommand::Inspect { .. } => return Err(invalid()),
+        InvitationCommand::Inspect { .. } | InvitationCommand::Grant { .. } => {
+            return Err(invalid());
+        }
     };
     peerspan_host::linking::decode_mutation(&bytes, fields).map_err(|_| invalid())
 }
