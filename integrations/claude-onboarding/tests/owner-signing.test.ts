@@ -233,7 +233,7 @@ function fixture(on: On) {
       expectedProjectFlow: w.parent?.flow_id, expectedAdapterFlow: w.child?.flow_id,
       expectedFlow: w.joining?.flow_id, expectedJoinReview: w.joining?.review_id,
       expectedOwnerReview: w.ownerValue?.review_id }); w.trace.push({ kind, payload: sent })
-    const value = await w.run(kind, payload, e)
+    const value = await tracked(w, () => w.run(kind, payload, e))
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureExit) return { value: { exitCode: 124, stdout: '', stderr: RAW } }
     if (value?.fixtureRaw) return { value: { exitCode: 0, stdout: value.fixtureRaw, stderr: RAW } }
@@ -1133,17 +1133,44 @@ test('signing and ordinary navigation preserve established delivery task lease a
 
 // Section 53 (P1): the merged Join review. Automatic work follows section 52's
 // schedule, so wait until host operations and the drawing are stable.
-async function finished(w: World, ui: Pane) {
-  let last = '', same = 0
-  for (let turn = 0; turn < 1000 && same < 12; turn++) {
-    await w.clock.settle()
-    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
-    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
-    same = now === last ? same + 1 : 0; last = now
+async function finished(w: World, ui: Pane, from?: number) {
+  // Done means no host operation in flight, then operations and drawing
+  // unchanged for 120 ms of real time and 15 turns. After a clock step (from)
+  // in which nothing at all started, a short quiet period suffices.
+  const end = performance.now() + 20_000, began = performance.now()
+  let last = w.calls.length + '\n' + (await drawing(ui)), since = performance.now(), turns = 0, active = from === undefined || w.calls.length !== from
+  while (performance.now() < end) {
+    await w.clock.settle(); await realTurn()
+    const now = w.calls.length + '\n' + (await drawing(ui))
+    if (now !== last || (pendingOps.get(w) ?? 0) > 0) { active = true; last = now; since = performance.now(); turns = 0; continue }
+    turns++
+    if (active ? turns >= 15 && performance.now() - since >= 120 : turns >= 10 && performance.now() - began >= 20) return
   }
 }
+// Advance in at most 5 s periods, letting each due automatic check finish.
 async function pass(w: World, ui: Pane, ms: number) {
-  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+  for (let left = ms; left > 0; left -= 5000) {
+    const from = w.calls.length; await w.clock.advance(Math.min(5000, left)); await finished(w, ui, from)
+  }
+}
+// Host operations still running in the fixture, per world.
+const pendingOps = new WeakMap<object, number>()
+async function tracked<T>(w: object, work: () => Promise<T>): Promise<T> {
+  pendingOps.set(w, (pendingOps.get(w) ?? 0) + 1)
+  try { return await work() } finally { pendingOps.set(w, (pendingOps.get(w) ?? 1) - 1) }
+}
+const realTurn = () => new Promise<void>(resolve => setTimeout(resolve, 2))
+async function drawing(ui: Pane) { return (await ui.findAll({})).map(e => e.text).join('\n') }
+// Waits, bounded in real time, for the condition an assertion needs; then the
+// caller asserts the exact value. With strict, an unmet condition fails here.
+async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>, label = 'awaited condition', ms = 15_000, strict = true) {
+  const end = performance.now() + ms
+  for (;;) {
+    await w.clock.settle()
+    if (await ready()) return
+    if (performance.now() > end) { if (strict) expect(await ready(), 'timed out waiting: ' + label).toBe(true); return }
+    await realTurn()
+  }
 }
 const JOIN_STEPS = ['join.decide', 'join.owner.prepare', 'join.owner.approve', 'join.owner.sign']
 const joinSteps = (w: World, from = 0) => w.calls.slice(from).filter(e => JOIN_STEPS.includes(e.kind)).map(e => e.kind)
@@ -1169,7 +1196,7 @@ function codeGone(w: World, shown: string, from = 0) {
   }
 }
 
-test('merged Join shows the join review and every owner term known before publication', async ($, on) => {
+test('merged Join shows the join review and every owner term known before publication', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await joinReview($, w)
   expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', text: /^Approve join request$/ })).toBeUndefined()
@@ -1184,7 +1211,7 @@ test('merged Join shows the join review and every owner term known before public
   expect(joinSteps(w)).toEqual([]); codeGone(w, shown)
 })
 
-test('one Join press runs publication owner prepare owner approve and signing once each in order', async ($, on) => {
+test('one Join press runs publication owner prepare owner approve and signing once each in order', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await joinReview($, w), captured = clone(w.joining), at = w.calls.length
   await press(ui, 'Join'); await finished(w, ui)
   expect(joinSteps(w, at)).toEqual(JOIN_STEPS)
@@ -1202,7 +1229,7 @@ test('one Join press runs publication owner prepare owner approve and signing on
   codeGone(w, await visible(ui), at)
 })
 
-test('a difference in any checked owner term stops after publication without approval and offers Review owner powers', async ($, on) => {
+test('a difference in any checked owner term stops after publication without approval and offers Review owner powers', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['kind', v => { v.owner.review.kind = 'approve_existing_owner' }],
@@ -1240,7 +1267,7 @@ test('a difference in any checked owner term stops after publication without app
   expect(offered, 'differences shown without Review owner powers').toEqual([])
 })
 
-test('unknown publication approval or signing outcomes stop at that step offer its control and never repeat', async ($, on) => {
+test('unknown publication approval or signing outcomes stop at that step offer its control and never repeat', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w), normal = w.run
   for (const step of ['join.decide', 'join.owner.approve', 'join.owner.sign']) {
     w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); return kind === step ? { fixtureDeny: true } : value }
@@ -1271,7 +1298,7 @@ test('unknown publication approval or signing outcomes stop at that step offer i
   expect(count(w, 'join.decide')).toBe(3); expect(signCalls(w)).toHaveLength(1)
 })
 
-test('the invitation code is dropped after the Join decision and reopening resumes from lookups', async ($, on) => {
+test('the invitation code is dropped after the Join decision and reopening resumes from lookups', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await joinReview($, w), at = w.calls.length
   expect((await ui.findAll({ type: 'Input' })).map(input => input.props.value ?? '').join('')).not.toContain(CODE)
   await press(ui, 'Join'); await finished(w, ui)
@@ -1287,7 +1314,7 @@ test('the invitation code is dropped after the Join decision and reopening resum
   codeGone(w, await visible(ui), at)
 })
 
-test('show_each_step restores separate join publication and owner controls without merged work', eachStep, async ($, on) => {
+test('show_each_step restores separate join publication and owner controls without merged work', { ...eachStep, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await joinReview($, w)
   expect(await ui.find({ type: 'Button', text: /^Approve join request$/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', text: /^Join$/ })).toBeUndefined()

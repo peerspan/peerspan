@@ -242,7 +242,7 @@ function fixture(on: On) {
       expectedProjectFlow: w.parent?.flow_id, expectedAdapterFlow: w.child?.flow_id,
       expectedFlow: w.joining?.flow_id, expectedJoinReview: w.joining?.review_id,
       expectedOwnerReview: w.ownerValue?.review_id, expectedCommitReview: w.commitValue?.review_id }); w.trace.push({ kind, payload: sent })
-    const value = await w.run(kind, payload, e)
+    const value = await tracked(w, () => w.run(kind, payload, e))
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureExit) return { value: { exitCode: 124, stdout: '', stderr: RAW } }
     if (value?.fixtureRaw) return { value: { exitCode: 0, stdout: value.fixtureRaw, stderr: RAW } }
@@ -1068,21 +1068,47 @@ test('finalization navigation and Check preserve established message task lease 
 // Section 52: an automatic check cannot be awaited like a press. Wait until the
 // recorded host operations and the drawing stay unchanged over several settles
 // and real asynchronous turns, so nothing is sampled while a check is in flight.
-async function finished(w: World, ui: Pane) {
-  let last = '', same = 0
-  for (let turn = 0; turn < 1000 && same < 12; turn++) {
-    await w.clock.settle()
-    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
-    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
-    same = now === last ? same + 1 : 0; last = now
+async function finished(w: World, ui: Pane, from?: number) {
+  // Done means no host operation in flight, then operations and drawing
+  // unchanged for 120 ms of real time and 15 turns. After a clock step (from)
+  // in which nothing at all started, a short quiet period suffices.
+  const end = performance.now() + 20_000, began = performance.now()
+  let last = w.calls.length + '\n' + (await drawing(ui)), since = performance.now(), turns = 0, active = from === undefined || w.calls.length !== from
+  while (performance.now() < end) {
+    await w.clock.settle(); await realTurn()
+    const now = w.calls.length + '\n' + (await drawing(ui))
+    if (now !== last || (pendingOps.get(w) ?? 0) > 0) { active = true; last = now; since = performance.now(); turns = 0; continue }
+    turns++
+    if (active ? turns >= 15 && performance.now() - since >= 120 : turns >= 10 && performance.now() - began >= 20) return
   }
 }
 // Advance in at most 5 s periods, letting each due automatic check finish.
 async function pass(w: World, ui: Pane, ms: number) {
-  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+  for (let left = ms; left > 0; left -= 5000) {
+    const from = w.calls.length; await w.clock.advance(Math.min(5000, left)); await finished(w, ui, from)
+  }
+}
+// Host operations still running in the fixture, per world.
+const pendingOps = new WeakMap<object, number>()
+async function tracked<T>(w: object, work: () => Promise<T>): Promise<T> {
+  pendingOps.set(w, (pendingOps.get(w) ?? 0) + 1)
+  try { return await work() } finally { pendingOps.set(w, (pendingOps.get(w) ?? 1) - 1) }
+}
+const realTurn = () => new Promise<void>(resolve => setTimeout(resolve, 2))
+async function drawing(ui: Pane) { return (await ui.findAll({})).map(e => e.text).join('\n') }
+// Waits, bounded in real time, for the condition an assertion needs; then the
+// caller asserts the exact value. With strict, an unmet condition fails here.
+async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>, label = 'awaited condition', ms = 15_000, strict = true) {
+  const end = performance.now() + ms
+  for (;;) {
+    await w.clock.settle()
+    if (await ready()) return
+    if (performance.now() > end) { if (strict) expect(await ready(), 'timed out waiting: ' + label).toBe(true); return }
+    await realTurn()
+  }
 }
 // Section52: when finalization is due here, automatic progress neither checks nor opens, inspects or signs it.
-test('automatic progress offers due original finalization without opening inspecting or signing it', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('automatic progress offers due original finalization without opening inspecting or signing it', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w)
   expect(await ui.find({ type: 'Button', text: /^Review original finalization$/ })).toBeDefined()
   let at = w.calls.length; await pass(w, ui, 30000)
@@ -1114,7 +1140,7 @@ async function againWaiting(w: World, ui: Pane) {
 }
 const normalRun = new WeakMap<World, World['run']>()
 
-test('due original finalization is inspected then signed without a press when every term matches', async ($, on) => {
+test('due original finalization is inspected then signed without a press when every term matches', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalWaiting($, w), at = w.trace.length
   await pass(w, ui, 15_000); expect(finalCalls(w)).toHaveLength(0)
   await becomeDue(w, ui)
@@ -1146,7 +1172,7 @@ test('due original finalization is inspected then signed without a press when ev
   finalPrivacy(w, await visible(ui), false, 'peerspan', undefined, true)
 })
 
-test('an inspection refusal falls back to Review original finalization without signing', async ($, on) => {
+test('an inspection refusal falls back to Review original finalization without signing', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
   w.run = async (kind, payload, e) => kind === FINAL_INSPECT ? { fixtureExit: true } : normal(kind, payload, e)
   await becomeDue(w, ui); await pass(w, ui, 30_000)
@@ -1161,7 +1187,7 @@ test('an inspection refusal falls back to Review original finalization without s
   expect(offered, 'inspection refusal offers Review original finalization').toBe(true)
 })
 
-test('a differing finalization term falls back to Review original finalization without signing', async ($, on) => {
+test('a differing finalization term falls back to Review original finalization without signing', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
   normalRun.set(w, normal)
   const variants: [string, (r: any) => void][] = [
@@ -1189,7 +1215,7 @@ test('a differing finalization term falls back to Review original finalization w
   expect(missing, 'differences shown without Review original finalization').toEqual([])
 })
 
-test('an unknown automatic finalization outcome is not repeated and recovery stays explicit', async ($, on) => {
+test('an unknown automatic finalization outcome is not repeated and recovery stays explicit', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
   normalRun.set(w, normal)
   for (const mode of ['deny', 'timeout', 'raw']) {
@@ -1210,7 +1236,7 @@ test('an unknown automatic finalization outcome is not repeated and recovery sta
   w.run = normal; finalPrivacy(w, await visible(ui))
 })
 
-test('possibly partial B/D after a lost automatic signature falls back to an explicit review and press', async ($, on) => {
+test('possibly partial B/D after a lost automatic signature falls back to an explicit review and press', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await finalWaiting($, w), normal = w.run
   w.run = async (kind, payload, e) => kind === FINAL_SIGN ? { fixtureExit: true } : normal(kind, payload, e)
   await becomeDue(w, ui); expect(finalCalls(w, 'sign')).toHaveLength(1); await noFinalRecord(ui)

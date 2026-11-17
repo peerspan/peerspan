@@ -256,7 +256,7 @@ function fixture(on: On) {
       expectedParent: w.parent?.flow_id, expectedAdapter: w.child?.flow_id,
       expectedRequest: sent?.request_id, expectedReview: w.admissions[sent?.request_id]?.review_id })
     w.trace.push({ kind, payload: sent })
-    const value = await w.run(kind, payload, e)
+    const value = await tracked(w, () => w.run(kind, payload, e))
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureExit) return { value: { exitCode: 124, stdout: '', stderr: RAW } }
     if (value?.fixtureRaw) return { value: { exitCode: 0, stdout: value.fixtureRaw, stderr: RAW } }
@@ -797,23 +797,49 @@ test('administrator navigation preserves established adapter messages and tasks 
 // Section 52: an automatic check cannot be awaited like a press. Wait until the
 // recorded host operations and the drawing stay unchanged over several settles
 // and real asynchronous turns, so nothing is sampled while a check is in flight.
-async function finished(w: World, ui: Pane) {
-  let last = '', same = 0
-  for (let turn = 0; turn < 1000 && same < 12; turn++) {
-    await w.clock.settle()
-    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
-    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
-    same = now === last ? same + 1 : 0; last = now
+async function finished(w: World, ui: Pane, from?: number) {
+  // Done means no host operation in flight, then operations and drawing
+  // unchanged for 120 ms of real time and 15 turns. After a clock step (from)
+  // in which nothing at all started, a short quiet period suffices.
+  const end = performance.now() + 20_000, began = performance.now()
+  let last = w.calls.length + '\n' + (await drawing(ui)), since = performance.now(), turns = 0, active = from === undefined || w.calls.length !== from
+  while (performance.now() < end) {
+    await w.clock.settle(); await realTurn()
+    const now = w.calls.length + '\n' + (await drawing(ui))
+    if (now !== last || (pendingOps.get(w) ?? 0) > 0) { active = true; last = now; since = performance.now(); turns = 0; continue }
+    turns++
+    if (active ? turns >= 15 && performance.now() - since >= 120 : turns >= 10 && performance.now() - began >= 20) return
   }
 }
 // Advance in at most 5 s periods, letting each due automatic check finish.
 async function pass(w: World, ui: Pane, ms: number) {
-  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+  for (let left = ms; left > 0; left -= 5000) {
+    const from = w.calls.length; await w.clock.advance(Math.min(5000, left)); await finished(w, ui, from)
+  }
+}
+// Host operations still running in the fixture, per world.
+const pendingOps = new WeakMap<object, number>()
+async function tracked<T>(w: object, work: () => Promise<T>): Promise<T> {
+  pendingOps.set(w, (pendingOps.get(w) ?? 0) + 1)
+  try { return await work() } finally { pendingOps.set(w, (pendingOps.get(w) ?? 1) - 1) }
+}
+const realTurn = () => new Promise<void>(resolve => setTimeout(resolve, 2))
+async function drawing(ui: Pane) { return (await ui.findAll({})).map(e => e.text).join('\n') }
+// Waits, bounded in real time, for the condition an assertion needs; then the
+// caller asserts the exact value. With strict, an unmet condition fails here.
+async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>, label = 'awaited condition', ms = 15_000, strict = true) {
+  const end = performance.now() + ms
+  for (;;) {
+    await w.clock.settle()
+    if (await ready()) return
+    if (performance.now() > end) { if (strict) expect(await ready(), 'timed out waiting: ' + label).toBe(true); return }
+    await realTurn()
+  }
 }
 // Section 52 automatic progress in the selected incoming-connections view.
 const automatic = (w: World, from: number) => calls(w).slice(from).map(call => call.kind)
 
-test('automatic progress fetches incoming proofs while owner or selection is missing and then only looks up', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('automatic progress fetches incoming proofs while owner or selection is missing and then only looks up', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requests = [request(1, 'pending')]; w.progressState = 'pending'
   const ui = await selected($, w); let at = calls(w).length
   await pass(w, ui, 4900); expect(calls(w).length).toBe(at)
@@ -841,7 +867,7 @@ test('automatic progress fetches incoming proofs while owner or selection is mis
   await noApprove(ui); safe(w, await text(ui))
 })
 
-test('automatic progress continues after an unavailable incoming fetch', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('automatic progress continues after an unavailable incoming fetch', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), normal = w.run; w.requests = [request(1, 'pending')]; w.progressState = 'pending'
   let unavailable = true
   const ui = await selected($, w)
@@ -856,7 +882,7 @@ test('automatic progress continues after an unavailable incoming fetch', { optio
   safe(w, await text(ui))
 })
 
-test('automatic incoming check stops when a retained consent review is due here and never approves', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('automatic incoming check stops when a retained consent review is due here and never approves', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on)
   const ui = await selected($, w, { state: 'review' }), at = calls(w).length
   expect(await ui.find({ type: 'Button', text: /^Approve administrator consent$/ })).toBeDefined()
@@ -867,7 +893,7 @@ test('automatic incoming check stops when a retained consent review is due here 
   safe(w, await text(ui))
 })
 
-test('automatic incoming checks stop on Leave Back Close Refresh and a project or conversation change', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('automatic incoming checks stop on Leave Back Close Refresh and a project or conversation change', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on)
   for (const mode of ['Leave', 'Back', 'Close', 'Refresh', 'root', 'native']) {
     w.root = ROOT; w.native = NATIVE
@@ -906,7 +932,7 @@ async function admitDue($: Engine, w: World) {
   return ui
 }
 
-test('a sole incoming request opens directly while several keep the explicit list', async ($, on) => {
+test('a sole incoming request opens directly while several keep the explicit list', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requests = [request(1, 'pending')]; w.progressState = 'pending'
   let ui = await soleOpened($, w)
   expect(await choices(w, ui)).toHaveLength(0)
@@ -922,7 +948,7 @@ test('a sole incoming request opens directly while several keep the explicit lis
   safe(w, await text(ui))
 })
 
-test('a due administrator review is inspected and prepared once without a press and never approved without one', async ($, on) => {
+test('a due administrator review is inspected and prepared once without a press and never approved without one', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await admitDue($, w)
   expect(calls(w, 'inspect')).toHaveLength(1); expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
   const trace = calls(w).map(call => call.kind)
@@ -940,7 +966,7 @@ test('a due administrator review is inspected and prepared once without a press 
   safe(w, await text(reopened))
 })
 
-test('an already due sole request is prepared once on opening and one Admit press approves it', async ($, on) => {
+test('an already due sole request is prepared once on opening and one Admit press approves it', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requests = [request()]; w.progressState = 'needs_administrator'
   const ui = await soleOpened($, w); await pass(w, ui, 10_000)
   expect(calls(w, 'prepare')).toHaveLength(1); expect(calls(w, 'approve')).toHaveLength(0)
@@ -956,7 +982,7 @@ test('an already due sole request is prepared once on opening and one Admit pres
   safe(w, await text(ui))
 })
 
-test('show_each_step keeps the incoming list explicit review and separate approval', { options: { show_each_step: 'true' } }, async ($, on) => {
+test('show_each_step keeps the incoming list explicit review and separate approval', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requests = [request()]; w.progressState = 'needs_administrator'
   const ui = await setup($, w); await begin(w, ui)
   expect(await choices(w, ui)).toHaveLength(1); expect(calls(w)).toHaveLength(0)
