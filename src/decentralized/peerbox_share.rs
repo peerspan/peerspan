@@ -69,12 +69,52 @@ pub(crate) fn sign_peerbox_rules(
     change: impl FnOnce(&str, &mut Vec<PeerboxRule>),
 ) -> Result<Signing> {
     Ok(
-        match core(store, network, How::Automatic, &|_| true, change)? {
+        match core(
+            store,
+            network,
+            How::Automatic,
+            &|_| true,
+            |host, content| change(host, &mut content.peerbox_rules),
+        )? {
             Core::Done(_) => Signing::Done,
             Core::Unchanged(_) | Core::Changed => Signing::Unchanged,
             Core::NeedsOwner => Signing::NeedsOwner,
         },
     )
+}
+
+/// What signing an agent-access change of an invitation grant came to
+/// (guided session contract section55).
+pub(crate) enum ContentSigning {
+    /// The policy version signed.
+    Signed(u64),
+    /// The current version already holds it.
+    Unchanged(u64),
+    /// The provider needs the owner's interaction.
+    NeedsOwner,
+}
+
+/// Signs the next policy version of this host's owner in `network` with
+/// `change` applied to its content: automatically (a provider this host
+/// holds the seed of) or, when `explicit`, also through the daemon's
+/// ssh-agent or owner key file, as an owner's explicit press may.
+pub(crate) fn sign_content(
+    store: &Store,
+    network: &str,
+    explicit: bool,
+    change: impl FnOnce(&str, &mut crate::policy::Content),
+) -> Result<ContentSigning> {
+    let how = if explicit {
+        How::Provider
+    } else {
+        How::Automatic
+    };
+    Ok(match core(store, network, how, &|_| true, change)? {
+        Core::Done(v) => ContentSigning::Signed(v),
+        Core::Unchanged(v) => ContentSigning::Unchanged(v),
+        Core::Changed => ContentSigning::Unchanged(0),
+        Core::NeedsOwner => ContentSigning::NeedsOwner,
+    })
 }
 
 /// Whether the network's provider for the owner signs a policy version on
@@ -108,12 +148,16 @@ pub(crate) fn sign_proposal_share(
         ProposalSigner::Provider => How::Provider,
         ProposalSigner::Key(key) => How::Key(key),
     };
-    Ok(match core(store, network, how, reviewed, change)? {
-        Core::Done(v) => ProposalSigning::Signed(v),
-        Core::Unchanged(v) => ProposalSigning::Unchanged(v),
-        Core::NeedsOwner => ProposalSigning::NeedsOwner,
-        Core::Changed => ProposalSigning::Changed,
-    })
+    Ok(
+        match core(store, network, how, reviewed, |host, content| {
+            change(host, &mut content.peerbox_rules)
+        })? {
+            Core::Done(v) => ProposalSigning::Signed(v),
+            Core::Unchanged(v) => ProposalSigning::Unchanged(v),
+            Core::NeedsOwner => ProposalSigning::NeedsOwner,
+            Core::Changed => ProposalSigning::Changed,
+        },
+    )
 }
 
 /// The provider `how` signs with, or None when it needs the owner.
@@ -183,7 +227,7 @@ fn core(
     network: &str,
     how: How<'_>,
     reviewed: &dyn Fn(&[PeerboxRule]) -> bool,
-    change: impl FnOnce(&str, &mut Vec<PeerboxRule>),
+    change: impl FnOnce(&str, &mut crate::policy::Content),
 ) -> Result<Core> {
     let host = store.identity().id;
     let (request, provider, version) = {
@@ -226,9 +270,9 @@ fn core(
         if !reviewed(&content.peerbox_rules) {
             return Ok(Core::Changed);
         }
-        let before = content.peerbox_rules.clone();
-        change(&host, &mut content.peerbox_rules);
-        if content.peerbox_rules == before {
+        let before = content.clone();
+        change(&host, &mut content);
+        if content == before {
             return Ok(Core::Unchanged(current_version));
         }
         // This host's next local edit number (DEC-S16).

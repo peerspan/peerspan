@@ -358,6 +358,8 @@ impl Store {
         if version < 36 {
             tx.execute_batch(crate::build_cache::SCHEMA)?;
         }
+        // Section55 pending grants: additive, created at every start.
+        tx.execute_batch(crate::invitation_grant::SCHEMA)?;
         crate::peerfs::check_schema(&tx)?;
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;

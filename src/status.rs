@@ -416,6 +416,9 @@ impl Store {
         for (subject, detail, command) in crate::peerbox_invite::attention(connection)? {
             attention.push(item("peerbox_share_waiting", subject, detail, command));
         }
+        for (subject, detail, command) in crate::invitation_grant::attention(connection)? {
+            attention.push(item("agent_access_waiting", subject, detail, command));
+        }
         if let Some((subject, detail, command)) = self.approval_attention(connection)? {
             attention.push(item("call_approval_pending", subject, detail, command));
         }

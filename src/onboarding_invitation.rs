@@ -70,6 +70,10 @@ struct Proposal {
     network_id: String,
     member: String,
     expected_person_public_key: String,
+    /// Section55: also record a pending agent-access grant. Absent from
+    /// retained proposals that did not ask for one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    agent_access: bool,
 }
 /// Private read-only recipient inspection; no code is retained or returned.
 #[derive(Deserialize)]
@@ -87,6 +91,12 @@ pub struct Prepare {
     pub expected_person_public_key: String,
     #[serde(default, deserialize_with = "non_null_string")]
     pub replace_flow_id: Option<String>,
+    /// Section55: exactly `true` when present.
+    #[serde(default, deserialize_with = "non_null_bool")]
+    pub agent_access: Option<bool>,
+}
+fn non_null_bool<'de, D: Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(d).map(Some)
 }
 fn non_null_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     String::deserialize(d).map(Some)
@@ -380,7 +390,11 @@ impl Store {
             network_id: request.network_id,
             member: request.member.trim().into(),
             expected_person_public_key: request.expected_person_public_key,
+            agent_access: request.agent_access == Some(true),
         };
+        if request.agent_access == Some(false) {
+            return Err(invalid());
+        }
         validate_proposal(&p)?;
         if request
             .replace_flow_id
@@ -418,7 +432,7 @@ impl Store {
         let plan = runtime::invitation_plan(self, &tx, &p.network_id).map_err(product::model)?;
         let actual = time(&plan.time)?;
         let id = new_id("flow")?;
-        let review = json!({"version":1,"kind":"create_contact_invitation","flow_id":id,
+        let mut review = json!({"version":1,"kind":"create_contact_invitation","flow_id":id,
             "host_id":self.identity().id,"context":p.context,"agent":project["agent"],
             "network":plan.terms["network"],"inviter_host_public_key":plan.terms["inviter_host_public_key"],
             "member":p.member,"expected_person_public_key":p.expected_person_public_key,
@@ -427,6 +441,15 @@ impl Store {
             "effects":{"create_contact_invitation":true,"receive_join_requests":true,"grant_membership":false,
                 "grant_agent_access":false,"approve_machine":false,"share_files":false,"share_conversation":false,
                 "capability_calls":false}});
+        if p.agent_access {
+            // Section55: section31's profile for the invitation's own agent,
+            // granted only after the admission of the exact request.
+            review["agent_access"] = json!({"policy_scope":"owner_agent_name",
+                "agent_id":project["agent"]["id"],"agent_name":project["agent"]["name"],
+                "actions":["message.append","task.submit"],"max_message_bytes":65536,
+                "max_artifact_bytes":0,"allow_disconnected":false,"policy_hours":24});
+            review["effects"]["grant_agent_access_after_admission"] = json!(true);
+        }
         let review_id = digest(&review);
         tx.execute("INSERT INTO onboarding_invitation_flows (flow_id,project_flow_id,request,review,review_id,state,created_at,expires_at) VALUES(?1,?2,?3,?4,?5,'review',?6,?7)",
             params![id,p.context.project_flow_id,serde_json::to_string(&p)?,crate::canonical::value_text(&review),
@@ -479,7 +502,20 @@ impl Store {
                 field(&f.review, "invitation_expires_at")?,
             )
             .map_err(product::model)?;
-            Some(field(&result, "invitation_id")?.to_owned())
+            let invitation = field(&result, "invitation_id")?.to_owned();
+            if f.proposal.agent_access {
+                crate::invitation_grant::record(
+                    &tx,
+                    &invitation,
+                    id,
+                    &f.proposal.network_id,
+                    &f.proposal.member,
+                    &f.review["agent"],
+                    &f.proposal.expected_person_public_key,
+                    field(&f.review, "invitation_expires_at")?,
+                )?;
+            }
+            Some(invitation)
         } else {
             None
         };
