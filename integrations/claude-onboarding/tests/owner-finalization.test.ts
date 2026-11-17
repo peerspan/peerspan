@@ -113,7 +113,7 @@ function fixture(on: On) {
   const clock = mock.clock(on, { now: NOW })
   const w = { clock, started: false, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
     surfaces: ['terminal'], parent: null as any, child: null as any, sequence: 20,
-    ownerValue: null as any, finalizationValue: null as any, lastInspection: null as any, requestState: 'pending', requestCreated: NOW - 30_000, requestExpiry: NOW + 3_570_000, networks: [] as any[], invitation: null as any, previewValue: null as any, joining: null as any, identities: [{ public_key: KEY, sources: ["generated"] }] as any[], code: CODE, codes: [CODE, CODE2],
+    ownerValue: null as any, commitValue: null as any, finalizationValue: null as any, lastInspection: null as any, requestState: 'pending', requestCreated: NOW - 30_000, requestExpiry: NOW + 3_570_000, networks: [] as any[], invitation: null as any, previewValue: null as any, joining: null as any, identities: [{ public_key: KEY, sources: ["generated"] }] as any[], code: CODE, codes: [CODE, CODE2],
     calls: [] as any[], trace: [] as any[], httpCalls: [] as any[], outside: [] as string[], tools: [] as any[],
     forbidden: [] as string[], prompts: [] as any[], materials: [] as any[], inFlight: 0, maxInFlight: 0,
     messages: [] as any[], held: {} as Record<string, any>, seen: new Set<string>(), replies: {} as Record<string, any>,
@@ -121,6 +121,11 @@ function fixture(on: On) {
     fetch: async (_e: any): Promise<any> => undefined,
     submit: async (e: any): Promise<any> => ({ text: e.text, origin: e.origin }) }
   w.run = async (kind, payload) => {
+    // Section 53: the requester commit becomes due after F and is prepared without
+    // a press (section 27 lookup/prepare). Approve and complete need a press and
+    // are deliberately not answered here.
+    if (kind === COMMIT_LOOKUP) return commitResponse(w)
+    if (kind === COMMIT_PREPARE) { w.commitValue ??= await commitRecord(w); return commitResponse(w) }
     if (kind === 'join.owner.finalization.inspect') {
       const value = clone(w.finalizationValue ?? await finalizationInspection(w)); w.lastInspection = clone(value); return value
     }
@@ -228,7 +233,7 @@ function fixture(on: On) {
   on('tool.call', () => ({ deny: 'unregistered fixture tool' }))
   on('process.run', async ($, e) => {
     const tail = e.argv.slice(e.argv.indexOf('onboarding') + 1)
-    const kind = tail[0] === 'join' && tail[1] === 'owner' ? tail.slice(0, tail[2] === 'finalization' ? 4 : 3).join('.') : tail.length ? tail[0] + '.' + tail[1] : 'snapshot'
+    const kind = tail[0] === 'join' && (tail[1] === 'owner' || tail[1] === 'commit') ? tail.slice(0, tail[2] === 'finalization' ? 4 : 3).join('.') : tail.length ? tail[0] + '.' + tail[1] : 'snapshot'
     const payload = e.init?.stdin ? JSON.parse(e.init.stdin) : undefined
     // Capture the serialized request independently of synthetic response
     // mutations; a real process stdout cannot mutate its already-sent stdin.
@@ -236,7 +241,7 @@ function fixture(on: On) {
     w.calls.push({ ...e, kind, payload: sent, expectedContext: w.parent ? clone(context(w.parent)) : undefined,
       expectedProjectFlow: w.parent?.flow_id, expectedAdapterFlow: w.child?.flow_id,
       expectedFlow: w.joining?.flow_id, expectedJoinReview: w.joining?.review_id,
-      expectedOwnerReview: w.ownerValue?.review_id }); w.trace.push({ kind, payload: sent })
+      expectedOwnerReview: w.ownerValue?.review_id, expectedCommitReview: w.commitValue?.review_id }); w.trace.push({ kind, payload: sent })
     const value = await w.run(kind, payload, e)
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureExit) return { value: { exitCode: 124, stdout: '', stderr: RAW } }
@@ -505,7 +510,9 @@ async function leaveIfPresent(ui: Pane) {
 }
 async function requestView(w: World) {
   const request = (await progressResponse(w, w.requestState)).request
-  return { ...request, created_at: stamp(w.requestCreated), expires_at: stamp(w.requestExpiry) }
+  // Section 27: a fresh needs_commit request has no manifest yet.
+  return { ...request, created_at: stamp(w.requestCreated), expires_at: stamp(w.requestExpiry),
+    ...(w.requestState === 'needs_commit' ? { manifest_id: '-' } : {}) }
 }
 const FINAL_INSPECT = 'join.owner.finalization.inspect'
 const FINAL_SIGN = 'join.owner.finalization.sign'
@@ -538,6 +545,42 @@ async function finalizationSuccess(w: World, state = 'needs_commit') {
   return { ...await ownerResponse(w), original_finalization: { state: 'recorded', review_id: reviewed.review_id,
     packet_id: id64('dpk', 64) } }
 }
+const COMMIT_LOOKUP = 'join.commit.lookup'
+const COMMIT_PREPARE = 'join.commit.prepare'
+const commitEffects = { approve_commit_intent: true, authorize_binding_host_signature: true,
+  authorize_requester_commit_signatures: true, authorize_commit_publication: true, authorize_local_application: true,
+  grant_agent_access: false, share_files: false, share_conversation: false, capability_calls: false }
+const commitCalls = (w: World, op?: string) => w.calls.filter(e => op ? e.kind === 'join.commit.' + op : e.kind.startsWith('join.commit.'))
+// Section 27's LINK_VIEW for the requester commit, as requester-commit.test.ts models it.
+async function commitRequestView(w: World) {
+  const committed = ['finalizing', 'linked'].includes(w.requestState)
+  return { ...await requestView(w), manifest_id: committed ? id64('dm', 65) : '-', activation_id: committed ? id64('da', 66) : '-',
+    outcome_id: w.requestState === 'linked' ? id64('dpk', 67) : '-',
+    commit_approved: w.commitValue?.state === 'approved' || committed, attention: [], next: [] }
+}
+async function commitRecord(w: World) {
+  const request = await commitRequestView(w), original = w.ownerValue.review, created = NOW - 1000
+  const review = { version: 1, kind: 'approve_new_original_requester_commit', host_id: w.host, context: context(w.parent),
+    flow_id: w.joining.flow_id, join_review_id: w.joining.review_id, owner_review_id: w.ownerValue.review_id,
+    request_id: request.request_id, intent_id: id('dint', 80), network: clone(original.network), member: original.member,
+    person_public_key: original.person_public_key, host_public_key: original.host_public_key, device_public_key: original.device_public_key,
+    request_packet_id: request.request_packet_id, owner_offer_id: request.owner_offer_id, selection_id: request.selection_id,
+    administrator_offer_id: request.administrator_offer_id, owner_finalization_id: request.owner_finalization_id,
+    root_state_id: id64('ds', 101), person_lease_id: id64('ds', 102), host_lease_id: id64('ds', 103),
+    binding_lease_id: id64('ds', 104), device_lease_id: id64('ds', 105), scopes: 7, binding_scopes: 2,
+    not_after: original.not_after, provider: { kind: 'requester', host_public_key: original.host_public_key,
+      device_public_key: original.device_public_key, signature_format: 'ed25519' }, created_at: stamp(created),
+    expires_at: stamp(Math.min(created + 900_000, w.requestExpiry, Date.parse(original.not_after))), effects: clone(commitEffects) }
+  return { review_id: await digest('peerspan-requester-commit-review-v1', review), review, state: 'review', next_action: 'approve_requester_commit' }
+}
+async function commitResponse(w: World) {
+  const commit = clone(w.commitValue)
+  if (commit?.state === 'review' && Date.parse(commit.review.expires_at) <= w.clock.now()) {
+    commit.state = 'expired'; commit.next_action = 'inspect_join_progress'
+  }
+  return { version: 1, host_id: w.host, flow_id: w.joining.flow_id, join_review_id: w.joining.review_id,
+    context: context(w.parent), observed_at: stamp(Math.floor(w.clock.now() / 1000) * 1000), request: await commitRequestView(w), commit }
+}
 const finalCalls = (w: World, op?: 'inspect' | 'sign') => w.calls.filter(e => op ? e.kind === 'join.owner.finalization.' + op : e.kind.startsWith('join.owner.finalization.'))
 async function noFinalSign(ui: Pane, why = '') {
   expect(await ui.find({ type: 'Button', text: /^Sign original finalization$/ }), why).toBeUndefined()
@@ -563,13 +606,13 @@ async function finalReview(ui: Pane, w: World) {
 async function reopenFinal(ui: Pane, w: World) {
   await leaveFinal(ui); await leaveIfPresent(ui); await reviewOwner(ui); await finalReview(ui, w)
 }
-function finalPrivacy(w: World, shown = '', runtime = false, executable = 'peerspan', state?: string) {
+function finalPrivacy(w: World, shown = '', runtime = false, executable = 'peerspan', state?: string, merged = false) {
   expect(w.forbidden).toEqual([])
   for (const privateValue of [TOKEN, SOCKET, RAW, 'PRIVATE_PROVIDER_ERROR', '/private/provider-path', NATIVE,
     ...w.codes, w.parent?.flow_id, w.parent?.review_id, w.parent?.review.session_id,
     w.child?.flow_id, w.child?.review_id, w.child?.review.adapter_id,
     w.joining?.flow_id, w.joining?.review_id, w.ownerValue?.review_id, w.ownerValue?.review.intent_id,
-    w.lastInspection?.review_id].filter(Boolean)) {
+    w.lastInspection?.review_id, w.commitValue?.review_id, w.commitValue?.review.intent_id].filter(Boolean)) {
     expect(w.outside.join('\n')).not.toContain(privateValue); expect(shown).not.toContain(privateValue)
     for (const prompt of w.prompts) expect(prompt.text).not.toContain(privateValue)
   }
@@ -586,7 +629,11 @@ function finalPrivacy(w: World, shown = '', runtime = false, executable = 'peers
     for (const value of [ROOT, NATIVE, TOKEN, SOCKET, ...w.codes]) expect(e.argv).not.toContain(value)
     const args = inspection ? e.argv.slice(0, -1) : e.argv
     for (const value of [e.expectedFlow, e.expectedJoinReview, e.expectedOwnerReview].filter(Boolean)) expect(args).not.toContain(value)
-    expect(e.kind).not.toMatch(/identit|create-identity|resume|selection|admi|commit/)
+    // Only section 53's merged flow may follow F with the requester commit's lookup/prepare.
+    if (merged && [COMMIT_LOOKUP, COMMIT_PREPARE].includes(e.kind)) {
+      expect(e.payload).toEqual({ flow_id: e.expectedFlow, context: e.expectedContext, join_review_id: e.expectedJoinReview })
+      expect(JSON.parse(e.init.stdin)).toEqual(e.payload)
+    } else expect(e.kind).not.toMatch(/identit|create-identity|resume|selection|admi|commit/)
     expect(e.kind).not.toBe('join.owner.sign')
     if (e.kind.startsWith('join.owner.')) {
       const signing = e.kind === FINAL_SIGN, inspecting = e.kind === FINAL_INSPECT
@@ -1079,10 +1126,24 @@ test('due original finalization is inspected then signed without a press when ev
     finalization_review_id: w.lastInspection.review_id, decision: 'sign_original_finalization' })
   const trace = w.trace.slice(at).map(e => e.kind)
   expect(trace.indexOf(FINAL_INSPECT) < trace.indexOf(FINAL_SIGN)).toBe(true)
-  await recorded(ui, w)
+  // Section 53: with F recorded the requester commit is due, so the open pane
+  // prepares it once without a press and shows Commit; nothing is approved or completed.
+  expect(commitCalls(w, 'prepare')).toHaveLength(1)
+  expect(trace.lastIndexOf(FINAL_SIGN) < trace.indexOf(COMMIT_PREPARE)).toBe(true)
+  expect(commitCalls(w).every(e => [COMMIT_LOOKUP, COMMIT_PREPARE].includes(e.kind))).toBe(true)
+  // The view moves on to the section 29 review, which states the recorded F and its packet.
+  const shown = await visible(ui)
+  expect(shown).toMatch(/finali[sz]ation[^\n]{0,20}: recorded/i); expect(shown).toContain(id64('dpk', 64))
+  expect(shown).not.toMatch(/(?:this pane|this frontend|this conversation) (?:signed|created|recorded)/i)
+  await noFinalSign(ui); finalPrivacy(w, shown, false, 'peerspan', undefined, true)
+  expect(await ui.find({ type: 'Button', text: /^Commit$/ })).toBeDefined()
   await pass(w, ui, 30_000); expect(finalCalls(w, 'sign')).toHaveLength(1)
+  expect(commitCalls(w, 'prepare')).toHaveLength(1)
+  expect(commitCalls(w).every(e => [COMMIT_LOOKUP, COMMIT_PREPARE].includes(e.kind))).toBe(true)
+  expect(w.commitValue.state).toBe('review')
+  expect(await ui.find({ type: 'Button', text: /^Commit$/ })).toBeDefined()
   expect(ownerCalls(w, 'prepare')).toHaveLength(0); expect(ownerCalls(w, 'approve')).toHaveLength(0)
-  finalPrivacy(w, await visible(ui))
+  finalPrivacy(w, await visible(ui), false, 'peerspan', undefined, true)
 })
 
 test('an inspection refusal falls back to Review original finalization without signing', async ($, on) => {
