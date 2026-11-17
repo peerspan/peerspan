@@ -311,13 +311,17 @@ async function nextStep($, e, next) {
   if (!(e.open === undefined || typeof e.open === 'boolean')) {
     return { deny: 'peerspan_next_step takes only an optional boolean open.' };
   }
-  nextFlight ??= nextDue($).finally(() => { nextFlight = null; });
-  const due = await nextFlight;
+  // Single-flight: the whole call, including opening, is shared.
+  nextFlight ??= nextRun($, e.open === true).finally(() => { nextFlight = null; });
+  return nextFlight;
+}
+async function nextRun($, wantOpen) {
+  const due = await nextDue($);
   const [who, words] = NEXT[due];
   let pane = 'not_opened', open = paneOpen;
   try { open = (await $.ui.panes()).some(p => p?.id === 'peerspan'); } catch { /* keep the tracked state */ }
   const hint = NEXT_ENTRY[due] ? { due, words, entry: NEXT_ENTRY[due] } : null;
-  if (e.open === true) {
+  if (wantOpen) {
     const surfaces = await $.session.surfaces();
     const now = await $.clock.now();
     if (!surfaces.includes('terminal')) pane = 'not_opened';
@@ -905,7 +909,10 @@ async function pollMessages($, active, attempt) {
           deadline = $.clock.after(5000, () => reject(new Error('Unknown prompt outcome')));
         });
         deliveryPending++;
-        accepted = await Promise.race([$.prompt.submit({ text: messagePrompt(value) }), timeout]);
+        try { accepted = await Promise.race([$.prompt.submit({ text: messagePrompt(value) }), timeout]); }
+        catch (error) { if (error?.message !== 'Unknown prompt outcome') deliveryPending = Math.max(0, deliveryPending - 1); throw error; }
+        // A dropped submission starts no turn.
+        if (accepted?.drop) deliveryPending = Math.max(0, deliveryPending - 1);
       } finally { deadline?.cancel(); }
       if (!await messageCurrent($, active, attempt, true)) return;
       if (accepted?.drop || typeof accepted?.text !== 'string') throw new Error('Unavailable message submission');
@@ -1003,7 +1010,11 @@ async function submitTask($, active, attempt, text) {
       deadline = $.clock.after(5000, () => reject(new Error('Unknown task submission outcome')));
     });
     deliveryPending++;
-    const accepted = await Promise.race([$.prompt.submit({ text }), timeout]);
+    let accepted;
+    try { accepted = await Promise.race([$.prompt.submit({ text }), timeout]); }
+    catch (error) { if (error?.message !== 'Unknown task submission outcome') deliveryPending = Math.max(0, deliveryPending - 1); throw error; }
+    // A dropped submission starts no turn.
+    if (accepted?.drop) deliveryPending = Math.max(0, deliveryPending - 1);
     if (!await taskCurrent($, active, attempt)) return false;
     if (accepted?.drop || typeof accepted?.text !== 'string') throw new Error('Unavailable task submission');
     return true;
