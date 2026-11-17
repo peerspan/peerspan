@@ -10859,8 +10859,9 @@ kept alive by the host's usual renewal.
   grant complete INVITATION_ID`, which signs through the daemon's ssh-agent or
   owner key file as section32 does, and applies it as section33 does.
 
-A failed automatic signing is retried after 30 seconds. The grant is deleted
-once a signed policy granting it is applied. Before signing, the host rechecks
+A failed automatic signing is retried after 30 seconds. Once a signed policy
+granting it is applied, the grant becomes `granted`, recording the policy
+version and the time; it is never signed twice. Before signing, the host rechecks
 that the agent, the person and their membership are unchanged; a difference
 stops the grant with a reason, and the owner uses section34's review instead.
 
@@ -10871,15 +10872,24 @@ it, one hour after the last request when none is admitted, and at most 7 days
 after it was created, even while it waits. Ending grants nothing and leaves the
 invitation itself usable, since invitation codes cannot be revoked.
 
+Every outcome is kept as a terminal record, so a lookup after the pane was
+closed, or after a lost `complete` response, can tell them apart: `granted`
+(with the policy version and time), `cancelled`, `expired` (with which
+ending rule), and `stopped` (with the recheck reason). A terminal record is
+read-only and is removed 7 days after it ended.
+
 Owner administration routes under `/v1/onboarding/invitation-grants`, refused by
 peer, bootstrap and credential-scoped routers:
-- `GET /` lists pending grants: invitation ID, flow ID, member label, agent, state
-  (`waiting_for_request`, `waiting_for_admission`, `waiting_for_owner`,
-  `stopped`) with requests' person IDs and, once bound, the person ID;
+- `GET /` lists grants: invitation ID, flow ID, member label, agent, state
+  (`waiting_for_request`, `waiting_for_admission`, `waiting_for_owner`, or the
+  terminal `granted`, `cancelled`, `expired`, `stopped` with their details) with
+  requests' person IDs and, once bound, the person ID;
 - `GET /{invitation_id}` inspects one; reads are read-only;
 - `POST /{invitation_id}/complete` signs and applies a `waiting_for_owner` grant;
-  any other state returns 409 with the state;
-- `DELETE /{invitation_id}` cancels it.
+  on a `granted` grant it returns that record unchanged (200), without
+  signing; any other state returns 409 with the state;
+- `DELETE /{invitation_id}` cancels a grant that is not terminal; a terminal
+  grant is returned unchanged.
 
 The CLI is `peerspan onboarding invitation grant list|inspect|complete|cancel`.
 
@@ -10917,6 +10927,7 @@ A separate contract-only author adds:
   `agent_access`; identical retry and conflict; atomic recording; binding only
   after the admission activation; automatic signing with a device provider and
   the waiting state with an SSH key; `complete` and `cancel`; each ending rule;
+  each terminal record, and a repeated `complete` after `granted`;
   an already-member admission binds nothing; a changed agent stops the grant;
 - native cases for the setting, its words, the waiting views and **Grant access
   to MEMBER**;
