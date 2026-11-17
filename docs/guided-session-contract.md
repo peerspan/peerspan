@@ -1652,6 +1652,7 @@ replay of uncertain input. This is an implementation choice under GU-OWN1/2.
 
 ## 9. Exact contact-invitation review (GU-01e / GU-02f / GU-04a)
 
+Section55 adds an optional pending agent-access grant to this review.
 This owner-local slice prepares and decides an invitation for a teammate. It
 uses the existing coordinator-free `psi2-` introduction and automatic return
 path. It creates no network, person, agent, session, membership or access grant,
@@ -10791,6 +10792,136 @@ A separate contract-only author adds native cases for this section:
   earlier adapter, its end and `peerspan adapter revoke`. After revocation, the
   next press connects.
 - **`show_each_step=true`** restores the per-step controls.
+
+## 55. Agent access granted with the invite (P5)
+
+Owner decisions of 2026-11-16 ([onboarding simplification](onboarding-simplification-proposal.md#decisions),
+decision 4) and 2026-11-17 (decisions 16–19 there). The invitation review can
+also record a **pending grant**: when the person whose join request came through
+that invitation is admitted, the inviter's host adds them to the ordinary owner
+policy of the invitation's agent with section31's profile. This follows
+[peerbox pending shares](peerbox-contract.md) (Invitations for new participants,
+steps 4 and the paragraph after them) and reuses their binding, signing and
+lifetime rules. It grants nothing before admission, and nothing to anyone else.
+
+### The review
+
+Section9's prepare request takes an optional `agent_access`, exactly `true`
+when present. Without it, the request, review, effects and every response keep
+section9's exact shape. With it, the review gains `agent_access`, exactly:
+
+`{policy_scope:"owner_agent_name",agent_id,agent_name,actions:["message.append",
+"task.submit"],max_message_bytes:65536,max_artifact_bytes:0,
+allow_disconnected:false,policy_hours:24}`
+
+where the agent is the context's attached agent (section3), and `effects` gains
+`grant_agent_access_after_admission:true`; `grant_agent_access` stays `false`,
+since nothing is granted when the invitation is created. `agent_access` is part
+of the review and its digest, so an identical retry must repeat it, and a
+different value without replacement is `flow_conflict`.
+
+### Recording
+
+Approving such a review mints the invitation and inserts its pending grant in
+the same transaction. The grant is keyed by the invitation ID and holds the
+review's `agent_access` terms, the network, the member label, the creation time
+and the invitation's expiry. Declining, expiry or invalidation before approval
+records none. Startup keeps pending grants.
+
+### Binding to the admitted person
+
+As for a peerbox pending share:
+- a join request that arrives on that invitation's return path as a new person
+  is recorded on the grant with its request ID and person key (at most 16; a
+  person already in the network is not recorded);
+- the grant binds to a person only once this host has verified an activation
+  with the administrator's admission of one of those exact requests as a new
+  person with that key. The expected person key of section9, when pinned, must
+  also match.
+
+A request refused or abandoned, or an admitted person who was already a member,
+binds nothing.
+
+### Signing
+
+Once bound, the host prepares the next ordinary owner policy exactly as section31
+does for the bound person and the grant's agent (same-key merge: append the
+principal only if absent; otherwise append the profile rule; no other rule
+changes), ending at the minimum of now+24h and section31's other bounds, and
+kept alive by the host's usual renewal.
+- **Automatic:** when the network's provider for the owner signs without
+  interaction (a device provider whose seed this host holds, as for peerbox
+  pending shares, PBX-23), the host signs and applies it without a press.
+- **Waiting:** otherwise (an SSH person key, an `sshsig` provider, no seed on
+  this host) the grant waits for the owner and status shows
+  `agent_access_waiting` with the invitation ID. The owner finishes it with
+  one explicit press in the pane (below) or `peerspan onboarding invitation
+  grant complete INVITATION_ID`, which signs through the daemon's ssh-agent or
+  owner key file as section32 does, and applies it as section33 does.
+
+A failed automatic signing is retried after 30 seconds. The grant is deleted
+once a signed policy granting it is applied. Before signing, the host rechecks
+that the agent, the person and their membership are unchanged; a difference
+stops the grant with a reason, and the owner uses section34's review instead.
+
+### Lifetime and owner controls
+
+A pending grant ends with its invitation's expiry when no request came through
+it, one hour after the last request when none is admitted, and at most 7 days
+after it was created, even while it waits. Ending grants nothing and leaves the
+invitation itself usable, since invitation codes cannot be revoked.
+
+Owner administration routes under `/v1/onboarding/invitation-grants`, refused by
+peer, bootstrap and credential-scoped routers:
+- `GET /` lists pending grants: invitation ID, flow ID, member label, agent, state
+  (`waiting_for_request`, `waiting_for_admission`, `waiting_for_owner`,
+  `stopped`) with requests' person IDs and, once bound, the person ID;
+- `GET /{invitation_id}` inspects one; reads are read-only;
+- `POST /{invitation_id}/complete` signs and applies a `waiting_for_owner` grant;
+  any other state returns 409 with the state;
+- `DELETE /{invitation_id}` cancels it.
+
+The CLI is `peerspan onboarding invitation grant list|inspect|complete|cancel`.
+
+### The pane
+
+Unless `show_each_step` is set, the invitation review (section10) shows a
+setting, on by default: **Let MEMBER reach AGENT**, with the words "When MEMBER is
+admitted, they can send messages and tasks to AGENT on all your machines (up to
+64 KiB per message, no files), renewed daily until you remove it." Off, the
+prepare omits `agent_access`. Approving the invitation records the grant.
+
+The pane's invitation view then shows the grant's state from the read-only
+lookup, refreshed by section52's automatic progress: "Access for MEMBER: waiting
+for their request", "…waiting for admission", "…granted", or, when it waits for
+the owner, **Grant access to MEMBER** (one press: complete) and **Cancel access**.
+Section34's **Review agent access** stays for every other case and for later
+changes.
+
+### Changes to earlier sections
+
+- Section9: `agent_access` and `grant_agent_access_after_admission` are added
+  as above; without `agent_access` nothing changes.
+- Section30's requirement of a known person with a current lease, and the
+  rule that admission and access are separate decisions
+  ([guided session onboarding](guided-session-onboarding.md)), hold for this
+  grant through the invitation review: the inviter consents in that review, and
+  the grant waits for the inviter's own admission of the exact request.
+- `show_each_step` restores the invitation review without the setting.
+
+### Verification
+
+A separate contract-only author adds:
+- slim cases in `conformance/slim/invitation_onboarding.py` (or a new suite
+  within the budget): the exact review and effects with and without
+  `agent_access`; identical retry and conflict; atomic recording; binding only
+  after the admission activation; automatic signing with a device provider and
+  the waiting state with an SSH key; `complete` and `cancel`; each ending rule;
+  an already-member admission binds nothing; a changed agent stops the grant;
+- native cases for the setting, its words, the waiting views and **Grant access
+  to MEMBER**;
+- `conformance/slim/peerbox_invites.py` stays passing if the pending-share code
+  is shared.
 
 ## Implementation choices
 
