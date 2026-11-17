@@ -481,7 +481,7 @@ function safe(w: World, uiText = '', reveal = false, runtime = false, executable
   }
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   }
 }
 
@@ -722,7 +722,7 @@ function ownerPrivacy(w: World, shown = '', runtime = false, executable = 'peers
   }
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   }
 }
 function delaySignal(w: World, milliseconds: number) {

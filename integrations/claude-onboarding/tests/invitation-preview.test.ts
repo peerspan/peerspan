@@ -449,7 +449,7 @@ function safe(w: World, uiText = '', reveal = false, runtime = false, executable
   }
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   }
 }
 
@@ -801,7 +801,7 @@ test('recipient entry preview and navigation preserve established message task a
   expect(requests(w, '/adapter/v1/tasks/next').length > tasks).toBe(true)
   expect(requests(w, '/adapter/v1/connect').length).toBe(leases + 1)
   expect(w.prompts.length).toBe(hello); expect(readyCalls(w).length).toBe(readyBefore)
-  expect(w.tools.map(tool => tool.name)).toEqual(toolsBefore); expect(toolsBefore.length).toBe(9)
+  expect(w.tools.map(tool => tool.name)).toEqual(toolsBefore); expect(toolsBefore.length).toBe(10)
   expect(invitationCalls(w).map(command => command.kind)).toEqual(['invitation.preview'])
   safe(w, await visible(ui), false, true)
 })

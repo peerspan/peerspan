@@ -420,7 +420,7 @@ function safe(w: World, shown = '', runtime = false, executable = 'peerspan', st
     if (c.kind === 'machine.sign') expected.decision = 'sign_machine_owner_offer'
     expect(c.payload).toEqual(expected); expect(JSON.parse(c.init.stdin)).toEqual(expected)
   }
-  if (!runtime) { expect(w.httpCalls).toEqual([]); expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill('delivery_acknowledge')) }
+  if (!runtime) { expect(w.httpCalls).toEqual([]); expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill(['delivery_acknowledge', 'peerspan_next_step']).flat()) }
 }
 
 // 1–2. Public selection never guesses the first incoming request/provider.

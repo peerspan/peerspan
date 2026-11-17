@@ -446,7 +446,7 @@ function safe(w: World, uiText = '', reveal = false, runtime = false, executable
   }
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   }
 }
 
@@ -858,7 +858,7 @@ test('invitation navigation and private reveal preserve established message task
   expect(requests(w, '/adapter/v1/tasks/next').length > tasks).toBe(true)
   expect(requests(w, '/adapter/v1/connect').length).toBe(leases + 1)
   expect(w.prompts.length).toBe(hello); expect(readyCalls(w).length).toBe(readyBefore)
-  expect(w.tools.length).toBe(9); expect(count(w, 'invitation.prepare')).toBe(0); expect(count(w, 'invitation.decide')).toBe(0)
+  expect(w.tools.length).toBe(10); expect(count(w, 'invitation.prepare')).toBe(0); expect(count(w, 'invitation.decide')).toBe(0)
   safe(w, await visible(ui), false, true)
 })
 

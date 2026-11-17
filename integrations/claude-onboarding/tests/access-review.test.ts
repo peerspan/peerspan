@@ -349,7 +349,7 @@ async function checkPure(ui: Pane, w: World, mode = 'consent') {
 }
 function privacy(w: World, text = '', runtime = false, executable = 'peerspan', state?: string) {
   expect(w.forbidden).toEqual([]); expect(w.prompts).toEqual([])
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   if (!runtime) expect(w.http).toEqual([])
   expect(w.outside.join('\n')).not.toContain(ROOT)
   for (const value of [NATIVE, RAW, TOKEN, SOCKET, '/private/access-path', 'PRIVATE_PROVIDER_ERROR', state,

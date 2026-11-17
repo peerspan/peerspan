@@ -199,7 +199,7 @@ async function open($: Engine, w: World, adapter = true) {
 }
 function privacy(w: World, uiText = '') {
   expect(w.forbidden).toEqual([]); expect(w.prompts).toEqual([])
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   const references = [w.parent?.flow_id, w.parent?.review_id, w.child?.flow_id, w.child?.review_id,
     w.child?.review.adapter_id, w.parent?.review.session_id, w.parent?.review.agent.id].filter(Boolean)
   for (const value of [TOKEN, SOCKET, RAW, 'PRIVATE_PROVIDER_ERROR', '/private/provider-path', NATIVE,

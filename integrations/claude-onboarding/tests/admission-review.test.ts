@@ -370,7 +370,7 @@ function safe(w: World, shown = '', runtime = false, executable = 'peerspan', st
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
     expect(w.tools.length > 0).toBe(true)
-    expect(w.tools.every(tool => tool.name === 'delivery_acknowledge')).toBe(true)
+    expect(w.tools.every(tool => ['delivery_acknowledge', 'peerspan_next_step'].includes(tool.name))).toBe(true)
   }
 }
 
