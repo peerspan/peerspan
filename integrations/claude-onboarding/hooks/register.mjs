@@ -2457,8 +2457,9 @@ async function decideJoining($, previous, epoch, decision) {
 // outcome stops at that step and leaves its existing control.
 async function mergedJoin($, previous, epoch) {
   if (steps() || previous.machine || previous.stage !== 'review' || !previous.selected) return;
-  const chosen = previous.selected.public_key, flowId = previous.flow?.flow_id;
-  const stopped = cur => epoch !== generation || cur.stage !== 'requested' || cur.flow?.flow_id !== flowId;
+  const chosen = previous.selected.public_key, flowId = previous.flow?.flow_id, nav = autoNavigation;
+  // A participant who navigates (Leave, Back, Refresh, Close, another action) ends the sequence.
+  const stopped = cur => epoch !== generation || autoNavigation !== nav || cur.stage !== 'requested' || cur.flow?.flow_id !== flowId;
   await decideJoining($, previous, epoch, 'approve');
   let cur = joining;
   if (stopped(cur)) return;
@@ -2487,10 +2488,11 @@ function finalizationDue(cur) {
     cur.mergedFinalizationStopped !== cur.flow?.flow_id;
 }
 async function mergedFinalize($, epoch) {
-  const before = joining;
+  const before = joining, nav = autoNavigation;
   await readFinalization($, before, epoch);
   const cur = joining;
-  if (epoch !== generation || cur.flow?.flow_id !== before.flow?.flow_id) return;
+  // An inspection the participant abandoned (Leave, navigation) is not a refusal.
+  if (epoch !== generation || autoNavigation !== nav || cur.flow?.flow_id !== before.flow?.flow_id) return;
   if (!cur.finalizationActive || cur.finalizationError || cur.finalizationExpired || !cur.finalizationCanSign || !cur.finalization) {
     // Not covered automatically: offer the explicit review, and do not try again by itself.
     joining = { ...before, busy: false, mergedFinalizationStopped: before.flow?.flow_id,
@@ -2501,7 +2503,7 @@ async function mergedFinalize($, epoch) {
   await signFinalization($, cur, epoch);
   // A verified signature makes the requester commit due: prepare it (section53).
   const signed = joining;
-  if (epoch === generation && signed.flow?.flow_id === before.flow?.flow_id && !signed.finalizationError &&
+  if (epoch === generation && autoNavigation === nav && signed.flow?.flow_id === before.flow?.flow_id && !signed.finalizationError &&
       finalizationRecorded(signed.owner) && !signed.commitActive) await readRequester($, signed, epoch, true);
 }
 async function joinAdvance($, epoch) {
@@ -2509,17 +2511,19 @@ async function joinAdvance($, epoch) {
     if (finalizationDue(joining)) return mergedFinalize($, epoch);
     if (finalizationRecorded(joining.owner) && !joining.commitActive) return readRequester($, joining, epoch, true);
   }
+  const nav = autoNavigation;
   await readOwner($, joining, epoch, false);
-  if (steps() || epoch !== generation) return;
+  if (steps() || epoch !== generation || autoNavigation !== nav) return;
   if (finalizationDue(joining)) await mergedFinalize($, epoch);
   else if (finalizationRecorded(joining.owner) && !joining.commitActive) await readRequester($, joining, epoch, true);
 }
 // Commit (section53): approve, then complete once the approval is verified.
 async function mergedCommit($, previous, epoch) {
   if (steps() || !previous.commitCanApprove) return;
+  const nav = autoNavigation;
   await decideRequester($, previous, epoch);
   const cur = joining;
-  if (epoch !== generation || !cur.commitActive || cur.commitError || !cur.commitCanComplete) return;
+  if (epoch !== generation || autoNavigation !== nav || !cur.commitActive || cur.commitError || !cur.commitCanComplete) return;
   await decideRequester($, cur, epoch, true);
 }
 async function anotherJoining($, previous, epoch) {
