@@ -751,7 +751,7 @@ async function ownerTerms(ui: Pane, w: World) {
   ownerPrivacy(w, shown)
 }
 
-test('entry publication progress global Refresh and fresh native state never start owner work', async ($, on) => {
+test('entry publication progress global Refresh and fresh native state never start owner work', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'approved' })
   expect(await ui.find({ type: 'Button', text: /^Review owner powers$/ })).toBeDefined()
   await noOwnerRecord(ui); expect(ownerCalls(w)).toEqual([])
@@ -764,7 +764,7 @@ test('entry publication progress global Refresh and fresh native state never sta
 const configuredOwner: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private owner state/$(literal)' },
 }
-test('double explicit Review sends one lookup then at most one prepare with literal exact5s private commands', configuredOwner, async ($, on) => {
+test('double explicit Review sends one lookup then at most one prepare with literal exact5s private commands', { ...configuredOwner, options: { ...configuredOwner.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w), normal = w.run, delayed = delaySignal(w, 1000)
   w.run = async (kind, payload, e) => {
     if (kind === 'join.owner.lookup') { const value = await normal(kind, payload, e); await delayed.wait(); return value }
@@ -783,7 +783,7 @@ test('double explicit Review sends one lookup then at most one prepare with lite
   ownerPrivacy(w, await visible(ui), false, configuredOwner.options.executable, configuredOwner.options.state)
 })
 
-test('full exact quoted owner powers and finite effects are displayed without signing or later authority', async ($, on) => {
+test('full exact quoted owner powers and finite effects are displayed without signing or later authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w)
   await reviewOwner(ui); await ownerTerms(ui, w)
   expect(await ui.find({ type: 'Button', text: /^Approve owner powers$/ })).toBeDefined()
@@ -796,7 +796,7 @@ test('full exact quoted owner powers and finite effects are displayed without si
   ownerPrivacy(w, await visible(ui))
 })
 
-test('all five observed states separate approval original signature and completed owner offer', async ($, on) => {
+test('all five observed states separate approval original signature and completed owner offer', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w)
   for (const state of ['review', 'approved', 'cancelled', 'expired', 'invalidated']) {
     w.requestState = state === 'cancelled' ? 'cancelled' : 'pending'
@@ -817,7 +817,7 @@ test('all five observed states separate approval original signature and complete
   ownerPrivacy(w, await visible(ui))
 })
 
-test('historical approved consent beyond its finite review window is read only and never an active grant', async ($, on) => {
+test('historical approved consent beyond its finite review window is read only and never an active grant', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'approved', expires: NOW - 1000 })
   await reviewOwner(ui); expect(await visible(ui)).toContain('Owner consent: recorded'); await noOwnerApprove(ui)
   expect(await visible(ui)).toMatch(/original.*sign|sign.*original/i)
@@ -826,7 +826,7 @@ test('historical approved consent beyond its finite review window is read only a
   ownerPrivacy(w, await visible(ui))
 })
 
-test('malformed owner wrapper ordinary request pins keys booleans stage ordering and action never offer approval', async ($, on) => {
+test('malformed owner wrapper ordinary request pins keys booleans stage ordering and action never offer approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['wrapper extra', v => { v.extra = RAW }], ['owner extra', v => { v.owner.extra = RAW }],
@@ -848,7 +848,7 @@ test('malformed owner wrapper ordinary request pins keys booleans stage ordering
   ownerPrivacy(w, await visible(ui))
 })
 
-test('malformed immutable review digest fixed profile lifetime identities and effects are rejected even with recomputed hashes', async ($, on) => {
+test('malformed immutable review digest fixed profile lifetime identities and effects are rejected even with recomputed hashes', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['extra', v => { v.owner.review.extra = RAW }], ['kind', v => { v.owner.review.kind = 'approve_machine' }],
@@ -874,7 +874,7 @@ test('malformed immutable review digest fixed profile lifetime identities and ef
   ownerPrivacy(w, await visible(ui))
 })
 
-test('short private markers in plain and decorated quoted owner metadata block the entire review', async ($, on) => {
+test('short private markers in plain and decorated quoted owner metadata block the entire review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }), normal = w.run
   const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.', 'peerspan-person-invite-v1.', 'token_', 'instance_']
   for (const [index, prefix] of prefixes.entries()) for (const decorated of [false, true]) {
@@ -895,7 +895,7 @@ test('short private markers in plain and decorated quoted owner metadata block t
   ownerPrivacy(w, await visible(ui))
 })
 
-test('double explicit approval clears old confirmation rechecks bindings and sends one exact displayed review', async ($, on) => {
+test('double explicit approval clears old confirmation rechecks bindings and sends one exact displayed review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }); await reviewOwner(ui)
   const retained = clone(w.ownerValue), normal = w.run, delayed = delaySignal(w, 1000), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.owner.lookup') await delayed.wait(); return value }
@@ -912,7 +912,7 @@ test('double explicit approval clears old confirmation rechecks bindings and sen
   ownerPrivacy(w, await visible(ui))
 })
 
-test('changed parent flow outcome host root conversation or terminal blocks a captured approval', async ($, on) => {
+test('changed parent flow outcome host root conversation or terminal blocks a captured approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await ownerPublished($, w, { state: 'review' })
   const parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['parent', 'flow', 'outcome', 'host', 'root', 'native', 'surface'].entries()) {
@@ -937,7 +937,7 @@ test('changed parent flow outcome host root conversation or terminal blocks a ca
   ownerPrivacy(w)
 })
 
-test('fresh lookup must match the complete displayed review pending state and exact proposed offer before approval', async ($, on) => {
+test('fresh lookup must match the complete displayed review pending state and exact proposed offer before approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }), retained = clone(w.ownerValue), normal = w.run
   for (const mode of ['review', 'approved', 'request', 'offer']) {
     w.ownerValue = clone(retained); w.run = normal; await reviewOwner(ui)
@@ -957,7 +957,7 @@ test('fresh lookup must match the complete displayed review pending state and ex
   ownerPrivacy(w, await visible(ui))
 })
 
-test('deadline native-context and future host-time changes during fresh lookup prevent approval dispatch', async ($, on) => {
+test('deadline native-context and future host-time changes during fresh lookup prevent approval dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await ownerPublished($, w, { state: 'review' }); const normal = w.run
   const parent = clone(w.parent), joining = clone(w.joining)
   for (const [index, mode] of ['deadline', 'root', 'future-host'].entries()) {
@@ -984,7 +984,7 @@ test('deadline native-context and future host-time changes during fresh lookup p
   ownerPrivacy(w)
 })
 
-test('lost denied raw or mismatched write outcomes recover by explicit lookup without retry preparation or signing', async ($, on) => {
+test('lost denied raw or mismatched write outcomes recover by explicit lookup without retry preparation or signing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review' }), normal = w.run, retained = clone(w.ownerValue)
   for (const mode of ['denied', 'raw', 'mismatched']) {
     w.run = normal; w.ownerValue = clone(retained); await reviewOwner(ui)
@@ -1010,7 +1010,7 @@ test('lost denied raw or mismatched write outcomes recover by explicit lookup wi
   ownerPrivacy(w, await visible(ui))
 })
 
-test('failed owner reads clear actionable terms and null Check recovery never prepares an intent', async ($, on) => {
+test('failed owner reads clear actionable terms and null Check recovery never prepares an intent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w), normal = w.run
   for (const mode of ['denied', 'raw']) {
     w.run = async (kind, payload, e) => kind === 'join.owner.lookup' ? mode === 'denied' ? { fixtureDeny: true } : { fixtureRaw: RAW } : normal(kind, payload, e)
@@ -1024,7 +1024,7 @@ test('failed owner reads clear actionable terms and null Check recovery never pr
   ownerPrivacy(w, await visible(ui))
 })
 
-test('Leave remains available during lookup and preparation and late reads cannot restore old controls', async ($, on) => {
+test('Leave remains available during lookup and preparation and late reads cannot restore old controls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w), normal = w.run
   for (const op of ['lookup', 'prepare']) {
     w.ownerValue = null; const delayed = delaySignal(w, 1000)
@@ -1037,7 +1037,7 @@ test('Leave remains available during lookup and preparation and late reads canno
   ownerPrivacy(w, await visible(ui))
 })
 
-test('Back Close and Refresh invalidate pending approval responses while preserving durable recorded consent', async ($, on) => {
+test('Back Close and Refresh invalidate pending approval responses while preserving durable recorded consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await ownerPublished($, w, { state: 'review' }); const normal = w.run, retained = clone(w.ownerValue)
   for (const [index, mode] of ['back', 'close', 'refresh'].entries()) {
     if (index) { w.run = normal; w.ownerValue = clone(retained); ui = await enter($, w); await joinEntry(w, ui) }
@@ -1054,7 +1054,7 @@ test('Back Close and Refresh invalidate pending approval responses while preserv
   ownerPrivacy(w)
 })
 
-test('root conversation host parent terminal and session end invalidate a delayed owner response', async ($, on) => {
+test('root conversation host parent terminal and session end invalidate a delayed owner response', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await ownerPublished($, w, { state: 'review' })
   const normal = w.run, parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['root', 'native', 'host', 'parent', 'surface', 'end'].entries()) {
@@ -1082,7 +1082,7 @@ test('root conversation host parent terminal and session end invalidate a delaye
   ownerPrivacy(w)
 })
 
-test('unapproved expiry removes approval without renewal while an already sent approval may confirm historically', async ($, on) => {
+test('unapproved expiry removes approval without renewal while an already sent approval may confirm historically', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review', expires: NOW + 1000 })
   await reviewOwner(ui); const before = ownerCalls(w).length
   await w.clock.advance(1000); await noOwnerApprove(ui); expect(ownerCalls(w).length).toBe(before)
@@ -1097,7 +1097,7 @@ test('unapproved expiry removes approval without renewal while an already sent a
   ownerPrivacy(w, await visible(ui))
 })
 
-test('an old review expiry cannot disable a newer request review after Leave and explicit reentry', async ($, on) => {
+test('an old review expiry cannot disable a newer request review after Leave and explicit reentry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await ownerPublished($, w, { state: 'review', expires: NOW + 1000 })
   await reviewOwner(ui); await press(ui, 'Leave owner review')
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested', n: 99 })
@@ -1111,7 +1111,7 @@ test('an old review expiry cannot disable a newer request review after Leave and
   ownerPrivacy(w, await visible(ui))
 })
 
-test('owner review approval navigation and recovery preserve established work runtimes and durable inviter state', async ($, on) => {
+test('owner review approval navigation and recovery preserve established work runtimes and durable inviter state', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w)
   await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, network(9), { state: 'issued' }); const issued = clone(w.invitation)
@@ -1172,7 +1172,7 @@ async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>
   }
 }
 // Section52: recorded owner consent that waits on other participants checks owner consent by itself.
-test('automatic progress checks waiting recorded owner consent 5 seconds after it is shown and again 5 seconds after', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress checks waiting recorded owner consent 5 seconds after it is shown and again 5 seconds after', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requestState = 'needs_administrator'
   const ui = await ownerPublished($, w, { state: 'approved' }); await reviewOwner(ui); await w.clock.settle()
   expect(await visible(ui)).toContain('Owner consent: recorded'); const shown = ownerCalls(w, 'lookup').length
@@ -1188,7 +1188,7 @@ test('automatic progress checks waiting recorded owner consent 5 seconds after i
   ownerPrivacy(w, await visible(ui))
 })
 
-test('automatic progress runs exactly the Check owner consent operations, stops at a failure and restarts on a press', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress runs exactly the Check owner consent operations, stops at a failure and restarts on a press', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on); w.requestState = 'needs_administrator'
   const ui = await ownerPublished($, w, { state: 'approved' }), normal = w.run; await reviewOwner(ui); await w.clock.settle()
   let at = w.calls.length; await press(ui, 'Check owner consent'); await w.clock.settle()

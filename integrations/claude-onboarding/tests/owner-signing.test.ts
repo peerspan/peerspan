@@ -420,7 +420,7 @@ async function setup($: Engine, w: World, state: string | null = null, options: 
   w.parent = await parentFlow({ agent: { id: id('agent', 1), name: 'Agent "東京"', owner: 'Owner \\é', capabilities: ['capability "metadata"'] } })
   if (state) w.invitation = await invitationFlow(w.parent, w.networks[0], { ...options, state })
   if (!w.started) await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
-  const ui = await enter($, w); await press(ui, 'Connect this project'); return ui
+  const ui = await enter($, w); await press(ui, /^Connect this (?:project|conversation)$/); return ui
 }
 async function visible(ui: Pane) {
   return (await text(ui)) + '\n' + (await ui.findAll({ type: 'Input' })).map(input => input.props.value ?? '').join('\n')
@@ -445,7 +445,9 @@ async function noInvitationAuthority(ui: Pane) {
 }
 async function begin(w: World, ui: Pane) {
   // Explicit fixture navigation back to the attached project after Back.
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Invite someone$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   await press(ui, 'Invite someone'); await w.clock.settle()
 }
@@ -515,7 +517,9 @@ async function previewResponse(w: World, options: any = {}) {
 }
 const previewCalls = (w: World) => w.calls.filter(command => command.kind === 'invitation.preview')
 async function recipientEntry(w: World, ui: Pane) {
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Review an invitation$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   await press(ui, 'Review an invitation'); await w.clock.settle()
 }
@@ -556,7 +560,9 @@ async function joinFlow(parent: any, preview: any, person = KEY, options: any = 
 const joinCalls = (w: World) => w.calls.filter(command => command.kind.startsWith('join.'))
 const identityButtons = async (ui: Pane) => ui.findAll({ type: 'Button', text: /^Review identity / })
 async function joinEntry(w: World, ui: Pane) {
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Join a network$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   await press(ui, 'Join a network'); await w.clock.settle()
 }
@@ -786,7 +792,7 @@ async function unconfirmed(ui: Pane) {
 const signCalls = (w: World) => ownerCalls(w, 'sign')
 const offerClaim = /Owner offer:?\s*recorded/i
 
-test('entry publication progress owner approval Check Refresh reentry and timers never implicitly sign', async ($, on) => {
+test('entry publication progress owner approval Check Refresh reentry and timers never implicitly sign', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w, { state: 'review' })
   expect(signCalls(w)).toHaveLength(0); await noSign(ui)
   await press(ui, 'Check join progress'); await press(ui, 'Refresh'); await w.clock.advance(1000)
@@ -798,7 +804,7 @@ test('entry publication progress owner approval Check Refresh reentry and timers
   signPrivacy(w, await visible(ui))
 })
 
-test('only approved eligible pending original requests expose Sign and no later or unsupported state does', async ($, on) => {
+test('only approved eligible pending original requests expose Sign and no later or unsupported state does', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w)
   for (const state of ['review', 'cancelled', 'expired', 'invalidated']) {
     w.ownerValue = await ownerRecord(w, { state }); await reviewOwner(ui); await noSign(ui, state)
@@ -813,7 +819,7 @@ test('only approved eligible pending original requests expose Sign and no later 
   expect(signCalls(w)).toHaveLength(0); signPrivacy(w, await visible(ui))
 })
 
-test('full quoted powers and source explanation precede key use without key transfer or definitive absence claims', async ($, on) => {
+test('full quoted powers and source explanation precede key use without key transfer or definitive absence claims', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w); await reviewOwner(ui); await ownerTerms(ui, w)
   const shown = await visible(ui)
   for (const meaning of [/this (?:computer|machine)|local computer/i, /generated/i, /ssh.?agent/i,
@@ -827,7 +833,7 @@ test('full quoted powers and source explanation precede key use without key tran
 const configuredSigning: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private signing state/$(literal)' },
 }
-test('double explicit Sign performs fresh guards and one exact configured45s stdin call while owner reads remain5s', configuredSigning, async ($, on) => {
+test('double explicit Sign performs fresh guards and one exact configured45s stdin call while owner reads remain5s', { ...configuredSigning, options: { ...configuredSigning.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w); await reviewOwner(ui)
   const normal = w.run, delayed = delaySignal(w, 1000), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.owner.lookup') await delayed.wait(); return value }
@@ -844,7 +850,7 @@ test('double explicit Sign performs fresh guards and one exact configured45s std
   signPrivacy(w, await visible(ui), false, configuredSigning.options.executable, configuredSigning.options.state)
 })
 
-test('changed parent join outcome host root conversation or surface prevents a captured Sign', async ($, on) => {
+test('changed parent join outcome host root conversation or surface prevents a captured Sign', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await eligible($, w)
   const parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['parent', 'flow', 'outcome', 'host', 'root', 'native', 'surface'].entries()) {
@@ -867,7 +873,7 @@ test('changed parent join outcome host root conversation or surface prevents a c
   signPrivacy(w)
 })
 
-test('fresh lookup must retain review and exact immutable request pins packet creation expiry and pending stage', async ($, on) => {
+test('fresh lookup must retain review and exact immutable request pins packet creation expiry and pending stage', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['review', v => { v.owner.review.intent_id = id('dint', 99) }], ['state', v => { v.owner.state = 'invalidated'; v.owner.next_action = 'inspect_join_progress' }],
@@ -889,7 +895,7 @@ test('fresh lookup must retain review and exact immutable request pins packet cr
   signPrivacy(w, await visible(ui))
 })
 
-test('a just completed exact offer observed by preflight proves signature read only without signing', async ($, on) => {
+test('a just completed exact offer observed by preflight proves signature read only without signing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w); await reviewOwner(ui)
   w.requestState = 'needs_administrator'; w.ownerValue.next_action = 'follow_join_progress'
   await press(ui, 'Sign original owner offer')
@@ -897,7 +903,7 @@ test('a just completed exact offer observed by preflight proves signature read o
   expect(await visible(ui)).toMatch(offerClaim); await noSign(ui); signPrivacy(w, await visible(ui))
 })
 
-test('valid partial proof confirms only the original signature and Check replaces it with unconfirmed public state', async ($, on) => {
+test('valid partial proof confirms only the original signature and Check replaces it with unconfirmed public state', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w); await reviewOwner(ui); await press(ui, 'Sign original owner offer')
   expect(await visible(ui)).toContain('Original signature: recorded'); expect(await visible(ui)).not.toMatch(offerClaim); await noSign(ui)
   expect(await visible(ui)).not.toMatch(/(?:this pane|this frontend|this conversation) (?:signed|created|recorded)/i)
@@ -907,7 +913,7 @@ test('valid partial proof confirms only the original signature and Check replace
   signPrivacy(w, await visible(ui))
 })
 
-test('valid completed and later applied results confirm durable proof without demanding a still-pending request', async ($, on) => {
+test('valid completed and later applied results confirm durable proof without demanding a still-pending request', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   for (const state of ['needs_administrator', 'linked']) {
     w.requestState = 'pending'; w.ownerValue = await ownerRecord(w, { state: 'approved' }); w.run = normal; await reviewOwner(ui)
@@ -919,7 +925,7 @@ test('valid completed and later applied results confirm durable proof without de
   expect(signCalls(w)).toHaveLength(2); signPrivacy(w, await visible(ui))
 })
 
-test('bare snapshots missing null extra or invalid signature markers cannot confirm signing success', async ($, on) => {
+test('bare snapshots missing null extra or invalid signature markers cannot confirm signing success', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   const variants: [string, (v: any) => any][] = [
     ['bare', v => { delete v.original_signature; return v }], ['null', v => { v.original_signature = null; return v }],
@@ -936,7 +942,7 @@ test('bare snapshots missing null extra or invalid signature markers cannot conf
   expect(signCalls(w)).toHaveLength(variants.length); signPrivacy(w, await visible(ui))
 })
 
-test('wrong signing result bindings digest dates keys stages and decorated private data remain unknown', async ($, on) => {
+test('wrong signing result bindings digest dates keys stages and decorated private data remain unknown', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['digest', v => { v.owner.review_id = id64('review', 99) }], ['context', v => { v.context.native_session_id = 'different-native' }],
@@ -961,7 +967,7 @@ test('wrong signing result bindings digest dates keys stages and decorated priva
   expect(signCalls(w)).toHaveLength(variants.length); signPrivacy(w, await visible(ui))
 })
 
-test('approved review expiry alone preserves Sign until the authoritative request deadline without polling', async ($, on) => {
+test('approved review expiry alone preserves Sign until the authoritative request deadline without polling', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w, { expires: NOW - 1000 }); await reviewOwner(ui)
   expect(await ui.find({ type: 'Button', text: /^Sign original owner offer$/ })).toBeDefined()
   const calls = ownerCalls(w).length; await w.clock.advance(900_001)
@@ -972,7 +978,7 @@ test('approved review expiry alone preserves Sign until the authoritative reques
   expect(await visible(ui)).toContain('Join request: publication recorded'); signPrivacy(w, await visible(ui))
 })
 
-test('expiry future host time and native root changes during fresh lookup prevent sign dispatch', async ($, on) => {
+test('expiry future host time and native root changes during fresh lookup prevent sign dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await eligible($, w, { deadline: NOW + 1000 }); const normal = w.run
   const parent = clone(w.parent), joining = clone(w.joining)
   for (const [index, mode] of ['deadline', 'future-host', 'root'].entries()) {
@@ -999,7 +1005,7 @@ test('expiry future host time and native root changes during fresh lookup preven
   signPrivacy(w)
 })
 
-test('request expiry after dispatch can still confirm exact historical partial proof without claiming retraction', async ($, on) => {
+test('request expiry after dispatch can still confirm exact historical partial proof without claiming retraction', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w, { deadline: NOW + 1000 }); await reviewOwner(ui)
   const normal = w.run, delayed = delaySignal(w, 2000)
   w.run = async (kind, payload, e) => {
@@ -1013,7 +1019,7 @@ test('request expiry after dispatch can still confirm exact historical partial p
   expect(signCalls(w)).toHaveLength(1); await noSign(ui); signPrivacy(w, await visible(ui))
 })
 
-test('denied nonzero raw and mismatched calls stay unknown and Check recovers public evidence without a write retry', async ($, on) => {
+test('denied nonzero raw and mismatched calls stay unknown and Check recovers public evidence without a write retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   for (const [index, mode] of ['denied', 'timeout-exit', 'raw', 'mismatched'].entries()) {
     w.run = normal; w.requestState = 'pending'; w.ownerValue = await ownerRecord(w, { state: 'approved' }); await reviewOwner(ui)
@@ -1044,7 +1050,7 @@ test('denied nonzero raw and mismatched calls stay unknown and Check recovers pu
   signPrivacy(w, await visible(ui))
 })
 
-test('Leave remains available during preflight and dispatched signing and late results cannot restore confirmation', async ($, on) => {
+test('Leave remains available during preflight and dispatched signing and late results cannot restore confirmation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w), normal = w.run
   for (const op of ['lookup', 'sign']) {
     w.run = normal; await reviewOwner(ui); const delayed = delaySignal(w, 1000)
@@ -1057,7 +1063,7 @@ test('Leave remains available during preflight and dispatched signing and late r
   signPrivacy(w, await visible(ui))
 })
 
-test('Back Close and Refresh after sign dispatch clear old confirmation without cancelling durable work', async ($, on) => {
+test('Back Close and Refresh after sign dispatch clear old confirmation without cancelling durable work', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await eligible($, w); const normal = w.run
   for (const [index, mode] of ['back', 'close', 'refresh'].entries()) {
     if (index) { w.run = normal; ui = await enter($, w); await joinEntry(w, ui) }
@@ -1074,7 +1080,7 @@ test('Back Close and Refresh after sign dispatch clear old confirmation without 
   expect(signCalls(w)).toHaveLength(3); signPrivacy(w)
 })
 
-test('root conversation host parent terminal and session end revoke pending sign callback authority', async ($, on) => {
+test('root conversation host parent terminal and session end revoke pending sign callback authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await eligible($, w)
   const normal = w.run, parent = clone(w.parent), joining = clone(w.joining), retained = clone(w.ownerValue)
   for (const [index, mode] of ['root', 'native', 'host', 'parent', 'surface', 'end'].entries()) {
@@ -1102,7 +1108,7 @@ test('root conversation host parent terminal and session end revoke pending sign
   expect(signCalls(w)).toHaveLength(6); signPrivacy(w)
 })
 
-test('old request expiry cannot disable a newer explicitly reopened request or automatically sign it', async ($, on) => {
+test('old request expiry cannot disable a newer explicitly reopened request or automatically sign it', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await eligible($, w, { deadline: NOW + 1000 }); await reviewOwner(ui)
   await press(ui, 'Leave owner review'); await back(ui)
   w.requestExpiry = NOW + 3_570_000; w.requestCreated = NOW - 30_000
@@ -1114,7 +1120,7 @@ test('old request expiry cannot disable a newer explicitly reopened request or a
   expect(ownerCalls(w).length).toBe(before); expect(signCalls(w)).toHaveLength(0); signPrivacy(w, await visible(ui))
 })
 
-test('signing and ordinary navigation preserve established delivery task lease and durable inviter state', async ($, on) => {
+test('signing and ordinary navigation preserve established delivery task lease and durable inviter state', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w)
   await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, network(9), { state: 'issued' }); const issued = clone(w.invitation)

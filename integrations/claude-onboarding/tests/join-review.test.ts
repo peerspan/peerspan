@@ -586,7 +586,7 @@ async function fullTerms(ui: Pane, review: any) {
   for (const word of ['identity', 'request', 'owner', 'membership', 'agent access', 'machine', 'files', 'conversation', 'capability']) expect(shown.toLowerCase()).toContain(word)
 }
 
-test('load Refresh headless model arguments and unattached projects never enter joining or inventory identities', async ($, on) => {
+test('load Refresh headless model arguments and unattached projects never enter joining or inventory identities', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   for (const args of ['join a network', '--approve-join', CODE]) await $.command.run({ command: 'peerspan', args })
@@ -602,7 +602,7 @@ test('load Refresh headless model arguments and unattached projects never enter 
   expect(joinCalls(w)).toEqual([]); expect(previewCalls(w)).toEqual([]); safe(w)
 })
 
-test('attached joining entry performs current lookup before an empty private field and never inventories on entry', async ($, on) => {
+test('attached joining entry performs current lookup before an empty private field and never inventories on entry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const at = w.trace.length
   expect(joinCalls(w)).toEqual([]); await joinEntry(w, ui)
   expect(last(w, 'join.lookup').payload).toEqual({ context: context(w.parent) })
@@ -619,7 +619,7 @@ test('attached joining entry performs current lookup before an empty private fie
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('draft Enter and double explicit review use one private preview then inventory with literal configured argv and full public terms', configured, async ($, on) => {
+test('draft Enter and double explicit review use one private preview then inventory with literal configured argv and full public terms', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await joinEntry(w, ui)
   await joinDraft(ui); await joinDraft(ui, CODE, 'submit')
   expect(previewCalls(w)).toEqual([]); expect(count(w, 'join.identities')).toBe(0)
@@ -646,7 +646,7 @@ test('draft Enter and double explicit review use one private preview then invent
   scopedIdentityPrivacy(w, await visible(ui), false, configured.options.executable, configured.options.state)
 })
 
-test('malformed oversized and whitespace invitation drafts clear without preview inventory or prepare', async ($, on) => {
+test('malformed oversized and whitespace invitation drafts clear without preview inventory or prepare', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, code] of ['', ' ' + CODE, CODE + ' ', 'psi2-', 'psi2-AAA=', 'psi2-INVALID!', 'psi2-' + 'A'.repeat(32764)].entries()) {
     if (index) await currentProject(ui)
@@ -659,7 +659,7 @@ test('malformed oversized and whitespace invitation drafts clear without preview
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('all unpinned keys have exact provenance and explicit ten-per-page choices without default preparation', async ($, on) => {
+test('all unpinned keys have exact provenance and explicit ten-per-page choices without default preparation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   w.previewValue = await previewResponse(w, { pin: '-' })
   w.identities = Array.from({ length: 12 }, (_, index) => ({ public_key: publicKey(index + 1), sources: index % 2 ? ['ssh_agent'] : ['generated', 'ssh_agent'] }))
@@ -677,7 +677,7 @@ test('all unpinned keys have exact provenance and explicit ten-per-page choices 
   expect(await visible(ui)).toContain(selected); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('no local key or no matching pin is an honest unavailable state with no hidden keys or creation controls', async ($, on) => {
+test('no local key or no matching pin is an honest unavailable state with no hidden keys or creation controls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, identities] of [[], [{ public_key: GENESIS_KEY, sources: ['ssh_agent'] }]].entries()) {
     if (index) await currentProject(ui)
@@ -691,7 +691,7 @@ test('no local key or no matching pin is an honest unavailable state with no hid
   expect(count(w, 'join.prepare')).toBe(0); expect(count(w, 'join.decide')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('identity disappearance or changed provenance during recheck cannot prepare a captured selection', async ($, on) => {
+test('identity disappearance or changed provenance during recheck cannot prepare a captured selection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, changed] of [[], [{ public_key: KEY, sources: ['ssh_agent'] }]].entries()) {
     if (index) await currentProject(ui)
@@ -704,7 +704,7 @@ test('identity disappearance or changed provenance during recheck cannot prepare
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('malformed or private local inventory results fail closed before choices and never disclose provider details', async ($, on) => {
+test('malformed or private local inventory results fail closed before choices and never disclose provider details', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['extra', v => { v.comment = RAW }], ['host', v => { v.host_id = 'host_' + '9'.repeat(64) }],
@@ -727,7 +727,7 @@ test('malformed or private local inventory results fail closed before choices an
   expect(count(w, 'join.prepare')).toBe(0)
 })
 
-test('prepare response exact shapes digests person effects nested public terms and privacy must match the selected proposal', async ($, on) => {
+test('prepare response exact shapes digests person effects nested public terms and privacy must match the selected proposal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['extra', v => { v.private_input = RAW }], ['digest', v => { v.review_id = id64('review', 99) }],
@@ -819,7 +819,7 @@ test('changed review parent local key provenance host root surface and deadline 
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('requested declined expired and invalidated lookup resumes public outcomes without code inventory preparation or polling', async ($, on) => {
+test('requested declined expired and invalidated lookup resumes public outcomes without code inventory preparation or polling', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   for (const [index, state] of ['requested', 'declined', 'expired', 'invalidated'].entries()) {
     if (index) await currentProject(ui)
@@ -833,7 +833,7 @@ test('requested declined expired and invalidated lookup resumes public outcomes 
   expect(count(w, 'join.prepare')).toBe(0); expect(count(w, 'join.decide')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('lookup context digest and immutable requested outcome shape must validate before reporting publication', async ($, on) => {
+test('lookup context digest and immutable requested outcome shape must validate before reporting publication', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['envelope-extra', v => { v.private_provider = RAW }],
@@ -875,7 +875,7 @@ test('live retained review requires exact private code check and explicit invent
   expect(count(w, 'join.identities')).toBe(before); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('retained check refuses a changed returned flow person digest public invitation or decision state', async ($, on) => {
+test('retained check refuses a changed returned flow person digest public invitation or decision state', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   for (const [index, mode] of ['flow', 'person', 'public', 'state'].entries()) {
     if (index) await currentProject(ui)
@@ -910,7 +910,7 @@ test('uncertain committed decisions drop private code and recover by public Refr
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('public requested replacement is explicit preserves the latest flow reference and never cancels the earlier request', async ($, on) => {
+test('public requested replacement is explicit preserves the latest flow reference and never cancels the earlier request', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' }); const original = clone(w.joining)
   await joinEntry(w, ui); await press(ui, 'Review another join request')
@@ -978,7 +978,7 @@ test('fixed invitation and review deadlines clear authority while old timers can
   expect(count(w, 'join.decide')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('root conversation host surface parent loss and session end clear joining authority and reject late private results', async ($, on) => {
+test('root conversation host surface parent loss and session end clear joining authority and reject late private results', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); const originalParent = clone(w.parent), normal = w.run
   for (const [index, mode] of ['root', 'native', 'host', 'surface', 'parent', 'end'].entries()) {
     if (index) {
@@ -1006,7 +1006,7 @@ test('root conversation host surface parent loss and session end clear joining a
   scopedIdentityPrivacy(w)
 })
 
-test('Back-mediated pane switching clears all volatile codes while durable invitations and established delivery runtime survive', async ($, on) => {
+test('Back-mediated pane switching clears all volatile codes while durable invitations and established delivery runtime survive', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = [network()]
   const ui = await connected($, w); await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, w.networks[0], { state: 'issued' }); const issued = clone(w.invitation)

@@ -558,7 +558,7 @@ const configured: TestOptions & { options: Record<string, string> } = {
 async function leave(ui: Pane) { if (await button(ui, 'Leave machine requester review')) await press(ui, 'Leave machine requester review') }
 async function reopen(ui: Pane) { await leave(ui); await review(ui) }
 
-test('published machine entry is explicit lookup-only and missing F Check never prepares or inventories originals', async ($, on) => {
+test('published machine entry is explicit lookup-only and missing F Check never prepares or inventories originals', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w, { requestState: 'pending' })
   expect(await button(ui, 'Review machine link')).toBeDefined(); expect(countMachine(w)).toHaveLength(0)
   await review(ui); expect(countMachine(w).map(e => e.kind)).toEqual([LOOKUP]); await inactive(ui)
@@ -569,7 +569,7 @@ test('published machine entry is explicit lookup-only and missing F Check never 
   await terms(ui, w); safe(w, await visible(ui))
 })
 
-test('remote original and device terms retain separate or folded admission reused binding and inherited finite cap', async ($, on) => {
+test('remote original and device terms retain separate or folded admission reused binding and inherited finite cap', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const [provider, folded, reused] of [['original_person', true, false], ['device', false, true]] as const) {
     w.providerKind = provider; w.folded = folded; w.reused = reused; w.lastInspection = null
@@ -586,7 +586,7 @@ test('remote original and device terms retain separate or folded admission reuse
   safe(w)
 })
 
-test('separate double Prepare rechecks inspection then sends exact configured5s private stdin once', configured, async ($, on) => {
+test('separate double Prepare rechecks inspection then sends exact configured5s private stdin once', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w); await review(ui)
   const captured = clone(w.lastInspection), normal = w.run, delay = delayed(w), at = w.calls.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === LOOKUP) await delay.wait(); return value }
@@ -600,7 +600,7 @@ test('separate double Prepare rechecks inspection then sends exact configured5s 
   await terms(ui, w, configured.options); safe(w, await visible(ui), configured.options)
 })
 
-test('receipt appearing during Prepare preflight is shown read-only without preparation or silent replacement', async ($, on) => {
+test('receipt appearing during Prepare preflight is shown read-only without preparation or silent replacement', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w); await review(ui)
   w.consentValue = await consentRecord(w, { state: 'approved' }); const saved = clone(w.consentValue)
   await press(ui, 'Review machine requester consent'); await recorded(ui)
@@ -608,7 +608,7 @@ test('receipt appearing during Prepare preflight is shown read-only without prep
   expect(await button(ui, 'Complete machine requester commit')).toBeDefined(); safe(w, await visible(ui))
 })
 
-test('changed inspected provider lease request F or effects cannot be silently adopted by Prepare preflight', async ($, on) => {
+test('changed inspected provider lease request F or effects cannot be silently adopted by Prepare preflight', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w), normal = w.run
   const changes = [
     (v: any) => { v.review.owner_provider.lease_id = id64('ds', 999) },
@@ -625,7 +625,7 @@ test('changed inspected provider lease request F or effects cannot be silently a
   safe(w, await visible(ui))
 })
 
-test('explicit double Approve uses unchanged displayed consent and one configured5s call without completion', configured, async ($, on) => {
+test('explicit double Approve uses unchanged displayed consent and one configured5s call without completion', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), captured = clone(w.consentValue), normal = w.run, delay = delayed(w)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === LOOKUP) await delay.wait(); return value }
   const control = await key(ui, 'Approve machine requester commit'), first = ui.press({ key: control }); void first.catch(() => undefined)
@@ -637,7 +637,7 @@ test('explicit double Approve uses unchanged displayed consent and one configure
   expect(await button(ui, 'Complete machine requester commit')).toBeDefined(); safe(w, await visible(ui), configured.options)
 })
 
-test('separate double Complete sends one configured95s exact decision and requires bound application evidence', configured, async ($, on) => {
+test('separate double Complete sends one configured95s exact decision and requires bound application evidence', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { consent: 'approved' }), captured = clone(w.consentValue), normal = w.run, delay = delayed(w)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === LOOKUP) await delay.wait(); return value }
   const control = await key(ui, 'Complete machine requester commit'), first = ui.press({ key: control }); void first.catch(() => undefined)
@@ -649,7 +649,7 @@ test('separate double Complete sends one configured95s exact decision and requir
   expect(w.consentValue).toEqual(captured); await applied(ui, w, configured.options)
 })
 
-test('already approved or applied preflight recovers pure global facts without another mutation or invented marker', async ($, on) => {
+test('already approved or applied preflight recovers pure global facts without another mutation or invented marker', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w)
   w.consentValue.state = 'approved'; w.consentValue.next_action = 'follow_machine_link'
   await press(ui, 'Approve machine requester commit'); await recorded(ui); expect(countMachine(w, 'approve')).toHaveLength(0)
@@ -661,7 +661,7 @@ test('already approved or applied preflight recovers pure global facts without a
   expect(countMachine(w, 'complete')).toHaveLength(0)
 })
 
-test('expired cancelled and invalidated receipts stay lookup-only even after advanced ordinary application', async ($, on) => {
+test('expired cancelled and invalidated receipts stay lookup-only even after advanced ordinary application', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   for (const state of ['expired', 'cancelled', 'invalidated']) {
     w.lastInspection = null; w.consentValue = null
@@ -674,7 +674,7 @@ test('expired cancelled and invalidated receipts stay lookup-only even after adv
   }
 })
 
-test('lost Prepare Approve and Complete replies require explicit matching Lookup and never repeat mutation', async ($, on) => {
+test('lost Prepare Approve and Complete replies require explicit matching Lookup and never repeat mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const [kind, label, state] of [[PREPARE, 'Review machine requester consent', null],
     [APPROVE, 'Approve machine requester commit', 'review'], [COMPLETE, 'Complete machine requester commit', 'approved']] as const) {
@@ -693,7 +693,7 @@ test('lost Prepare Approve and Complete replies require explicit matching Lookup
   safe(w)
 })
 
-test('changed receipt intent frozen root or request target refuses old Approve without a replacement action', async ($, on) => {
+test('changed receipt intent frozen root or request target refuses old Approve without a replacement action', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), normal = w.run
   const changes = [(v: any) => { v.consent.review.intent_id = id('dint', 999) },
     (v: any) => { v.consent.review.inspection.root_state_id = id64('ds', 999) },
@@ -709,7 +709,7 @@ test('changed receipt intent frozen root or request target refuses old Approve w
   safe(w, await visible(ui))
 })
 
-test('closed inspection rejects local provider substituted powers and invalid inherited deadline even with recomputed hash', async ($, on) => {
+test('closed inspection rejects local provider substituted powers and invalid inherited deadline even with recomputed hash', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w), normal = w.run
   const changes = [(v: any) => { v.review.owner_provider.host_public_key = INVITER_KEY },
     (v: any) => { v.review.scopes = 15 },
@@ -722,7 +722,7 @@ test('closed inspection rejects local provider substituted powers and invalid in
   safe(w, await visible(ui))
 })
 
-test('unknown wrapper nested effects or false folded administrator prefix never become actionable inspection', async ($, on) => {
+test('unknown wrapper nested effects or false folded administrator prefix never become actionable inspection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w), normal = w.run
   const changes = [(v: any) => { v.extra = true }, (v: any) => { v.review.effects.unreviewed = false },
     (v: any) => { v.request.completed.splice(3, 0, 'administrator_offered') }, (v: any) => { v.fixtureWrongDomain = true }]
@@ -735,7 +735,7 @@ test('unknown wrapper nested effects or false folded administrator prefix never 
   safe(w, await visible(ui))
 })
 
-test('completion requires closed exact approved marker references and all three not_verified fields', async ($, on) => {
+test('completion requires closed exact approved marker references and all three not_verified fields', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { consent: 'approved' }), normal = w.run
   const changes = [(v: any) => { v.completion.outcome_id = id64('dpk', 999) },
     (v: any) => { v.completion.review_id = 'review_' + '9'.repeat(64) },
@@ -749,7 +749,7 @@ test('completion requires closed exact approved marker references and all three 
   expect(countMachine(w, 'complete')).toHaveLength(3); safe(w, await visible(ui))
 })
 
-test('private control and oversized public results fail closed without leaking raw stdout stderr or labels', async ($, on) => {
+test('private control and oversized public results fail closed without leaking raw stdout stderr or labels', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w), normal = w.run
   const changes = [(v: any) => { v.review.member = 'token_SHORT_PRIVATE' },
     (v: any) => { v.review.network.name = '\u001b]52;c;PRIVATE_MACHINE\u0007' },
@@ -764,7 +764,7 @@ test('private control and oversized public results fail closed without leaking r
   expect(w.outside.join('\n')).not.toMatch(/SHORT_PRIVATE|PRIVATE_MACHINE/); safe(w, await visible(ui))
 })
 
-test('premature manifest activation or outcome in approved pre-commit prefix stops Complete before dispatch', async ($, on) => {
+test('premature manifest activation or outcome in approved pre-commit prefix stops Complete before dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { consent: 'approved' }), normal = w.run
   for (const [field, kind] of [['manifest_id', 'dm'], ['activation_id', 'da'], ['outcome_id', 'dpk']]) {
     w.run = async (operation, payload, e) => { const v = await normal(operation, payload, e); if (operation === LOOKUP) v.request[field] = id64(kind, 999); return v }
@@ -774,7 +774,7 @@ test('premature manifest activation or outcome in approved pre-commit prefix sto
   safe(w, await visible(ui))
 })
 
-test('commit persisted without locally applied cannot acquire an outcome or enable Complete', async ($, on) => {
+test('commit persisted without locally applied cannot acquire an outcome or enable Complete', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w, { consent: 'approved', requestState: 'finalizing' }), normal = w.run
   w.run = async (kind, payload, e) => {
     const value = await normal(kind, payload, e)
@@ -786,7 +786,7 @@ test('commit persisted without locally applied cannot acquire an outcome or enab
   expect(mutations(w)).toHaveLength(0); safe(w, await visible(ui))
 })
 
-test('raw rollback effective future history and future observations never authorize fresh mutation', async ($, on) => {
+test('raw rollback effective future history and future observations never authorize fresh mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await published($, w, { consent: 'approved' }); w.observed = NOW + 600_000
   await review(ui); await recorded(ui); await inactive(ui); expect(mutations(w)).toHaveLength(0)
   await check(ui, w); await inactive(ui); expect(countMachine(w, 'inspect')).toHaveLength(0)
@@ -796,7 +796,7 @@ test('raw rollback effective future history and future observations never author
   await review(ui); await inactive(ui); expect(mutations(w)).toHaveLength(0); safe(w, await visible(ui))
 })
 
-test('earliest frozen review stage timer removes authority at exact boundary without automatic reads or renewal', async ($, on) => {
+test('earliest frozen review stage timer removes authority at exact boundary without automatic reads or renewal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { stageDeadline: NOW + 2000 })
   const calls = w.calls.length, end = Date.parse(w.consentValue.review.expires_at)
   await w.clock.advance(end - w.clock.now() - 1); expect(await button(ui, 'Approve machine requester commit')).toBeDefined()
@@ -804,7 +804,7 @@ test('earliest frozen review stage timer removes authority at exact boundary wit
   expect(await button(ui, 'Check machine requester consent')).toBeDefined(); safe(w, await visible(ui))
 })
 
-test('registered Prepare Approve and Complete preflight delays cannot dispatch after original signed deadline', async ($, on) => {
+test('registered Prepare Approve and Complete preflight delays cannot dispatch after original signed deadline', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const [kind, label, state] of [[PREPARE, 'Review machine requester consent', null],
     [APPROVE, 'Approve machine requester commit', 'review'], [COMPLETE, 'Complete machine requester commit', 'approved']] as const) {
@@ -819,7 +819,7 @@ test('registered Prepare Approve and Complete preflight delays cannot dispatch a
   safe(w)
 })
 
-test('already persisted approved work survives human expiry while dispatched valid application remains historical', async ($, on) => {
+test('already persisted approved work survives human expiry while dispatched valid application remains historical', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { consent: 'approved', requestState: 'finalizing', stageDeadline: NOW + 2000 })
   const calls = w.calls.length; await w.clock.advance(2001)
   expect(await button(ui, 'Complete machine requester commit')).toBeDefined(); expect(w.calls).toHaveLength(calls)
@@ -834,7 +834,7 @@ test('already persisted approved work survives human expiry while dispatched val
   expect(countMachine(w, 'complete')).toHaveLength(1)
 })
 
-test('fresh parent host root and conversation are revalidated after actual held preflight before mutation', async ($, on) => {
+test('fresh parent host root and conversation are revalidated after actual held preflight before mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['parent', 'host', 'root', 'native']) {
     w.host = HOST; w.root = ROOT; w.native = NATIVE; w.parent = null; w.lastInspection = null; w.consentValue = null; w.run = normal
@@ -851,7 +851,7 @@ test('fresh parent host root and conversation are revalidated after actual held 
   safe(w)
 })
 
-test('Leave Refresh Close and session end discard dispatched late application without retracting global evidence', async ($, on) => {
+test('Leave Refresh Close and session end discard dispatched late application without retracting global evidence', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['leave', 'refresh', 'close', 'end']) {
     w.run = normal; w.requestState = 'needs_commit'; w.consentValue = null; w.lastInspection = null
@@ -869,7 +869,7 @@ test('Leave Refresh Close and session end discard dispatched late application wi
   expect(countMachine(w, 'complete')).toHaveLength(4); safe(w)
 })
 
-test('Leave clears all review panes and an older request timer cannot clear a new explicit machine review', async ($, on) => {
+test('Leave clears all review panes and an older request timer cannot clear a new explicit machine review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w, { consent: 'approved', deadline: NOW + 2000 }), normal = w.run, delay = delayed(w)
   w.run = async (kind, payload, e) => { const v = await normal(kind, payload, e); if (kind === LOOKUP) await delay.wait(); return v }
   const pending = press(ui, 'Complete machine requester commit'); void pending.catch(() => undefined); await delay.started
@@ -884,7 +884,7 @@ test('Leave clears all review panes and an older request timer cannot clear a ne
   expect(await button(next, 'Complete machine requester commit')).toBeDefined(); safe(w, await visible(next))
 })
 
-test('ordinary machine-pane leave preserves authorized message task and lease runtime without new prompts or tools', async ($, on) => {
+test('ordinary machine-pane leave preserves authorized message task and lease runtime without new prompts or tools', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w)
   await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
@@ -946,7 +946,7 @@ async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>
 const opKinds = (w: World, from: number) => { const all = w.calls.slice(from).map(e => e.kind)
   // Host operations in order, plus distinct recheck kinds; section52 does not pin recheck counts.
   return [...all.filter(k => k.startsWith('join.machine-commit.')), ...[...new Set(all.filter(k => !k.startsWith('join.machine-commit.')))].sort()] }
-test('automatic progress checks a waiting machine requester review every 5 seconds with exactly the Check machine requester consent reads', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress checks a waiting machine requester review every 5 seconds with exactly the Check machine requester consent reads', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await published($, w, { requestState: 'needs_owner_finalization' })
   await review(ui); await inactive(ui); await w.clock.settle()
   const at = w.calls.length
@@ -965,7 +965,7 @@ test('automatic progress checks a waiting machine requester review every 5 secon
   expect(await button(ui, 'Check machine requester consent')).toBeDefined(); safe(w, shown)
 })
 
-test('automatic progress offers Review machine requester consent when it becomes due here then stops without preparing', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress offers Review machine requester consent when it becomes due here then stops without preparing', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await published($, w, { requestState: 'needs_owner_finalization' })
   await review(ui); await w.clock.settle(); await pass(w, ui, 5000)
   expect(countMachine(w).map(e => e.kind)).toEqual([LOOKUP, LOOKUP])

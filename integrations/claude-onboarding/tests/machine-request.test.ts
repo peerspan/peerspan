@@ -468,7 +468,7 @@ async function progressResponse(w: World, state = 'pending') {
 }
 
 // 1. This lane is an explicit attached-terminal choice, separate from originals.
-test('attached terminal entry is lookup-first and original joining keeps its own inventory requirement', async ($, on) => {
+test('attached terminal entry is lookup-first and original joining keeps its own inventory requirement', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); await $.session.start({ cwd: '/shell', surface: 'terminal', isInteractive: true })
   let ui = await enter($, w)
   expect(await button(ui, 'Connect this computer')).toBeUndefined(); expect(joinCalls(w)).toEqual([]); await close(ui)
@@ -493,7 +493,7 @@ test('attached terminal entry is lookup-first and original joining keeps its own
 // 2. Enter edits only; one explicit private preview has literal configured argv.
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private machine state/$(literal)' } }
-test('draft Enter is inert and explicit review clears code before one private5s preview with full pinned terms', configured, async ($, on) => {
+test('draft Enter is inert and explicit review clears code before one private5s preview with full pinned terms', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w); await machineEntry(ui)
   const at = w.calls.length; await draft(ui); await draft(ui, CODE, 'Private invitation for this computer', 'submit')
   expect(w.calls).toHaveLength(at); expect(await visible(ui)).toContain(CODE)
@@ -510,7 +510,7 @@ test('draft Enter is inert and explicit review clears code before one private5s 
 })
 
 // 3. The signed pin is mandatory; lexical and public-time/privacy gates fail closed.
-test('invalid oversized unpinned elapsed future or private invitation cannot prepare or repair an identity', async ($, on) => {
+test('invalid oversized unpinned elapsed future or private invitation cannot prepare or repair an identity', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w)
   for (const code of ['psi2-AAA=', ' ' + CODE, 'psi2-' + 'A'.repeat(32764)]) {
     w.codes.push(code); await machineEntry(ui); await draft(ui, code)
@@ -534,7 +534,7 @@ test('invalid oversized unpinned elapsed future or private invitation cannot pre
 })
 
 // 4. Preview never prepares; the separate proposal binds all nested public terms.
-test('separate machine review prepares exact preview pin and rejects closed digest or person substitutions', async ($, on) => {
+test('separate machine review prepares exact preview pin and rejects closed digest or person substitutions', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); await machineEntry(ui); await machinePreview(ui)
   expect(count(w, 'join.prepare')).toBe(0)
   await press(ui, 'Review machine request'); await reviewTerms(ui, w)
@@ -556,7 +556,7 @@ test('separate machine review prepares exact preview pin and rejects closed dige
 })
 
 // 5. Publication needs no local original and double press cannot duplicate it.
-test('exact one approval without any local original records immutable publication and no ownership or readiness', async ($, on) => {
+test('exact one approval without any local original records immutable publication and no ownership or readiness', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.identities = []
   const ui = await machineReview($, w), review = clone(w.joining.review), normal = w.run, delay = delayed(w)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.decide') await delay.wait(); return value }
@@ -572,7 +572,7 @@ test('exact one approval without any local original records immutable publicatio
 })
 
 // 6. Decline needs no secret; unknown publication always needs explicit lookup.
-test('decline without code is single-flight and denied nonzero or lost replies never automatically retry publication', async ($, on) => {
+test('decline without code is single-flight and denied nonzero or lost replies never automatically retry publication', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w)); await machineEntry(ui)
   await noApprove(ui); const normal = w.run, delay = delayed(w)
@@ -600,7 +600,7 @@ test('decline without code is single-flight and denied nonzero or lost replies n
 })
 
 // 7. Retained review recovery is exact identical prepare, never another preview.
-test('retained live review needs exact code reentry and unpinned or mismatched history cannot become machine consent', async ($, on) => {
+test('retained live review needs exact code reentry and unpinned or mismatched history cannot become machine consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w)); const original = clone(w.joining)
   await machineEntry(ui); await noApprove(ui); expect(await button(ui, 'Decline machine request')).toBeDefined()
@@ -625,7 +625,7 @@ test('retained live review needs exact code reentry and unpinned or mismatched h
 })
 
 // 8. Public recovery is read-only and every reopening makes the lane explicit.
-test('Refresh Close and reopen recover only public pinned state without code inventory preparation or original controls', async ($, on) => {
+test('Refresh Close and reopen recover only public pinned state without code inventory preparation or original controls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' }); const retained = clone(w.joining)
   await machineEntry(ui); await recorded(ui, w)
@@ -639,7 +639,7 @@ test('Refresh Close and reopen recover only public pinned state without code inv
 })
 
 // 9. Progress only observes. A replacement is a separate explicit latest-ID act.
-test('explicit pure progress shows next participant and replacement preserves the earlier request with exact latest ID', async ($, on) => {
+test('explicit pure progress shows next participant and replacement preserves the earlier request with exact latest ID', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' }); const previous = clone(w.joining)
   await machineEntry(ui); const normal = w.run, at = w.calls.length
@@ -660,7 +660,7 @@ test('explicit pure progress shows next participant and replacement preserves th
 })
 
 // 10. Original deadlines stay fixed through actual guarded async intervals.
-test('fixed invitation and review expiry forbid late approval and old delayed preparation cannot restore a newer draft', async ($, on) => {
+test('fixed invitation and review expiry forbid late approval and old delayed preparation cannot restore a newer draft', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w)
   w.previewValue = await previewResponse(w, { expires: NOW + 2000 }); await machineEntry(ui); await machinePreview(ui)
   const first = w.calls.length; await w.clock.advance(2000)
@@ -687,7 +687,7 @@ test('fixed invitation and review expiry forbid late approval and old delayed pr
 })
 
 // 11. Every stimulus awaits real dispatch; no invented retained handler is used.
-test('pending root conversation parent host terminal and end changes discard callback authority without mutation or secret echo', async ($, on) => {
+test('pending root conversation parent host terminal and end changes discard callback authority without mutation or secret echo', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.run
   for (const mode of ['root', 'native', 'parent', 'host', 'surface', 'end']) {
     w.run = normal; w.root = ROOT; w.native = NATIVE; w.host = HOST; w.surface = 'terminal'; w.surfaces = ['terminal']; w.parent = await parentFlow(); w.joining = null
@@ -709,7 +709,7 @@ test('pending root conversation parent host terminal and end changes discard cal
 })
 
 // 12. Optional human request work cannot widen or restart the established runtime.
-test('machine publication progress and navigation preserve established message task and lease behavior without extra tools or model work', async ($, on) => {
+test('machine publication progress and navigation preserve established message task and lease behavior without extra tools or model work', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await connected($, w); await enable($, w, ui)
   await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   const prompts = w.prompts.length, tools = w.tools.map(t => t.name), ready = readyCalls(w).length
@@ -775,7 +775,7 @@ async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>
 }
 // Section52: the published machine request checks its progress by itself while it waits on the existing computer.
 const mutating = /prepare|approve|decline|decide|sign|finali[sz]e|commit|reveal|handoff|identit/
-test('automatic progress checks a waiting machine request 5 seconds after it is shown and again 5 seconds after', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress checks a waiting machine request 5 seconds after it is shown and again 5 seconds after', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
   await machineEntry(ui); await w.clock.settle(); await recorded(ui, w)
@@ -792,7 +792,7 @@ test('automatic progress checks a waiting machine request 5 seconds after it is 
   privacy(w, await visible(ui))
 })
 
-test('automatic progress runs exactly the Check machine request progress operations and stops when this computer must act', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress runs exactly the Check machine request progress operations and stops when this computer must act', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w), normal = w.run
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
   await machineEntry(ui); await w.clock.settle()

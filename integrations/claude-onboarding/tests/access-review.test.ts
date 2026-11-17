@@ -408,7 +408,7 @@ async function consentTerms(ui: Pane, w: World) {
 // Canonical public basepoint multiples for bounded inventory paging.
 const PUBLIC_KEYS = ["WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmY=", "yaP4aq5GXw5WUThkUQ85l1YfosnoXqIdwikjCfPNYCI=", "1LT1eEhowwIEAyRnF+wWn/eeJmCOoSahq2nud9GxZxI=", "LxEyymGrON/wDy/qMijyTGxx1YCFuA5H4ZUVyyfo0Ec=", "7ch21oMf0hBdC0OJyi4oMWZGkokUbizgb67+mLIlSN8=", "9H5J+dB60sFga02UBnxB+Xd9T/2nCbcdodiGKPzjTYU=", "uGJAn7XExBI98qv3RiuI8EGtNt1oZM6HL9VHK+NjxbE=", "tLk3/KlbLx6T5B5i/Dx4gY/zimYJb61ueXPlyQAG0yE=", "wPEiVYRETscwRG4jE5B4H/3S8lbp/L6y9A3dwsIjPX8=", "LHvoarB0iLpD6OA9haZ2Jc+/mMhUTeTIdyQbeqr8f+M=", "EzcDasMtjzDUWJw8HFlYEs4P/0DjfG9al6shPzGCkK0=", "+eQtLtyB0jNnlnNStH5IVrgleGNObB3nIoDOi2DOcMA=", "gB9A6q7h74cjJ5ooss9AN7iJ2tIiYEZ4dItT7Q2w25I=", "OSiciZj9aYNcJrYZ6JhIp78Ct8t60boVgcvEUG8lUM4=", "31wurcRMbZShmpqhGK/lrDGT0mQB92JR9SL/BC37y5I=", "6ydnwTeretgnnAeO/xFqsHhurTouD5ifcsN/gvKWlnA=", "BL6X7Jv+bM0B+TQ7coixF7efkcxFwkry+T4AYMorbW8=", "SrB14JA+TjWwltTWTg6BvKXDlorq6Oh9mNgLfoQmES4="]
 
-test('entry Refresh and fresh native reentry are access-inert until explicit attached-project selection', async ($, on) => {
+test('entry Refresh and fresh native reentry are access-inert until explicit attached-project selection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   expect(await button(ui, 'Review agent access')).toBeDefined(); expect(calls(w)).toEqual([])
   await press(ui, 'Refresh'); expect(calls(w)).toEqual([])
@@ -421,7 +421,7 @@ test('entry Refresh and fresh native reentry are access-inert until explicit att
   privacy(w, await shown(again))
 })
 
-test('network and grouped-person paging use full sorted public identities quoted labels and no implicit choice', async ($, on) => {
+test('network and grouped-person paging use full sorted public identities quoted labels and no implicit choice', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = Array.from({ length: 12 }, (_, n) => network(n + 1))
   const ui = await attached($, w); await press(ui, 'Review agent access')
   let choices = (await ui.findAll({ type: 'Button' })).filter(e => /net_[0-9a-f]{64}/.test(e.text))
@@ -455,7 +455,7 @@ test('network and grouped-person paging use full sorted public identities quoted
   expect(await shown(ui)).toContain(quoted('Participant "é東京"')); privacy(w, await shown(ui))
 })
 
-test('closed member inventory refuses duplicate hosts wrong context and malformed bound rows', async ($, on) => {
+test('closed member inventory refuses duplicate hosts wrong context and malformed bound rows', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   const variants: [string, (v: any) => void][] = [
     ['null', v => { v.members = null }], ['extra', v => { v.extra = true }], ['context', v => { v.context_id = id('ctx', 999, 64) }],
@@ -475,7 +475,7 @@ test('closed member inventory refuses duplicate hosts wrong context and malforme
   privacy(w, await shown(ui))
 })
 
-test('complete inspection preserves signed and enforced policy separately with optional zeros and no access inference', async ($, on) => {
+test('complete inspection preserves signed and enforced policy separately with optional zeros and no access inference', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   const body = baseline(w); w.enforced = { rules: clone(body.rules.slice(0, 2)), capability_rules: clone(body.capability_rules), trusted_hosts: clone(body.trusted_hosts) }
   await inspectPerson(ui, w); await inspectionTerms(ui, w)
@@ -487,7 +487,7 @@ test('complete inspection preserves signed and enforced policy separately with o
   privacy(w, await shown(ui))
 })
 
-test('self-selection null policy and no unique displayed device remain valid read-only terms', async ($, on) => {
+test('self-selection null policy and no unique displayed device remain valid read-only terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.person = OWNER; w.noPolicy = true; w.uniqueDevice = false
   w.personEnd = w.ownerEnd
   w.members[0].device_lease_id = '-'
@@ -499,7 +499,7 @@ test('self-selection null policy and no unique displayed device remain valid rea
   expect(await button(ui, 'Approve agent access')).toBeDefined(); privacy(w, await shown(ui))
 })
 
-test('inspection closed nested identities dates safe numbers and digest corpus refuses before preparation', async ($, on) => {
+test('inspection closed nested identities dates safe numbers and digest corpus refuses before preparation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   const variants: [string, (v: any) => void, boolean?][] = [
     ['wrapper-extra', v => { v.extra = true }], ['version', v => { v.version = 2 }], ['context', v => { v.context.native_session_id = 'different-conversation' }],
@@ -522,7 +522,7 @@ test('inspection closed nested identities dates safe numbers and digest corpus r
   privacy(w, await shown(ui))
 })
 
-test('all seven short private prefixes in values and decorated object keys are refused without echo or clipped payload', async ($, on) => {
+test('all seven short private prefixes in values and decorated object keys are refused without echo or clipped payload', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.', 'peerspan-person-invite-v1.', 'token_', 'instance_']
   for (const [index, prefix] of prefixes.entries()) for (const decorated of [false, true]) {
@@ -541,7 +541,7 @@ test('all seven short private prefixes in values and decorated object keys are r
   privacy(w, await shown(ui))
 })
 
-test('explicit Review performs pure lookup first and one fresh inspection-pinned preparation while Check stays lookup-only', async ($, on) => {
+test('explicit Review performs pure lookup first and one fresh inspection-pinned preparation while Check stays lookup-only', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   await inspectPerson(ui, w); const at = calls(w).length
   await press(ui, 'Review proposed grant')
@@ -553,7 +553,7 @@ test('explicit Review performs pure lookup first and one fresh inspection-pinned
   expect(calls(w, APPROVE)).toEqual([]); expect(calls(w, PREPARE)).toHaveLength(1); privacy(w, await shown(ui))
 })
 
-test('existing live approved expired and invalidated receipts recover unchanged without preparation replacement or renewal', async ($, on) => {
+test('existing live approved expired and invalidated receipts recover unchanged without preparation replacement or renewal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   for (const state of ['review', 'approved', 'expired', 'invalidated']) {
     w.access = await receipt(w, { state, ...(state === 'expired' ? { created: NOW - 301_000 } : {}),
@@ -571,7 +571,7 @@ test('existing live approved expired and invalidated receipts recover unchanged 
   privacy(w, await shown(ui))
 })
 
-test('complete narrow name-wide grant preserves unrelated body defaults and actual original or device provider powers', async ($, on) => {
+test('complete narrow name-wide grant preserves unrelated body defaults and actual original or device provider powers', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   for (const provider of ['original_person', 'device']) {
     w.access = await receipt(w, { provider }); await inspectPerson(ui, w); await press(ui, 'Review proposed grant')
@@ -587,7 +587,7 @@ test('complete narrow name-wide grant preserves unrelated body defaults and actu
 })
 
 test('double Approve shares the in-flight gate and sends one configured5s exact private-stdin mutation after fresh guards',
-  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private access state/$(literal)' } } as TestOptions, async ($, on) => {
+  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private access state/$(literal)', show_each_step: 'true' } } as TestOptions, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), normal = w.read, original = clone(w.access), delayed = delaySignal(w)
   let gated = false
   w.read = async (kind, payload, e) => { const value = await normal(kind, payload, e)
@@ -603,7 +603,7 @@ test('double Approve shares the in-flight gate and sends one configured5s exact 
   privacy(w, await shown(ui), false, '/fixture bin/peerspan;$(literal)', '/private access state/$(literal)')
 })
 
-test('matching already-approved preflight recovers recorded global consent with zero approval calls', async ($, on) => {
+test('matching already-approved preflight recovers recorded global consent with zero approval calls', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), original = clone(w.access.review)
   w.access = { ...w.access, state: 'approved', next_action: 'follow_policy_action' }
   await press(ui, 'Approve agent access'); await recorded(ui)
@@ -611,7 +611,7 @@ test('matching already-approved preflight recovers recorded global consent with 
   await checkPure(ui, w); expect(calls(w, PREPARE)).toHaveLength(1); privacy(w, await shown(ui))
 })
 
-test('closed consent nested grant provider policy payload parent and digest substitutions cannot become approval authority', async ($, on) => {
+test('closed consent nested grant provider policy payload parent and digest substitutions cannot become approval authority', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w), normal = w.read
   const variants: [string, (v: any) => void, boolean?][] = [
     ['extra', v => { v.access.extra = true }], ['wrong-access', v => { v.access.access_id = id('dint', 999) }],
@@ -647,7 +647,7 @@ test('closed consent nested grant provider policy payload parent and digest subs
   privacy(w, await shown(ui))
 })
 
-test('changed exact lookup fresh inspection parent host and native preflight terms send zero approval mutation', async ($, on) => {
+test('changed exact lookup fresh inspection parent host and native preflight terms send zero approval mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const mode of ['review', 'provider', 'inspection', 'expired', 'parent', 'host', 'root', 'native']) {
     w.read = normal; w.access = null; if (w.parent) w.parent.state = 'attached'
@@ -674,7 +674,7 @@ test('changed exact lookup fresh inspection parent host and native preflight ter
   privacy(w)
 })
 
-test('earliest live bound removes approval at its exact timer boundary with no read mutation or renewal', async ($, on) => {
+test('earliest live bound removes approval at its exact timer boundary with no read mutation or renewal', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w)
   const end = Date.parse(w.access.review.expires_at), before = w.calls.length
   await w.clock.advance(end - w.clock.now() - 1); expect(await button(ui, 'Approve agent access')).toBeDefined()
@@ -685,7 +685,7 @@ test('earliest live bound removes approval at its exact timer boundary with no r
   privacy(w, await shown(ui))
 })
 
-test('registered async preflight expiry blocks dispatch while exact post-dispatch approval can show durable history', async ($, on) => {
+test('registered async preflight expiry blocks dispatch while exact post-dispatch approval can show durable history', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const phase of ['preflight', 'dispatched']) {
     w.read = normal; ui = await attached($, w)
@@ -703,7 +703,7 @@ test('registered async preflight expiry blocks dispatch while exact post-dispatc
   privacy(w)
 })
 
-test('denied nonzero timeout raw null and changed approval results remain unknown until pure explicit Check', async ($, on) => {
+test('denied nonzero timeout raw null and changed approval results remain unknown until pure explicit Check', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), normal = w.read
   for (const mode of ['deny', 'timeout', 'raw', 'null', 'changed', 'unapproved']) {
     w.read = normal; w.access = await receipt(w); if (mode !== 'deny') await reenter(ui, w)
@@ -725,7 +725,7 @@ test('denied nonzero timeout raw null and changed approval results remain unknow
   privacy(w, await shown(ui))
 })
 
-test('post-IO authoritative project host and current clock guards discard reads before installing actionable private terms', async ($, on) => {
+test('post-IO authoritative project host and current clock guards discard reads before installing actionable private terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const mode of ['parent', 'host', 'root', 'native', 'future', 'malformed-time']) {
     if (w.parent) w.parent.state = 'attached'
@@ -748,7 +748,7 @@ test('post-IO authoritative project host and current clock guards discard reads 
   privacy(w)
 })
 
-test('Leave navigation context and end invalidate registered pending approval without revocation or late pane resurrection', async ($, on) => {
+test('Leave navigation context and end invalidate registered pending approval without revocation or late pane resurrection', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   ui = await attached($, w); w.access = await receipt(w, { created: NOW - 299_000 })
   await inspectPerson(ui, w); await press(ui, 'Review proposed grant')
@@ -789,7 +789,7 @@ test('Leave navigation context and end invalidate registered pending approval wi
   privacy(w)
 })
 
-test('access review preserves established authorized lease through Leave Close and reentry without new transport or tools', async ($, on) => {
+test('access review preserves established authorized lease through Leave Close and reentry without new transport or tools', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   await press(ui, 'Review adapter connection'); await press(ui, 'Approve adapter'); await press(ui, 'Connect adapter')
   expect(w.http).toHaveLength(1); await press(ui, /^Back to project$/)
@@ -804,7 +804,7 @@ test('access review preserves established authorized lease through Leave Close a
   privacy(w, await shown(again), true)
 })
 
-test('reversed inherited matching actions append one principal without rewriting order defaults or unrelated policy before separate approval', async ($, on) => {
+test('reversed inherited matching actions append one principal without rewriting order defaults or unrelated policy before separate approval', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.ruleActions = ['task.submit', 'message.append']
   const ui = await attached($, w), raw = clone(baseline(w))
   await inspectPerson(ui, w); await inspectionTerms(ui, w)

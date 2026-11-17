@@ -383,7 +383,7 @@ async function setup($: Engine, w: World, state: string | null = null, options: 
   w.parent = await parentFlow({ agent: { id: id('agent', 1), name: 'Agent "東京"', owner: 'Owner \\é', capabilities: ['capability "metadata"'] } })
   if (state) w.invitation = await invitationFlow(w.parent, w.networks[0], { ...options, state })
   if (!w.started) await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
-  const ui = await enter($, w); await press(ui, 'Connect this project'); return ui
+  const ui = await enter($, w); await press(ui, /^Connect this (?:project|conversation)$/); return ui
 }
 async function visible(ui: Pane) {
   return (await text(ui)) + '\n' + (await ui.findAll({ type: 'Input' })).map(input => input.props.value ?? '').join('\n')
@@ -433,7 +433,9 @@ async function joinFlow(parent: any, preview: any, person = KEY, options: any = 
     review_id: await digest('peerspan-join-review-v1', review), state, review, outcome, next_action: actions[state] }
 }
 async function joinEntry(w: World, ui: Pane) {
+  // Section 54: on its review screen Connect this conversation is the consent press, so it only navigates from the entry view.
   const connect = await ui.find({ type: 'Button', text: /^Connect this project$/ })
+    ?? (await ui.find({ type: 'Button', text: /^Join a network$/ }) ? undefined : await ui.find({ type: 'Button', text: /^Connect this conversation$/ }))
   if (connect) await ui.press({ key: connect.key! })
   await press(ui, 'Join a network'); await w.clock.settle()
 }
@@ -703,7 +705,7 @@ const configuredCommit: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private requester state/$(literal)' },
 }
 
-test('entry original approval owner Check progress Refresh and fresh reentry never prepare requester consent', async ($, on) => {
+test('entry original approval owner Check progress Refresh and fresh reentry never prepare requester consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.requestState = 'pending'
   const ui = await ownerPublished($, w, { state: 'review' })
   await reviewOwner(ui); await press(ui, 'Approve owner powers')
@@ -717,7 +719,7 @@ test('entry original approval owner Check progress Refresh and fresh reentry nev
   expect(commitCalls(w)).toHaveLength(0); privacy(w, await visible(ui))
 })
 
-test('entry requires exact approved original F while expired or cancelled null history never prepares', async ($, on) => {
+test('entry requires exact approved original F while expired or cancelled null history never prepares', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['owner missing', v => { v.owner = null }], ['owner unapproved', v => { v.owner.state = 'review'; v.owner.next_action = 'approve_owner_intent' }],
@@ -753,7 +755,7 @@ test('explicit null lookup precedes one preparation and displays exact quoted po
   expect(mutations(w)).toHaveLength(0); await terms(ui, w)
 })
 
-test('existing review approved and terminal histories recover lookup-only and null Check cannot prepare', async ($, on) => {
+test('existing review approved and terminal histories recover lookup-only and null Check cannot prepare', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w)
   for (const state of ['review', 'approved', 'cancelled', 'invalidated', 'expired']) {
     w.requestState = state === 'cancelled' ? 'cancelled' : state === 'invalidated' ? 'blocked' : state === 'expired' ? 'expired' : 'needs_commit'
@@ -789,7 +791,7 @@ test('double Approve freshly rechecks exact bindings and sends one configured5s 
   privacy(w, await visible(ui), false, configuredCommit.options.executable, configuredCommit.options.state)
 })
 
-test('double Complete sends one configured95s exact decision and requires verified local application without readiness', configuredCommit, async ($, on) => {
+test('double Complete sends one configured95s exact decision and requires verified local application without readiness', { ...configuredCommit, options: { ...configuredCommit.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w, { commitState: 'approved' }); await reviewCommit(ui, w)
   const normal = w.run, delayed = delaySignal(w, 1000), retained = clone(w.commitValue), at = w.trace.length
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === COMMIT_LOOKUP) await delayed.wait(); return value }
@@ -844,7 +846,7 @@ test('changed immutable consent original F request provider or selected terms st
   privacy(w, await visible(ui))
 })
 
-test('authoritative parent host flow root native and terminal are reread after preparation IO before display', async ($, on) => {
+test('authoritative parent host flow root native and terminal are reread after preparation IO before display', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await commitEligible($, w); const normal = w.run
   const saved = { parent: clone(w.parent), joining: clone(w.joining), owner: clone(w.ownerValue) }
   for (const [index, mode] of ['parent', 'host', 'flow', 'root', 'native', 'terminal'].entries()) {
@@ -871,7 +873,7 @@ test('authoritative parent host flow root native and terminal are reread after p
   privacy(w)
 })
 
-test('closed wrapper LINK_VIEW dates prefix and request binding corpus refuses actionable terms', async ($, on) => {
+test('closed wrapper LINK_VIEW dates prefix and request binding corpus refuses actionable terms', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   w.commitValue = await commitRecord(w)
   const variants: [string, (v: any) => void][] = [
@@ -896,7 +898,7 @@ test('closed wrapper LINK_VIEW dates prefix and request binding corpus refuses a
   privacy(w, await visible(ui))
 })
 
-test('review digest fixed powers provider root parents UTC and creation bounds refuse semantic substitutions', async ($, on) => {
+test('review digest fixed powers provider root parents UTC and creation bounds refuse semantic substitutions', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   w.commitValue = await commitRecord(w)
   const variants: [string, (v: any) => void][] = [
@@ -926,7 +928,7 @@ test('review digest fixed powers provider root parents UTC and creation bounds r
   privacy(w, await visible(ui))
 })
 
-test('all seven short private token forms including decorated OSC content never enter requester terms or public output', async ($, on) => {
+test('all seven short private token forms including decorated OSC content never enter requester terms or public output', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w), normal = w.run
   w.commitValue = await commitRecord(w)
   const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.', 'peerspan-person-invite-v1.', 'token_', 'instance_']
@@ -971,7 +973,7 @@ test('malformed or changed approval replies stay unknown and Check recovers only
   privacy(w, await visible(ui))
 })
 
-test('bare null extra mismatched or overclaiming completion markers cannot confirm application and Check invents no marker', async ($, on) => {
+test('bare null extra mismatched or overclaiming completion markers cannot confirm application and Check invents no marker', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w, { commitState: 'approved' }), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['bare', v => { delete v.completion }], ['null', v => { v.completion = null }], ['extra', v => { v.completion.extra = true }],
@@ -1032,7 +1034,7 @@ test('human review expiry removes Approve at the exact boundary without reading 
   privacy(w, await visible(ui))
 })
 
-test('approved signed six-stage work keeps Complete after review expiry then loses it at signed request deadline', async ($, on) => {
+test('approved signed six-stage work keeps Complete after review expiry then loses it at signed request deadline', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await commitEligible($, w, { commitState: 'approved', requestState: 'finalizing' })
   await reviewCommit(ui, w); const end = Date.parse(w.commitValue.review.expires_at), before = w.calls.length
   expect(await button(ui, 'Complete requester commit')).toBeDefined()
@@ -1063,7 +1065,7 @@ test('actual registered preflight deadline crossing blocks dispatch while post-d
   privacy(w)
 })
 
-test('Leave pending operations and native navigation changes invalidate late results and old timers without retracting consent', async ($, on) => {
+test('Leave pending operations and native navigation changes invalidate late results and old timers without retracting consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await commitEligible($, w, { commitState: 'approved', deadline: NOW + 2000 }); const normal = w.run
   await reviewCommit(ui, w)
   const oldRead = delaySignal(w, 1000)

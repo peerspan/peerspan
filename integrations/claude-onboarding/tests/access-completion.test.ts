@@ -470,7 +470,7 @@ async function closePane(ui: Pane) {
   await ui.unmount()
 }
 
-test('entry nonsigning approval lookup Check and fresh reentry never implicitly continue the approved policy action', async ($, on) => {
+test('entry nonsigning approval lookup Check and fresh reentry never implicitly continue the approved policy action', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w)
   await noFinish(ui); await press(ui, 'Approve agent access'); await recorded(ui)
   expect(await button(ui, 'Finish agent access')).toBeDefined(); expect(await button(ui, 'Check application')).toBeDefined()
@@ -484,7 +484,7 @@ test('entry nonsigning approval lookup Check and fresh reentry never implicitly 
 })
 
 test('explicit configured Finish signs once then freshly observes and applies once with separate95s bounds and exact private decisions',
-  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private completion state/$(literal)' } } as TestOptions, async ($, on) => {
+  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private completion state/$(literal)', show_each_step: 'true' } } as TestOptions, async ($, on) => {
   const w = fixture(on), ui = await approved($, w), original = clone(w.access.review), at = w.calls.length
   expect(await button(ui, 'Finish agent access')).toBeDefined()
   expect(await shown(ui)).toMatch(/sign[\s\S]*appl|appl[\s\S]*sign/i)
@@ -500,7 +500,7 @@ test('explicit configured Finish signs once then freshly observes and applies on
   privacy(w, await shown(ui), false, '/fixture bin/peerspan;$(literal)', '/private completion state/$(literal)')
 })
 
-test('actual dispatched completion preflight is single-flight under a second Finish press', async ($, on) => {
+test('actual dispatched completion preflight is single-flight under a second Finish press', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await approved($, w), normal = w.read, delayed = delaySignal(w)
   let held = false
   w.read = async (kind, payload, e) => { const value = await normal(kind, payload, e)
@@ -514,7 +514,7 @@ test('actual dispatched completion preflight is single-flight under a second Fin
   expect(calls(w, SIGN)).toHaveLength(1); expect(calls(w, APPLY)).toHaveLength(1); privacy(w, await shown(ui))
 })
 
-test('already signed state skips signer while an already applied first observation finishes through pure recovery', async ($, on) => {
+test('already signed state skips signer while an already applied first observation finishes through pure recovery', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.applicationState = 'signed'
   let ui = await approved($, w); await press(ui, 'Finish agent access'); await appliedRecorded(ui, w)
   expect(calls(w, SIGN)).toEqual([]); expect(calls(w, APPLY)).toHaveLength(1)
@@ -524,7 +524,7 @@ test('already signed state skips signer while an already applied first observati
   expect(calls(w, APPLY)).toHaveLength(1); expect(calls(w, SIGN)).toEqual([]); privacy(w, await shown(ui))
 })
 
-test('Check application advances only verified global unsigned signed applied history and stays pure after the fixed deadline', async ($, on) => {
+test('Check application advances only verified global unsigned signed applied history and stays pure after the fixed deadline', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await approved($, w)
   await checkApplication(ui, w); expect(await shown(ui)).not.toContain('Local application: recorded')
   w.applicationState = 'signed'; await checkApplication(ui, w); await signedRecorded(ui, w, true)
@@ -537,7 +537,7 @@ test('Check application advances only verified global unsigned signed applied hi
   privacy(w, await shown(ui))
 })
 
-test('closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing', async ($, on) => {
+test('closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   const variants: [string, (v: any) => void][] = [
     ['bare', v => { delete v.signing }], ['null', v => { v.signing = null }], ['extra', v => { v.signing.extra = true }],
@@ -557,7 +557,7 @@ test('closed signed-result count reference state date and private-value faults s
   privacy(w)
 })
 
-test('closed application observation rejects null bare extra proof identity readiness and malformed-date terms without mutation', async ($, on) => {
+test('closed application observation rejects null bare extra proof identity readiness and malformed-date terms without mutation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   const variants: [string, (v: any) => void][] = [
     ['bare', v => { delete v.application }], ['null', v => { v.application = null }], ['extra', v => { v.application.extra = true }],
@@ -576,7 +576,7 @@ test('closed application observation rejects null bare extra proof identity read
   privacy(w)
 })
 
-test('Apply must return exact locally-applied evidence with the observed proof while bare changed or partial replies stay unknown', async ($, on) => {
+test('Apply must return exact locally-applied evidence with the observed proof while bare changed or partial replies stay unknown', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   const variants: [string, (v: any) => void][] = [
     ['bare', v => { delete v.application }], ['null', v => { v.application = null }],
@@ -594,7 +594,7 @@ test('Apply must return exact locally-applied evidence with the observed proof w
   privacy(w)
 })
 
-test('observed public proof and monotone state survive unknown Check replies within one captured completion view', async ($, on) => {
+test('observed public proof and monotone state survive unknown Check replies within one captured completion view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.applicationState = 'signed'; const ui = await approved($, w), normal = w.read
   await checkApplication(ui, w); await signedRecorded(ui, w, true)
   for (const mode of ['proof', 'regress', 'null']) {
@@ -615,7 +615,7 @@ test('observed public proof and monotone state survive unknown Check replies wit
   privacy(w, await shown(ui))
 })
 
-test('changed immutable consent fresh inspection or authoritative context stops the next captured mutation without rebind', async ($, on) => {
+test('changed immutable consent fresh inspection or authoritative context stops the next captured mutation without rebind', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const mode of ['review', 'inspection', 'parent', 'host', 'native', 'provider-after-sign']) {
     w.read = normal; w.root = ROOT; w.native = NATIVE; w.host = HOST; if (w.parent) w.parent.state = 'attached'
@@ -643,7 +643,7 @@ test('changed immutable consent fresh inspection or authoritative context stops 
   privacy(w)
 })
 
-test('the exact earliest fixed deadline removes Finish without IO while retained applied history stays readable', async ($, on) => {
+test('the exact earliest fixed deadline removes Finish without IO while retained applied history stays readable', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await approved($, w, { created: NOW - 299_000 })
   const before = w.calls.length, end = Date.parse(w.access.review.expires_at)
   await w.clock.advance(end - w.clock.now() - 1); expect(await button(ui, 'Finish agent access')).toBeDefined()
@@ -652,7 +652,7 @@ test('the exact earliest fixed deadline removes Finish without IO while retained
   expect(mutations(w)).toEqual([]); privacy(w, await shown(ui))
 })
 
-test('actual registered preflight clock crossing blocks signing or the next apply after a recorded signature', async ($, on) => {
+test('actual registered preflight clock crossing blocks signing or the next apply after a recorded signature', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const phase of ['sign', 'apply']) {
     w.read = normal; w.applicationState = 'unsigned'; ui = await approved($, w, { created: w.clock.now() - 299_000 })
@@ -670,7 +670,7 @@ test('actual registered preflight clock crossing blocks signing or the next appl
   privacy(w)
 })
 
-test('signing and apply uncertainty stop the pipeline then pure Check recovers before one explicit remaining operation', async ($, on) => {
+test('signing and apply uncertainty stop the pipeline then pure Check recovers before one explicit remaining operation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   const variants = [[SIGN, 'deny'], [SIGN, 'timeout'], [SIGN, 'raw-lost'], [APPLY, 'timeout-lost'], [APPLY, 'null-lost']]
   for (const [fault, mode] of variants) {
@@ -699,7 +699,7 @@ test('signing and apply uncertainty stop the pipeline then pure Check recovers b
   privacy(w)
 })
 
-test('post-sign dispatch expiry preserves signature history without apply and post-apply expiry permits exact historical application', async ($, on) => {
+test('post-sign dispatch expiry preserves signature history without apply and post-apply expiry permits exact historical application', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const phase of [SIGN, APPLY]) {
     w.read = normal; w.applicationState = phase === SIGN ? 'unsigned' : 'signed'
@@ -721,7 +721,7 @@ test('post-sign dispatch expiry preserves signature history without apply and po
   privacy(w)
 })
 
-test('late preflight signer application and old timers cannot resurrect a departed or newer selected completion view', async ($, on) => {
+test('late preflight signer application and old timers cannot resurrect a departed or newer selected completion view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), normal = w.read; let ui = await approved($, w, { created: NOW - 299_000 })
   const oldRead = delaySignal(w, 2000)
   w.read = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === LOOKUP) await oldRead.wait(); return value }
@@ -760,7 +760,7 @@ test('late preflight signer application and old timers cannot resurrect a depart
   privacy(w)
 })
 
-test('Finish pure Check and leaving preserve the established authorized lease with no new tools prompts keys or direct transport', async ($, on) => {
+test('Finish pure Check and leaving preserve the established authorized lease with no new tools prompts keys or direct transport', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on), ui = await attached($, w)
   await press(ui, 'Review adapter connection'); await press(ui, 'Approve adapter'); await press(ui, 'Connect adapter')
   expect(w.http).toHaveLength(1); await press(ui, /^Back to project$/)
@@ -816,7 +816,7 @@ async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>
     await realTurn()
   }
 }
-test('automatic progress never checks agent access while Finish is due here or after local application', { timeoutMs: 30000 }, async ($, on) => {
+test('automatic progress never checks agent access while Finish is due here or after local application', { options: { show_each_step: 'true' }, timeoutMs: 30000 }, async ($, on) => {
   // Section52: checking stops when the view shows an action due for this
   // participant or a terminal state, and never signs or applies by itself.
   const w = fixture(on), ui = await approved($, w)

@@ -424,7 +424,7 @@ const pluginCaller = { name: 'untrusted-task-caller', register(on: On) {
   })
 } }
 
-test('entry Connect saved channel queued hello and current message ready stay task-inert until explicit enable', async ($, on) => {
+test('entry Connect saved channel queued hello and current message ready stay task-inert until explicit enable', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   for (const args of ['enable incoming tasks', '--tasks', 'task_accept']) await $.command.run({ command: 'peerspan', args })
@@ -447,7 +447,7 @@ test('entry Connect saved channel queued hello and current message ready stay ta
   privacy(w, await text(fresh))
 })
 
-test('double enable and Stop/re-enable share pending registration and register five narrow tools once without another hello', async ($, on) => {
+test('double enable and Stop/re-enable share pending registration and register five narrow tools once without another hello', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   w.register = async e => { if (e.name === 'task_accept') await w.clock.sleep(1000) }
   const button = await key(ui, 'Enable incoming tasks')
@@ -477,7 +477,7 @@ test('double enable and Stop/re-enable share pending registration and register f
   privacy(w, await text(ui))
 })
 
-test('context changed during task registration prevents every task claim after the asynchronous enable check', async ($, on) => {
+test('context changed during task registration prevents every task claim after the asynchronous enable check', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   w.register = async e => { if (e.name === 'task_accept') { await w.clock.sleep(1000); w.native = 'changed-during-registration' } }
   const pending = press(ui, 'Enable incoming tasks'); void pending.catch(() => undefined)
@@ -487,7 +487,7 @@ test('context changed during task registration prevents every task claim after t
   expect(w.prompts.length).toBe(1); privacy(w, await text(ui))
 })
 
-test('cancellations then tasks serialize each prompt and schedule from completion while messages and lease progress independently', async ($, on) => {
+test('cancellations then tasks serialize each prompt and schedule from completion while messages and lease progress independently', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   await w.clock.advance(4000)
   const cancel = cancelHandoff(w, 1), task = taskHandoff(w, 2)
@@ -510,7 +510,7 @@ test('cancellations then tasks serialize each prompt and schedule from completio
   privacy(w, await text(ui))
 })
 
-test('queued redelivered policy self and adopted offset-deadline tasks project only reversible untrusted public metadata', async ($, on) => {
+test('queued redelivered policy self and adopted offset-deadline tasks project only reversible untrusted public metadata', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const queued = taskHandoff(w, 1), policy = taskHandoff(w, 2), adopted = taskHandoff(w, 3, true)
   queued.task.artifacts = [{ name: 'report 東京.txt', size: 0, sha256: 'f'.repeat(64), media_type: 'text/plain' }]
@@ -544,7 +544,7 @@ test('queued redelivered policy self and adopted offset-deadline tasks project o
   expect(await text(ui)).toContain('Peer exchange: not verified'); privacy(w, await text(ui))
 })
 
-test('task handoff bindings exact shapes states UTF-8 and artifact/delegation metadata are checked before any prompt', async ($, on) => {
+test('task handoff bindings exact shapes states UTF-8 and artifact/delegation metadata are checked before any prompt', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const cases: [string, (h: any) => void][] = [
     ['session', h => { h.delivery.session_id = id('session', 99) }],
@@ -583,7 +583,7 @@ test('task handoff bindings exact shapes states UTF-8 and artifact/delegation me
   privacy(w, await text(ui))
 })
 
-test('one delivery may yield one task and one cancellation notice without automatically accepting or stopping work', async ($, on) => {
+test('one delivery may yield one task and one cancellation notice without automatically accepting or stopping work', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const task = taskHandoff(w, 1); w.tasks = [task]; await enableTasks(w, ui)
   expect(resultOf(await call($, ACCEPT, { task_id: task.task.task_id }))).toEqual(stripped(w.taskStatuses[task.task.task_id]))
@@ -600,7 +600,7 @@ test('one delivery may yield one task and one cancellation notice without automa
   privacy(w, await text(ui))
 })
 
-test('unbound malformed final and unrequested cancellation claims stop only task delivery without a notice', async ($, on) => {
+test('unbound malformed final and unrequested cancellation claims stop only task delivery without a notice', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const changes = [ (h: any) => { h.delivery.cancel_claimed_at = null },
     (h: any) => { h.status.cancel_requested = false }, (h: any) => { h.status.state = 'cancelled' },
@@ -615,7 +615,7 @@ test('unbound malformed final and unrequested cancellation claims stop only task
   expect(writes(w)).toEqual([]); privacy(w, await text(ui))
 })
 
-test('five scoped lifecycle tools address earlier held tasks and count unique sender/task/events without grant reads', async ($, on) => {
+test('five scoped lifecycle tools address earlier held tasks and count unique sender/task/events without grant reads', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   for (const n of [1, 2, 3, 4]) w.taskStatuses[id('task', n)] = taskStatus(w, n, n > 2 ? 'running' : 'queued',
     n === 3 ? { cancel_requested: true, last_event: 3 } : {})
@@ -642,7 +642,7 @@ test('five scoped lifecycle tools address earlier held tasks and count unique se
   privacy(w, await text(ui))
 })
 
-test('task model tools reject plugin subagent extra selectors and UTF-8 overflow before HTTP but allow exact byte bounds', { plugins: [pluginCaller] }, async ($, on) => {
+test('task model tools reject plugin subagent extra selectors and UTF-8 overflow before HTTP but allow exact byte bounds', { options: { show_each_step: 'true' }, plugins: [pluginCaller] }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); const taskId = id('task', 1)
   w.taskStatuses[taskId] = taskStatus(w, 1)
   denied(await call($, ACCEPT, { task_id: taskId })); await ready($, w, ui)
@@ -679,7 +679,7 @@ test('task model tools reject plugin subagent extra selectors and UTF-8 overflow
   privacy(w, await text(ui))
 })
 
-test('bound expected statuses and controlled uncertain writes leave task authority usable without false evidence or auto retry', async ($, on) => {
+test('bound expected statuses and controlled uncertain writes leave task authority usable without false evidence or auto retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   const taskId = id('task', 1), normal = w.fetch
   w.taskStatuses[taskId] = taskStatus(w, 1)
@@ -714,7 +714,7 @@ test('bound expected statuses and controlled uncertain writes leave task authori
   privacy(w, await text(ui))
 })
 
-test('one pending task write synchronously refuses overlapping writes and confirms only the completed status', async ($, on) => {
+test('one pending task write synchronously refuses overlapping writes and confirms only the completed status', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   const taskId = id('task', 1); w.taskStatuses[taskId] = taskStatus(w, 1)
   const normal = w.fetch
@@ -729,7 +729,7 @@ test('one pending task write synchronously refuses overlapping writes and confir
   privacy(w, await text(ui))
 })
 
-test('Stop incoming tasks during asynchronous inspection prevents a scoped write while messages remain ready', async ($, on) => {
+test('Stop incoming tasks during asynchronous inspection prevents a scoped write while messages remain ready', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   const taskId = id('task', 1); w.taskStatuses[taskId] = taskStatus(w, 1)
   const normal = w.run; let inspecting = false
@@ -748,7 +748,7 @@ test('Stop incoming tasks during asynchronous inspection prevents a scoped write
   expect(await text(ui)).toContain('Adapter: connected'); privacy(w, await text(ui))
 })
 
-test('claim and submission uncertainty stop tasks alone with explicit retry and no replay of uncertain task or cancellation IDs', async ($, on) => {
+test('claim and submission uncertainty stop tasks alone with explicit retry and no replay of uncertain task or cancellation IDs', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const normalFetch = w.fetch
   for (const [index, mode] of ['claim-denied', 'claim-timeout', 'submission-drop', 'submission-timeout'].entries()) {
@@ -797,7 +797,7 @@ test('claim and submission uncertainty stop tasks alone with explicit retry and 
   expect(writes(w)).toEqual([]); privacy(w, await text(ui))
 })
 
-test('Back and Close preserve established task polling while Stop tasks preserves message and lease authority only', async ($, on) => {
+test('Back and Close preserve established task polling while Stop tasks preserves message and lease authority only', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   await press(ui, 'Back to Peerspan'); await press(ui, 'Close'); await ui.unmount()
   w.tasks = [taskHandoff(w, 1)]; await w.clock.advance(1000)
@@ -820,7 +820,7 @@ test('Back and Close preserve established task polling while Stop tasks preserve
   privacy(w, await text(fresh))
 })
 
-test('loss of the captured message proof stops task authority and a fresh message proof still needs explicit task enable', async ($, on) => {
+test('loss of the captured message proof stops task authority and a fresh message proof still needs explicit task enable', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   w.tasks = [taskHandoff(w, 1)]; await enableTasks(w, ui)
   const normal = w.fetch
@@ -841,7 +841,7 @@ test('loss of the captured message proof stops task authority and a fresh messag
 })
 
 for (const phase of ['claim', 'submission']) {
-  test(`late old task ${phase} cannot submit count or cancel a newer explicitly enabled attempt`, async ($, on) => {
+  test(`late old task ${phase} cannot submit count or cancel a newer explicitly enabled attempt`, { options: { show_each_step: 'true' } }, async ($, on) => {
     const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
     const old = taskHandoff(w, 1); w.tasks = [old]
     const normal = w.fetch; let delay = true
@@ -861,7 +861,7 @@ for (const phase of ['claim', 'submission']) {
   })
 }
 
-test('late task write completion cannot update counters or replace a newer task attempt', async ($, on) => {
+test('late task write completion cannot update counters or replace a newer task attempt', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   const taskId = id('task', 1); w.taskStatuses[taskId] = taskStatus(w, 1)
   const normal = w.fetch
@@ -878,7 +878,7 @@ test('late task write completion cannot update counters or replace a newer task 
   privacy(w, await text(ui))
 })
 
-test('context scope lease expiry and session end stop all task authority and future work', { timeoutMs: 15_000 }, async ($, on) => {
+test('context scope lease expiry and session end stop all task authority and future work', { options: { show_each_step: 'true' }, timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); let ui = await connected($, w); const normalRun = w.run
   for (const [index, mode] of ['root', 'native', 'surface', 'scope', 'lease', 'end'].entries()) {
     if (index > 0) {
@@ -910,7 +910,7 @@ test('context scope lease expiry and session end stop all task authority and fut
   privacy(w)
 })
 
-test('an old pending inspection failure cannot stop the lease or a newer task attempt under the same message proof', async ($, on) => {
+test('an old pending inspection failure cannot stop the lease or a newer task attempt under the same message proof', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui); await enableTasks(w, ui)
   const normal = w.run; let delayed = false
   w.run = async (kind, payload, e) => {
@@ -933,7 +933,7 @@ test('an old pending inspection failure cannot stop the lease or a newer task at
 })
 
 
-test('a stale task enable control cannot activate tasks after terminal support disappears', async ($, on) => {
+test('a stale task enable control cannot activate tasks after terminal support disappears', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   const button = await key(ui, 'Enable incoming tasks')
   w.surface = 'desktop'; w.surfaces = ['desktop']
@@ -946,7 +946,7 @@ test('a stale task enable control cannot activate tasks after terminal support d
 })
 
 
-test('late registration from an ended conversation cannot populate or duplicate the next conversation task registry', async ($, on) => {
+test('late registration from an ended conversation cannot populate or duplicate the next conversation task registry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await connected($, w); await ready($, w, ui)
   let delayed = false
   w.register = async e => {
@@ -976,7 +976,7 @@ test('late registration from an ended conversation cannot populate or duplicate 
 })
 
 
-test('explicit registration Retry repeats only a failed tool and shares its pending retry while retaining successful tools', async ($, on) => {
+test('explicit registration Retry repeats only a failed tool and shares its pending retry while retaining successful tools', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   let attempted = 0, failed = '', failOnce = true
   const successful = new Set<string>()

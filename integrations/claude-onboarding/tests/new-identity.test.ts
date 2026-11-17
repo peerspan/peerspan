@@ -609,7 +609,7 @@ async function noRetry(ui: Pane) {
   await noCreation(ui); await noJoinDecision(ui)
 }
 
-test('only empty unpinned explicit joining offers creation review without generating selecting preparing or publishing', async ($, on) => {
+test('only empty unpinned explicit joining offers creation review without generating selecting preparing or publishing', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   for (const args of ['create identity', '--create-new-identity', CODE]) await $.command.run({ command: 'peerspan', args })
@@ -630,7 +630,7 @@ test('only empty unpinned explicit joining offers creation review without genera
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('available originals pinned invitations and elapsed previews never offer a new-person creation action', async ($, on) => {
+test('available originals pinned invitations and elapsed previews never offer a new-person creation action', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   const variants = [
     { identities: [{ public_key: KEY, sources: ['generated'] }], pin: '-' },
@@ -647,7 +647,7 @@ test('available originals pinned invitations and elapsed previews never offer a 
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('Cancel discards the complete private creation attempt and reopening requires empty fresh input', async ($, on) => {
+test('Cancel discards the complete private creation attempt and reopening requires empty fresh input', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w)
   const inventory = count(w, 'join.identities')
   await press(ui, 'Cancel identity creation'); await w.clock.settle()
@@ -661,7 +661,7 @@ test('Cancel discards the complete private creation attempt and reopening requir
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('double explicit save rechecks zero inventory then sends one exact15s private creation command and only returns public choices', configured, async ($, on) => {
+test('double explicit save rechecks zero inventory then sends one exact15s private creation command and only returns public choices', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w), normal = w.run
   let waiting = false
   w.run = async (kind, payload, e) => {
@@ -687,7 +687,7 @@ test('double explicit save rechecks zero inventory then sends one exact15s priva
   scopedIdentityPrivacy(w, await visible(ui), false, configured.options.executable, configured.options.state)
 })
 
-test('post-save inventory accepts generated inclusion plus concurrent agent provenance and other public choices without selecting', async ($, on) => {
+test('post-save inventory accepts generated inclusion plus concurrent agent provenance and other public choices without selecting', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w), normal = w.run
   w.run = async (kind, payload, e) => {
     const value = await normal(kind, payload, e)
@@ -716,7 +716,7 @@ test('saved identity requires separate explicit key choice and publication conse
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('creation reply exact shape host context key provenance and post-save key binding must validate before reporting saved', async ($, on) => {
+test('creation reply exact shape host context key provenance and post-save key binding must validate before reporting saved', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['version', v => { v.version = 2 }], ['extra', v => { v.private_provider = RAW }],
@@ -737,7 +737,7 @@ test('creation reply exact shape host context key provenance and post-save key b
   }
 })
 
-test('failed post-save inventory leaves an uncertain nonretrying state and never adopts a key without generated provenance', async ($, on) => {
+test('failed post-save inventory leaves an uncertain nonretrying state and never adopts a key without generated provenance', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   for (const [index, mode] of ['missing', 'agent-only', 'denied'].entries()) {
     if (index) await currentProject(ui)
@@ -757,7 +757,7 @@ test('failed post-save inventory leaves an uncertain nonretrying state and never
   }
 })
 
-test('changed zero inventory parent host root conversation surface or elapsed deadline prevents captured creation dispatch', async ($, on) => {
+test('changed zero inventory parent host root conversation surface or elapsed deadline prevents captured creation dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), original = clone(w.parent), normal = w.run
   for (const [index, mode] of ['inventory', 'parent', 'host', 'root', 'native', 'surface', 'deadline'].entries()) {
     if (index) await currentProject(ui)
@@ -783,7 +783,7 @@ test('changed zero inventory parent host root conversation surface or elapsed de
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('denied and raw private creation failures require explicit fresh read-only recovery and never automatically retry', async ($, on) => {
+test('denied and raw private creation failures require explicit fresh read-only recovery and never automatically retry', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w), normal = w.run
   for (const [index, mode] of ['denied', 'raw'].entries()) {
     if (index) await currentProject(ui)
@@ -807,7 +807,7 @@ test('denied and raw private creation failures require explicit fresh read-only 
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('Cancel during pending zero-inventory recheck cancels write authority before dispatch', async ($, on) => {
+test('Cancel during pending zero-inventory recheck cancels write authority before dispatch', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w), normal = w.run
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.identities') await w.clock.sleep(1000); return value }
   const pending = press(ui, 'Create and save identity'); void pending.catch(() => undefined)
@@ -817,7 +817,7 @@ test('Cancel during pending zero-inventory recheck cancels write authority befor
   expect(await visible(ui)).not.toContain(CODE); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('Back and Close after dispatch may preserve the approved key but old callbacks cannot populate a newer joining view', async ($, on) => {
+test('Back and Close after dispatch may preserve the approved key but old callbacks cannot populate a newer joining view', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); const normal = w.run
   for (const [index, mode] of ['back', 'close'].entries()) {
     if (index) await currentProject(ui)
@@ -840,7 +840,7 @@ test('Back and Close after dispatch may preserve the approved key but old callba
   }
 })
 
-test('Refresh abandons the creation review and private code without dispatch or automatic inventory', async ($, on) => {
+test('Refresh abandons the creation review and private code without dispatch or automatic inventory', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w)
   const before = count(w, 'join.identities'); await press(ui, 'Refresh'); await w.clock.settle()
   expect(count(w, 'join.create-identity')).toBe(0); expect(count(w, 'join.identities')).toBe(before)
@@ -849,7 +849,7 @@ test('Refresh abandons the creation review and private code without dispatch or 
   scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('fixed invitation expiry clears creation controls and old timers cannot cancel a newer creation review', async ($, on) => {
+test('fixed invitation expiry clears creation controls and old timers cannot cancel a newer creation review', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await creationReview($, w, undefined, { expires: NOW + 3000 })
   await w.clock.advance(1000); await back(ui)
   await creationReview($, w, ui, { n: 31, member: 'Newer creation review', expires: NOW + 10_000 })
@@ -862,7 +862,7 @@ test('fixed invitation expiry clears creation controls and old timers cannot can
   expect(count(w, 'join.create-identity')).toBe(0); scopedIdentityPrivacy(w, await visible(ui))
 })
 
-test('context host parent surface or end after dispatched persistence cannot erase a saved key or revive its old confirmation', async ($, on) => {
+test('context host parent surface or end after dispatched persistence cannot erase a saved key or revive its old confirmation', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); const original = clone(w.parent), normal = w.run
   for (const [index, mode] of ['root', 'native', 'host', 'surface', 'parent', 'end'].entries()) {
     if (index) {
@@ -892,7 +892,7 @@ test('context host parent surface or end after dispatched persistence cannot era
   scopedIdentityPrivacy(w)
 })
 
-test('ordinary creation review save and pane navigation preserve durable inviter and established delivery runtimes', async ($, on) => {
+test('ordinary creation review save and pane navigation preserve durable inviter and established delivery runtimes', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = [network()]
   const ui = await connected($, w); await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   w.invitation = await invitationFlow(w.parent, w.networks[0], { state: 'issued' }); const issued = clone(w.invitation)

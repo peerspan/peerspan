@@ -500,7 +500,7 @@ async function currentProject(ui: Pane) {
   if (previous) await ui.press({ key: previous.key! })
 }
 
-test('load headless Refresh model arguments and unattached projects never inspect or collect a recipient code', async ($, on) => {
+test('load headless Refresh model arguments and unattached projects never inspect or collect a recipient code', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on)
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   for (const args of ['review an invitation', '--invitation-preview', CODE]) await $.command.run({ command: 'peerspan', args })
@@ -517,7 +517,7 @@ test('load headless Refresh model arguments and unattached projects never inspec
   expect(invitationCalls(w)).toEqual([]); safe(w)
 })
 
-test('only attached explicit recipient entry checks current context and parent then shows an empty visibly private field', async ($, on) => {
+test('only attached explicit recipient entry checks current context and parent then shows an empty visibly private field', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   expect(invitationCalls(w)).toEqual([])
   const at = w.trace.length; await recipientEntry(w, ui); await emptyDraft(ui)
@@ -534,7 +534,7 @@ test('only attached explicit recipient entry checks current context and parent t
 const configured: TestOptions & { options: Record<string, string> } = {
   options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private host state/$(literal)' },
 }
-test('draft and Enter stay inert while one explicit double Inspect clears input before inspection and uses private literal argv', configured, async ($, on) => {
+test('draft and Enter stay inert while one explicit double Inspect clears input before inspection and uses private literal argv', { ...configured, options: { ...configured.options, show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await recipientEntry(w, ui)
   await edit(ui, 'Private invitation code', CODE)
   await ui.input({ key: (await inputField(ui, 'Private invitation code')).key!, text: CODE, kind: 'submit' })
@@ -563,7 +563,7 @@ test('draft and Enter stay inert while one explicit double Inspect clears input 
   safe(w, await visible(ui), false, false, configured.options.executable, configured.options.state)
 })
 
-test('verified preview quotes every public term including stale contacts and full u64 strings without claiming authority or consent', async ($, on) => {
+test('verified preview quotes every public term including stale contacts and full u64 strings without claiming authority or consent', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await recipientEntry(w, ui); await inspect(w, ui)
   const value = await previewResponse(w), review = value.review, shown = await visible(ui)
   for (const term of [ROOT, quote(review.agent.name), quote(review.agent.owner), ...review.agent.capabilities.map(quote),
@@ -582,7 +582,7 @@ test('verified preview quotes every public term including stale contacts and ful
   expect(invitationCalls(w).map(command => command.kind)).toEqual(['invitation.preview']); safe(w, shown)
 })
 
-test('malformed and oversized drafts clear without a request and the exact 32KiB syntactic boundary reaches only the private process', async ($, on) => {
+test('malformed and oversized drafts clear without a request and the exact 32KiB syntactic boundary reaches only the private process', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await recipientEntry(w, ui)
   const invalid = ['', ' ' + CODE, CODE + ' ', 'psi2-', 'psi2-A=', 'psi2-SHORTSECRET!', 'psi1-AAAA', 'psi2-' + 'A'.repeat(32764)]
   for (const [index, code] of invalid.entries()) {
@@ -602,7 +602,7 @@ test('malformed and oversized drafts clear without a request and the exact 32KiB
   expect(previewCalls(w).length).toBe(1); safe(w, await visible(ui))
 })
 
-test('changed malformed expired or private-looking exact response terms never become a verified preview', async ($, on) => {
+test('changed malformed expired or private-looking exact response terms never become a verified preview', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const normal = w.run
   const variants: [string, (value: any) => void][] = [
     ['top-extra', v => { v.secret = RAW }], ['version', v => { v.version = 2 }],
@@ -638,7 +638,7 @@ test('changed malformed expired or private-looking exact response terms never be
   expect(previewCalls(w).length).toBe(variants.length)
 })
 
-test('denied or raw process results are controlled and never retried or retained by Refresh', async ($, on) => {
+test('denied or raw process results are controlled and never retried or retained by Refresh', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const normal = w.run
   for (const [index, mode] of ['denied', 'raw'].entries()) {
     if (index) await currentProject(ui)
@@ -653,7 +653,7 @@ test('denied or raw process results are controlled and never retried or retained
   safe(w, await visible(ui))
 })
 
-test('Inspect another Back Close and Refresh discard the draft or preview and require explicit fresh input', async ($, on) => {
+test('Inspect another Back Close and Refresh discard the draft or preview and require explicit fresh input', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); await recipientEntry(w, ui); await inspect(w, ui)
   await press(ui, 'Inspect another invitation'); await emptyDraft(ui); await unverified(ui)
   await edit(ui, 'Private invitation code', CODE2); await back(ui)
@@ -666,7 +666,7 @@ test('Inspect another Back Close and Refresh discard the draft or preview and re
   expect(previewCalls(w).length).toBe(3); safe(w, await visible(ui))
 })
 
-test('an old async preview cannot replace a newer inspected invitation after Back', async ($, on) => {
+test('an old async preview cannot replace a newer inspected invitation after Back', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); await recipientEntry(w, ui)
   const normal = w.run; let first = true
   w.run = async (kind, payload, e) => {
@@ -687,7 +687,7 @@ test('an old async preview cannot replace a newer inspected invitation after Bac
   expect(await visible(ui)).not.toContain(quote('Old public member')); safe(w, await visible(ui))
 })
 
-test('strict invitation expiry clears the preview and obsolete timers cannot hide a newer preview', async ($, on) => {
+test('strict invitation expiry clears the preview and obsolete timers cannot hide a newer preview', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w)
   w.previewValue = await previewResponse(w, { expires: NOW + 3000 }); await recipientEntry(w, ui); await inspect(w, ui)
   expect(await visible(ui)).toContain('Invitation: signature verified'); await w.clock.advance(1000)
@@ -702,7 +702,7 @@ test('strict invitation expiry clears the preview and obsolete timers cannot hid
   safe(w, await visible(ui))
 })
 
-test('current parent root host and terminal guards run before sending and a late expired result remains unverified', async ($, on) => {
+test('current parent root host and terminal guards run before sending and a late expired result remains unverified', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); const original = clone(w.parent), normal = w.run
   for (const [index, mode] of ['parent', 'root', 'host', 'terminal', 'late-expiry'].entries()) {
     if (index) {
@@ -735,7 +735,7 @@ test('current parent root host and terminal guards run before sending and a late
   safe(w, await visible(ui))
 })
 
-test('root conversation host terminal and end clear a preview and cannot restore a pending old result', async ($, on) => {
+test('root conversation host terminal and end clear a preview and cannot restore a pending old result', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); let ui = await setup($, w); const normal = w.run
   for (const [index, mode] of ['root', 'native', 'host', 'terminal', 'end'].entries()) {
     if (index) {
@@ -770,7 +770,7 @@ test('root conversation host terminal and end clear a preview and cannot restore
   safe(w)
 })
 
-test('Back-mediated inviter and recipient switching discards private views and callbacks while preserving the durable issued outcome', async ($, on) => {
+test('Back-mediated inviter and recipient switching discards private views and callbacks while preserving the durable issued outcome', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); const ui = await setup($, w, 'issued'); const retained = clone(w.invitation)
   await begin(w, ui); await press(ui, 'Reveal private invitation'); expect(await visible(ui)).toContain(CODE)
   await back(ui); await recipientEntry(w, ui); await emptyDraft(ui); expect(await visible(ui)).not.toContain(CODE)
@@ -789,7 +789,7 @@ test('Back-mediated inviter and recipient switching discards private views and c
   expect(count(w, 'invitation.handoff')).toBe(1); safe(w, await visible(ui))
 })
 
-test('recipient entry preview and navigation preserve established message task and lease runtimes without new tools or prompts', async ($, on) => {
+test('recipient entry preview and navigation preserve established message task and lease runtimes without new tools or prompts', { options: { show_each_step: 'true' } }, async ($, on) => {
   const w = fixture(on); w.networks = [network()]
   const ui = await connected($, w); await enable($, w, ui); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   const hello = w.prompts.length, readyBefore = readyCalls(w).length, toolsBefore = w.tools.map(tool => tool.name)
