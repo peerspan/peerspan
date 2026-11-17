@@ -207,7 +207,7 @@ function fixture(on: On) {
     const sent = payload === undefined ? undefined : clone(payload)
     w.calls.push({ ...e, kind, payload: sent, expectedContext: w.guardedParent ? clone(context(w.guardedParent)) : null,
       expectedProject: w.guardedParent?.flow_id, expectedFlow: w.joining?.flow_id, expectedReview: w.joining?.review_id, expectedAdapter: w.child?.flow_id }); w.trace.push({ kind, payload: sent })
-    const value = await w.run(kind, payload, e)
+    const value = await tracked(w, () => w.run(kind, payload, e))
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureExit) return { value: { exitCode: 124, stdout: '', stderr: RAW } }
     if (typeof value?.fixtureRaw === 'string') return { value: { exitCode: 0, stdout: value.fixtureRaw, stderr: RAW } }
@@ -734,22 +734,48 @@ test('machine publication progress and navigation preserve established message t
 // Section 52: an automatic check cannot be awaited like a press. Wait until the
 // recorded host operations and the drawing stay unchanged over several settles
 // and real asynchronous turns, so nothing is sampled while a check is in flight.
-async function finished(w: World, ui: Pane) {
-  let last = '', same = 0
-  for (let turn = 0; turn < 1000 && same < 12; turn++) {
-    await w.clock.settle()
-    for (let real = 0; real < 3; real++) await crypto.subtle.digest('SHA-256', new Uint8Array(1))
-    const now = w.calls.length + '\n' + (await ui.findAll({})).map(e => e.text).join('\n')
-    same = now === last ? same + 1 : 0; last = now
+async function finished(w: World, ui: Pane, from?: number) {
+  // Done means no host operation in flight, then operations and drawing
+  // unchanged for 120 ms of real time and 15 turns. After a clock step (from)
+  // in which nothing at all started, a short quiet period suffices.
+  const end = performance.now() + 20_000, began = performance.now()
+  let last = w.calls.length + '\n' + (await drawing(ui)), since = performance.now(), turns = 0, active = from === undefined || w.calls.length !== from
+  while (performance.now() < end) {
+    await w.clock.settle(); await realTurn()
+    const now = w.calls.length + '\n' + (await drawing(ui))
+    if (now !== last || (pendingOps.get(w) ?? 0) > 0) { active = true; last = now; since = performance.now(); turns = 0; continue }
+    turns++
+    if (active ? turns >= 15 && performance.now() - since >= 120 : turns >= 10 && performance.now() - began >= 20) return
   }
 }
 // Advance in at most 5 s periods, letting each due automatic check finish.
 async function pass(w: World, ui: Pane, ms: number) {
-  for (let left = ms; left > 0; left -= 5000) { await w.clock.advance(Math.min(5000, left)); await finished(w, ui) }
+  for (let left = ms; left > 0; left -= 5000) {
+    const from = w.calls.length; await w.clock.advance(Math.min(5000, left)); await finished(w, ui, from)
+  }
+}
+// Host operations still running in the fixture, per world.
+const pendingOps = new WeakMap<object, number>()
+async function tracked<T>(w: object, work: () => Promise<T>): Promise<T> {
+  pendingOps.set(w, (pendingOps.get(w) ?? 0) + 1)
+  try { return await work() } finally { pendingOps.set(w, (pendingOps.get(w) ?? 1) - 1) }
+}
+const realTurn = () => new Promise<void>(resolve => setTimeout(resolve, 2))
+async function drawing(ui: Pane) { return (await ui.findAll({})).map(e => e.text).join('\n') }
+// Waits, bounded in real time, for the condition an assertion needs; then the
+// caller asserts the exact value. With strict, an unmet condition fails here.
+async function until(w: World, ui: Pane, ready: () => boolean | Promise<boolean>, label = 'awaited condition', ms = 15_000, strict = true) {
+  const end = performance.now() + ms
+  for (;;) {
+    await w.clock.settle()
+    if (await ready()) return
+    if (performance.now() > end) { if (strict) expect(await ready(), 'timed out waiting: ' + label).toBe(true); return }
+    await realTurn()
+  }
 }
 // Section52: the published machine request checks its progress by itself while it waits on the existing computer.
 const mutating = /prepare|approve|decline|decide|sign|finali[sz]e|commit|reveal|handoff|identit/
-test('automatic progress checks a waiting machine request 5 seconds after it is shown and again 5 seconds after', async ($, on) => {
+test('automatic progress checks a waiting machine request 5 seconds after it is shown and again 5 seconds after', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w)
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
   await machineEntry(ui); await w.clock.settle(); await recorded(ui, w)
@@ -766,7 +792,7 @@ test('automatic progress checks a waiting machine request 5 seconds after it is 
   privacy(w, await visible(ui))
 })
 
-test('automatic progress runs exactly the Check machine request progress operations and stops when this computer must act', async ($, on) => {
+test('automatic progress runs exactly the Check machine request progress operations and stops when this computer must act', { timeoutMs: 30000 }, async ($, on) => {
   const w = fixture(on), ui = await setup($, w), normal = w.run
   w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested' })
   await machineEntry(ui); await w.clock.settle()
