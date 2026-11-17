@@ -23,7 +23,7 @@
     "show_each_step": {
       "type": "string",
       "title": "Show each step",
-      "description": "Set to true to keep the per-stage reviews instead of the merged Join, Commit and Admit reviews",
+      "description": "Set to true to keep the per-stage reviews instead of the merged Connect this conversation, Join, Commit and Admit reviews",
       "default": "false"
     }
   }
