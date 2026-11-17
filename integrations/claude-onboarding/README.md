@@ -12,7 +12,18 @@ A published request also offers exact new-original owner consent, original-offer
 signing, original finalization and separate requester consent/completion.
 The inviting computer has separate incoming administrator review/consent. Sharing permissions and
 live message receipt are covered by the [final acceptance receipt](../../docs/results/guided-final-acceptance.json). Owner actions stay in the human pane;
-no model setup tool is added.
+no model setup tool is added, except the read-only `peerspan_next_step` below.
+
+## Ask your AI what's next
+
+The plugin gives the model one read-only tool, `peerspan_next_step`. Asked
+"set up Peerspan" or "what's next?", the model can call it to learn, in fixed
+words, which review is due for you (for example "Open Peerspan and review Join.")
+and, with `open: true`, open a closed Peerspan pane with that entry first and a
+"Next:" line. It never prepares, approves or enters a code, never moves an open
+pane, and returns no names, labels, IDs or paths. Only the main model in an
+ordinary turn may use it, not a subagent or a turn delivering a peer message or
+task. You still review and approve in the pane.
 
 ## Install from a host archive
 

@@ -421,7 +421,7 @@ async function recorded(ui: Pane, w: World) {
 function privacy(w: World, shown = '', options: { runtime?: boolean; original?: boolean; executable?: string; state?: string } = {}) {
   expect(w.forbidden).toEqual([])
   if (!options.runtime) { expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill('delivery_acknowledge')) }
+    expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill(['delivery_acknowledge', 'peerspan_next_step']).flat()) }
   if (!options.original) { expect(count(w, 'join.identities')).toBe(0); expect(count(w, 'join.create-identity')).toBe(0) }
   const outside = w.outside.join('\n') + '\n' + w.prompts.map(p => p.text).join('\n')
   for (const code of w.codes) { expect(shown).not.toContain(code); expect(outside).not.toContain(code) }

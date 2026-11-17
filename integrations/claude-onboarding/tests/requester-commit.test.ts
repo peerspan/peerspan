@@ -669,7 +669,7 @@ function privacy(w: World, shown = '', runtime = false, executable = 'peerspan',
   }
   if (!runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+    expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   }
 }
 async function terms(ui: Pane, w: World) {

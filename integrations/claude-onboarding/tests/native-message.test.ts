@@ -327,7 +327,7 @@ test('load entry Connect renewal and pane reopen never enable messages or regist
   for (const args of ['enable incoming', 'adapter_ready', '--messages']) await $.command.run({ command: 'peerspan', args })
   expect(w.calls).toEqual([])
   const ui = await connected($, w, true)
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   expect(await text(ui)).toContain('Incoming delivery: not verified')
   expect(await text(ui)).toMatch(/model.*(?:allowance|usage|turn)/i)
   await press(ui, 'Refresh'); await w.clock.advance(10_000)
@@ -335,7 +335,7 @@ test('load entry Connect renewal and pane reopen never enable messages or regist
   await press(ui, 'Close'); await ui.unmount()
   const fresh = await enter($, w)
   expect(await text(fresh)).toContain('Incoming delivery: not verified')
-  expect(w.prompts).toEqual([]); expect(w.tools.length).toBe(1)
+  expect(w.prompts).toEqual([]); expect(w.tools.length).toBe(2)
   privacy(w, await text(fresh))
 })
 
@@ -348,14 +348,14 @@ test('explicit double Enable registers only three narrow tools and submits one p
   const second = ui.press({ key: button }).catch(() => undefined)
   await w.clock.settle(); expect(completed).toBe(true); await Promise.all([first, second])
   expect(w.prompts.length).toBe(1); nonce(w)
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'adapter_ready', 'message_seen', 'message_reply'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step', 'adapter_ready', 'message_seen', 'message_reply'])
   for (const [name, keys] of [['adapter_ready', ['nonce']], ['message_seen', ['delivery_id']], ['message_reply', ['delivery_id', 'content']]] as const) {
     const tool = w.tools.find(tool => tool.name === name), schema = tool.inputSchema
     expect(schema.type).toBe('object'); expect(Object.keys(schema.properties).sort()).toEqual([...keys].sort())
     expect([...schema.required].sort()).toEqual([...keys].sort()); expect(schema.additionalProperties).toBe(false)
     for (const key of keys) expect(schema.properties[key].type).toBe('string')
   }
-  const descriptions = w.tools.slice(1).map(tool => tool.description).join('\n')
+  const descriptions = w.tools.slice(2).map(tool => tool.description).join('\n')
   expect(descriptions).toMatch(/held|authorized/i); expect(descriptions).toMatch(/permission/i)
   expect(w.prompts[0].text).toContain(READY); expect(w.prompts[0].text).toMatch(/no.*(?:permission|access)|adds? no/i)
   expect(await text(ui)).toContain('Incoming delivery: waiting for model')
@@ -427,7 +427,7 @@ test('failed or mismatched ready never verifies and saved host channel cannot re
     expect(claims(w)).toEqual([])
     expect(await text(ui)).not.toContain('Incoming delivery: verified (messages)')
   }
-  expect(w.tools.length).toBe(4); privacy(w, await text(ui))
+  expect(w.tools.length).toBe(5); privacy(w, await text(ui))
 })
 
 test('hello drop throw and exact sixty-second timeout cancel authority without an automatic second model turn', { options: { show_each_step: 'true' } }, async ($, on) => {
@@ -720,7 +720,7 @@ test('late old hello refusal and its timer cannot cancel a newly connected verif
   expect(await text(ui)).toContain('Incoming delivery: verified (messages)')
   await w.clock.advance(58_000)
   expect(await text(ui)).toContain('Incoming delivery: verified (messages)')
-  expect(w.prompts.length).toBe(2); expect(w.tools.length).toBe(4)
+  expect(w.prompts.length).toBe(2); expect(w.tools.length).toBe(5)
   privacy(w, await text(ui))
 })
 

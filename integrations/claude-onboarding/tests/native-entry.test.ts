@@ -199,7 +199,7 @@ test('load registers one command and one narrow tool without observing or prompt
   const w = world(on)
   await start($)
   expect(w.commands.map(command => command.name)).toEqual(['peerspan'])
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
   const schema = w.tools[0].inputSchema
   expect(schema.type).toBe('object')
   expect(schema.required).toEqual(['probe_id'])

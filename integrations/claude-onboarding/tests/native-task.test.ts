@@ -436,7 +436,7 @@ test('entry Connect saved channel queued hello and current message ready stay ta
   expect(taskClaims(w)).toEqual([]); expect(cancelClaims(w)).toEqual([])
   expect(resultOf(await call($, READY, { nonce: nonce(w) }))).toEqual({ ready: true })
   await press(ui, 'Refresh'); await w.clock.advance(5000)
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'adapter_ready', 'message_seen', 'message_reply'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step', 'adapter_ready', 'message_seen', 'message_reply'])
   expect(taskClaims(w)).toEqual([]); expect(cancelClaims(w)).toEqual([]); expect(w.prompts.length).toBe(1)
   const shown = await text(ui)
   expect(shown).toMatch(/tasks?.*(?:model|turn)|model.*tasks?/i)
@@ -462,7 +462,7 @@ test('double enable and Stop/re-enable share pending registration and register f
     ['task_progress', ['task_id', 'message'], ['task_id', 'message']],
     ['task_complete', ['task_id', 'status', 'output'], ['task_id', 'status', 'output']],
     ['task_cancelled', ['task_id'], ['task_id']] ] as const
-  expect(w.tools.slice(4).map(tool => tool.name).sort()).toEqual(expected.map(([name]) => name).sort())
+  expect(w.tools.slice(5).map(tool => tool.name).sort()).toEqual(expected.map(([name]) => name).sort())
   for (const [name, properties, required] of expected) {
     const schema = w.tools.find(tool => tool.name === name).inputSchema
     expect(schema.type).toBe('object'); expect(schema.additionalProperties).toBe(false)

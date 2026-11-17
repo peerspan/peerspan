@@ -520,7 +520,7 @@ function safe(w: World, shown = '', options: any = {}) {
   }
   if (!options.runtime) {
     expect(w.httpCalls).toEqual([]); expect(w.prompts).toEqual([])
-    expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill('delivery_acknowledge'))
+    expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill(['delivery_acknowledge', 'peerspan_next_step']).flat())
   }
 }
 async function terms(ui: Pane, w: World, options: any = {}) {

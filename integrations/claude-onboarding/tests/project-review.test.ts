@@ -177,7 +177,7 @@ function effects(w: World, executable = 'peerspan', state?: string) {
     expect(call.argv.includes(w.native)).toBe(false)
     if (call.kind === 'inspect' || call.kind === 'snapshot') expect(call.init?.stdin).toBeUndefined()
   }
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge', 'peerspan_next_step'])
 }
 function outsidePrivate(w: World, values: string[]) {
   const outside = w.outside.join('\n') + '\n' + w.prompts.map(p => p.text).join('\n')

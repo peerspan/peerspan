@@ -350,7 +350,7 @@ async function inspectPerson(ui: Pane, w: World) {
 function privacy(w: World, text = '', runtime = false, executable = 'peerspan', state?: string) {
   expect(w.forbidden).toEqual([]); expect(w.prompts).toEqual([])
   expect(w.calls.filter(e => [PREPARE, APPROVE, SIGN, APPLY].includes(e.kind)).map(e => e.kind)).toEqual(w.expectedMutations)
-  expect(w.tools.map(tool => tool.name)).toEqual(Array(w.sessionStarts).fill('delivery_acknowledge'))
+  expect(w.tools.map(tool => tool.name)).toEqual(Array(w.sessionStarts).fill(['delivery_acknowledge', 'peerspan_next_step']).flat())
   if (!runtime) expect(w.http).toEqual([])
   expect(w.outside.join('\n')).not.toContain(ROOT)
   for (const value of [NATIVE, RAW, TOKEN, SOCKET, '/private/access-path', 'PRIVATE_PROVIDER_ERROR', state,
