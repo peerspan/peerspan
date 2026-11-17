@@ -96,13 +96,17 @@ function autoClear() {
   autos.clear();
   autoHalted.clear();
   autoButtons.clear();
+  autoNavigate();
 }
 function autoHalt() {
   const waiting = [...autos.keys()];
   autoClear();
   for (const key of waiting) autoHalted.add(key);
 }
-let autoKey = null, autoQueued = false;
+let autoKey = null, autoQueued = false, autoNavigation = 0;
+// Any press other than a Check control (Leave, Back, Refresh, Close, an
+// action) or a cleared pane discards a press queued behind an automatic check.
+function autoNavigate() { autoNavigation++; }
 const pressing = new Set();
 async function autoRun(key, run) {
   const flight = Promise.resolve().then(run);
@@ -126,9 +130,10 @@ function autoPress(key, rendered, current) {
     if (!autoFlight) return pressed(rendered);
     if (autoQueued) return;
     autoQueued = true;
-    const same = autoKey === key;
+    const same = autoKey === key, navigation = autoNavigation, epoch = generation;
     return autoFlight.catch(() => {}).then(() => {
       autoQueued = false;
+      if (autoNavigation !== navigation || generation !== epoch) return;
       return pressed(same ? current : rendered);
     });
   };
@@ -3567,7 +3572,11 @@ export function register(on, configured = {}) {
     const displayedRuntime = runtime;
     const displayedReady = runtime?.messages;
     const displayedTasks = runtime?.tasks;
-    const { Box, Text, Button, Input } = $.ui.resolve(e);
+    const { Box, Text, Button: PlainButton, Input } = $.ui.resolve(e);
+    const Button = props => PlainButton({ ...props, onPress: (...args) => {
+      if (![...autoButtons.values()].some(c => c.buttonKey === props.key)) autoNavigate();
+      return props.onPress?.(...args);
+    } });
     autoBegin();
     const children = [
       Text({ children: [summary()] }),
