@@ -431,11 +431,21 @@ pub(crate) async fn ensure_up(directory: &Path) -> anyhow::Result<(Value, bool)>
         )
     }
     let running = active(manager);
-    if listening(&state).await && !running {
+    let socket_ready = listening(&state).await;
+    if socket_ready && !running {
         bail!("a daemon is running outside the service; stop it first")
     }
-    if !running {
-        systemctl(&["start", SYSTEMD_UNIT])?;
+    if !socket_ready {
+        match manager {
+            Manager::Systemd if !running => systemctl(&["start", SYSTEMD_UNIT])?,
+            Manager::Systemd => {}
+            Manager::Launchd if running => {
+                required("launchctl", &["kickstart", "-k", &launchd_target()])?;
+            }
+            Manager::Launchd => {
+                required("launchctl", &["bootstrap", &gui(), &unit.to_string_lossy()])?;
+            }
+        }
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while !listening(&state).await {
