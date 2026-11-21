@@ -1,0 +1,30 @@
+name: Managed operator
+on:
+  push:
+    paths: ['managed/**', 'docs/managed-contract.md', '.github/workflows/managed.yml']
+  pull_request:
+    paths: ['managed/**', 'docs/managed-contract.md', '.github/workflows/managed.yml']
+permissions:
+  contents: read
+jobs:
+  operator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm --prefix managed run check
+      - run: node managed/conformance/acceptance.mjs
+      - run: node managed/conformance/operations.mjs
+      - run: node managed/conformance/visibility.mjs
+      - run: node managed/conformance/remote.mjs
+      - run: node managed/conformance/schedules.mjs
+      - run: node managed/conformance/reviewers.mjs
+      - run: node managed/conformance/runtime-agents.mjs
+      - run: node managed/conformance/capacity.mjs
+      - run: node managed/conformance/checks.mjs
+      - run: node managed/conformance/handoffs.mjs
+      - run: node managed/conformance/alerts.mjs
+      - run: node managed/conformance/approvals.mjs

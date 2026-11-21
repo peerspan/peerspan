@@ -1,0 +1,3 @@
+# The operator and its conformance fixtures run on Linux; keep LF on every checkout.
+* text=auto eol=lf
+*.png binary

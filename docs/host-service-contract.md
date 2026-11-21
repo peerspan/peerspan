@@ -1,5 +1,10 @@
 # Local host daemon contract
 
+Fork addition: the [managed operator contract](managed-contract.md) defines a
+separate, authenticated loopback console and task scheduler under `managed/`.
+It invokes the existing owner CLI locally, preserves host authorization, and
+does not add routes to this daemon's administration or peer APIs.
+
 The Go and Rust implementations develop the same host service in parallel. This document specifies the first working milestone: a durable local identity, agent registry, separate session attachment records, and local activity. It does not finalize the future peer protocol.
 
 The Rust host service is the crate at the root of this repository ([DEC-OWN5](decision-log.md)); the Go host service is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go). The contract and conformance tests live alongside the Rust host in `docs/` and `conformance/`.

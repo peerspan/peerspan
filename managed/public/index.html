@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Peerspan Managed</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <noscript><p class="noscript">The Peerspan Managed console needs JavaScript.</p></noscript>
+
+  <main id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="brandmark" aria-hidden="true">p<span>m</span></div>
+      <p class="eyebrow">Peerspan Managed</p>
+      <h1>Sign in to your local console</h1>
+      <form id="login-form">
+        <label for="token">Access token</label>
+        <input id="token" name="token" type="password" autocomplete="current-password" spellcheck="false" required>
+        <p class="form-error" id="login-error" role="alert"></p>
+        <button class="button primary wide" type="submit">Open console</button>
+      </form>
+      <p class="hint">Print the token with <code>node managed/cli.mjs token</code>. It never leaves this machine.</p>
+    </div>
+  </main>
+
+  <div id="console" class="shell" hidden>
+    <a class="skip-link" href="#view">Skip to content</a>
+    <aside class="sidebar">
+      <a class="brand" href="#/">
+        <span class="brandmark small" aria-hidden="true">p<span>m</span></span>
+        <span class="brand-name">Peerspan <small>Managed</small></span>
+      </a>
+      <nav id="nav" aria-label="Console"></nav>
+      <div class="sidebar-foot">
+        <p class="live" id="live" role="status"><span class="dot"></span><span id="live-text">Connecting</span></p>
+        <p class="alerts-note" id="alerts-note"></p>
+        <p class="preview-note">Local operator preview. Existing agents, durable assignments. No cloud provisioning or billing.</p>
+        <div class="foot-actions">
+          <button class="button quiet" id="theme" type="button">Theme</button>
+          <button class="button quiet" id="notify" type="button" aria-pressed="false" hidden>Notify me</button>
+          <button class="button quiet" id="logout" type="button">Sign out</button>
+        </div>
+      </div>
+    </aside>
+    <main id="view" tabindex="-1"></main>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

@@ -11,6 +11,13 @@
 __pycache__/
 node_modules/
 
+# Managed operator state belongs outside the checkout.
+managed/.state/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+access-token
+
 # Claude emits build-specific declarations for locally loaded development mods.
 integrations/claude-onboarding/.claude-plugin/types/
 integrations/claude-onboarding/tsconfig.json
